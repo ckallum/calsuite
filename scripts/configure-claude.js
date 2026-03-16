@@ -9,6 +9,11 @@
  *
  * Usage: node configure-claude.js [target-directory]
  *   target-directory defaults to cwd
+ *
+ * Flags:
+ *   --only skill1,skill2,...     Install only specific skills (skips hooks/plugins/settings)
+ *   --agents agent1,agent2,...   Install only specific agents (use with --only)
+ *   --install-ccstatusline       Install ccstatusline config only
  */
 
 const fs = require('fs');
@@ -367,9 +372,86 @@ function installCcstatuslineConfig(manifest) {
   console.log(`  ✓ Installed ccstatusline config (v${manifest.ccstatusline.version}) → ${ccstatuslinePath}`);
 }
 
+/**
+ * --only mode: Install specific skills/agents only, without touching hooks or settings.
+ * Usage: node configure-claude.js <target> --only review,qa,ship
+ *        node configure-claude.js <target> --only review,qa --agents code-reviewer
+ */
+function installOnly(targetDir, onlySkills, onlyAgents) {
+  const claudeDir = path.join(targetDir, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+
+  // Install specified skills
+  if (onlySkills.length > 0) {
+    const destSkills = path.join(claudeDir, 'skills');
+    let count = 0;
+    for (const skillName of onlySkills) {
+      const srcSkill = path.join(SKILLS_DIR, skillName);
+      if (fs.existsSync(srcSkill) && fs.statSync(srcSkill).isDirectory()) {
+        copyDirSync(srcSkill, path.join(destSkills, skillName));
+        count++;
+        console.log(`  ✓ Installed skill: ${skillName}`);
+      } else {
+        console.log(`  ✗ Skill not found: ${skillName}`);
+      }
+    }
+    console.log(`  → ${count} skill(s) installed to ${destSkills}`);
+  }
+
+  // Install specified agents
+  if (onlyAgents.length > 0) {
+    const destAgents = path.join(claudeDir, 'agents');
+    fs.mkdirSync(destAgents, { recursive: true });
+    let count = 0;
+    for (const agentName of onlyAgents) {
+      const srcAgent = path.join(AGENTS_DIR, `${agentName}.md`);
+      if (fs.existsSync(srcAgent)) {
+        fs.copyFileSync(srcAgent, path.join(destAgents, `${agentName}.md`));
+        count++;
+        console.log(`  ✓ Installed agent: ${agentName}`);
+      } else {
+        console.log(`  ✗ Agent not found: ${agentName}`);
+      }
+    }
+    console.log(`  → ${count} agent(s) installed to ${destAgents}`);
+  }
+
+  // Also install into workspaces if monorepo
+  const detectedProfiles = detectProfiles(targetDir);
+  if (detectedProfiles.includes('monorepo')) {
+    const workspaces = findWorkspaces(targetDir);
+    for (const ws of workspaces) {
+      console.log(`\n  Workspace: ${ws.name}`);
+      installOnly(ws.path, onlySkills, onlyAgents);
+    }
+  }
+}
+
+function parseArgv() {
+  const args = process.argv.slice(2);
+  const flags = {};
+  const positional = [];
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--only' && args[i + 1]) {
+      flags.only = args[++i].split(',').map(s => s.trim()).filter(Boolean);
+    } else if (args[i] === '--agents' && args[i + 1]) {
+      flags.agents = args[++i].split(',').map(s => s.trim()).filter(Boolean);
+    } else if (args[i] === '--install-ccstatusline') {
+      flags.installCcstatusline = true;
+    } else if (!args[i].startsWith('--')) {
+      positional.push(args[i]);
+    }
+  }
+
+  return { flags, positional };
+}
+
 function main() {
+  const { flags, positional } = parseArgv();
+
   // Handle --install-ccstatusline flag
-  if (process.argv.includes('--install-ccstatusline')) {
+  if (flags.installCcstatusline) {
     const manifest = readJsonSync(GLOBAL_MANIFEST);
     if (!manifest?.ccstatusline) {
       console.error('  ✗ No ccstatusline config found in manifest');
@@ -379,7 +461,16 @@ function main() {
     return;
   }
 
-  const targetDir = path.resolve(process.argv.filter(a => !a.startsWith('--'))[2] || process.cwd());
+  const targetDir = path.resolve(positional[0] || process.cwd());
+
+  // Handle --only mode: install specific skills/agents without touching hooks/settings
+  if (flags.only) {
+    console.log(`\nInstalling specific items to: ${targetDir}\n`);
+    installOnly(targetDir, flags.only, flags.agents || []);
+    console.log('\nDone!\n');
+    return;
+  }
+
   const profilesConfig = readJsonSync(PROFILES_JSON);
 
   if (!profilesConfig) {
