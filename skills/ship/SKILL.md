@@ -103,62 +103,35 @@ Wait for all test agents to complete. Collect results.
 
 ---
 
-## Step 4: Pre-Landing Review + Simplify — PARALLEL AGENTS
+## Step 4: Simplify Changed Code
 
-After tests pass, dispatch **two parallel agents** in a single message:
+After tests pass, dispatch a **code simplification agent**:
 
-**Agent A — Pre-landing review:**
-```
-prompt: "Run a pre-landing code review on the diff between origin/main and HEAD. Run `git diff origin/main` to get the full diff. Apply a two-pass review:
-
-Pass 1 (CRITICAL): SQL/data safety, auth boundary violations, background job safety, XSS, file upload issues.
-Pass 2 (INFORMATIONAL): Missing error handling, console.log/debug statements, ORM gotchas, framework gotchas, convention violations.
-
-Output format: 'Pre-Landing Review: N issues (X critical, Y informational)' followed by findings with file:line references and suggested fixes. Categorize each as CRITICAL or INFORMATIONAL."
-description: "Pre-landing review"
-```
-
-**Agent B — Code simplification:**
-```
+```text
 prompt: "Review all files changed between origin/main and HEAD (run `git diff origin/main --name-only` to find them). For each changed file, check for: code that could be reused from existing utilities, unnecessarily complex logic that could be simplified, redundant code, inconsistent patterns vs the rest of the codebase. Read CLAUDE.md conventions section first. Output a list of specific simplification suggestions with file:line references. If a suggestion is safe and obvious, apply the fix directly using Edit. Only apply fixes that preserve exact functionality."
 description: "Simplify changed code"
 ```
 
-Wait for both agents. Process results:
+If the agent made edits, stage them. If it only suggested changes, apply the safe ones.
 
-1. **Simplify agent results:** If it made edits, stage them. If it only suggested changes, apply the safe ones.
+**Important:** Simplification runs BEFORE the review so the review stamp covers the final code state.
 
-2. **Review agent results:** Parse findings into CRITICAL and INFORMATIONAL.
+---
 
-3. Apply the two-pass review logic:
+## Step 4.5: Pre-Landing Review
 
-**Pass 1 (CRITICAL):**
-- SQL/Data safety: raw SQL interpolation, missing tenant scoping, TOCTOU races
-- Auth boundary violations: missing auth checks, missing scope enforcement
-- Background job safety: non-idempotent operations, missing error handling
-- XSS: unescaped user content rendered as HTML
-- File upload: missing MIME validation, path traversal
+After simplification is complete, invoke `/review` using the Skill tool:
 
-**Pass 2 (INFORMATIONAL):**
-- Missing error handling in API routes
-- `console.log` / debug statements left in code
-- ORM gotchas relevant to the project's ORM
-- Framework-specific gotchas (missing cleanup, missing deps arrays, etc.)
-- Missing parallelization for independent operations
-- Convention violations from CLAUDE.md
+```text
+skill: "review"
+args: "greptile"  ← include if the project uses Greptile
+```
 
-3. Output: `Pre-Landing Review: N issues (X critical, Y informational)`
+This dispatches the full `/review` workflow: parallel @code-reviewer + checklist agents, Greptile triage, TODO cross-reference, and review stamp.
 
-4. **If CRITICAL issues found:** For EACH critical issue, use AskUserQuestion with the problem, recommended fix, and options:
-   - A) Fix it now (recommended)
-   - B) Acknowledge and ship anyway
-   - C) False positive — skip
+**If `/review` reports BLOCKED:** The skill will have already asked the user about each critical finding via AskUserQuestion. If the user chose "Fix it now" on any issue, apply the fixes, commit them (`git add <fixed-files> && git commit -m "fix: apply pre-landing review fixes"`), then **re-run from Step 3** to verify fixes don't break tests.
 
-   If user chose A on any issue, apply fixes, commit them (`git add <fixed-files> && git commit -m "fix: apply pre-landing review fixes"`), then **re-run from Step 3** to verify fixes don't break tests.
-
-5. **If only informational:** Output them and continue. Include in PR body.
-
-6. **If no issues:** Output `Pre-Landing Review: No issues found.` and continue.
+**If `/review` reports PASS:** Continue. Include any informational findings in the PR body.
 
 ---
 
