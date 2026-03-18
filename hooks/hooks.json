@@ -13,6 +13,26 @@
         "description": "Guardian: evaluate tool call risk and block dangerous operations"
       },
       {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"gh\\\\s+pr\\\\s+create\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/pr-intent-gate.js\""
+          }
+        ],
+        "description": "PR Intent Gate: require ## Why section in PR body"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"git\\\\s+(push|commit|rebase|merge)(\\\\s|$)\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/merged-branch-guard.js\""
+          }
+        ],
+        "description": "Merged Branch Guard: block operations on branches with merged PRs"
+      },
+      {
         "matcher": "tool == \"Bash\" && tool_input.command matches \"git commit(\\\\s|$)\"",
         "hooks": [
           {
@@ -77,6 +97,18 @@
           }
         ],
         "description": "Log PR URL and provide review command after PR creation"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"gh\\\\s+pr\\\\s+create\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/ci-monitor.js\"",
+            "async": true,
+            "timeout": 30
+          }
+        ],
+        "description": "CI Monitor: spawn background poller for PR check status"
       },
       {
         "matcher": "tool == \"Bash\" && tool_input.command matches \"(npm run build|pnpm build|yarn build)\"",
