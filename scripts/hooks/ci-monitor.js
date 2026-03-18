@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * CI Monitor — PostToolUse hook that spawns a background poller after
- * `gh pr create` to watch CI check status using ETag-based conditional requests.
- * Writes results to a temp file when checks complete.
+ * CI Monitor — PostToolUse hook that spawns babysit-pr-daemon after
+ * `gh pr create` to watch CI, retry flaky checks, and enable auto-merge.
  * Fail-open: errors are silently ignored.
  */
 
@@ -30,11 +29,13 @@ async function main() {
   const ownerRepo = prMatch[1];
   const prNumber = prMatch[2];
 
-  log(`[CI Monitor] Spawning background poller for PR #${prNumber}...`);
+  log(`[Babysit PR] Spawning background daemon for PR #${prNumber}...`);
+  log(`[Babysit PR] Will monitor CI, retry failures, and enable auto-merge.`);
+  log(`[Babysit PR] Status: /tmp/claude-babysit-${prNumber}.json`);
 
-  // Spawn detached poller
-  const pollerScript = path.join(__dirname, 'ci-monitor-poller.js');
-  const child = spawn('node', [pollerScript, ownerRepo, prNumber], {
+  // Spawn detached daemon
+  const daemonScript = path.join(__dirname, 'babysit-pr-daemon.js');
+  const child = spawn('node', [daemonScript, ownerRepo, prNumber], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env }
