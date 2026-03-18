@@ -53,6 +53,16 @@
         "description": "Reminder to use tmux for long-running commands"
       },
       {
+        "matcher": "tool == \"Skill\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/skill-usage-tracker.js\""
+          }
+        ],
+        "description": "Track skill invocations for usage analytics"
+      },
+      {
         "matcher": "tool == \"Edit\" || tool == \"Write\"",
         "hooks": [
           {

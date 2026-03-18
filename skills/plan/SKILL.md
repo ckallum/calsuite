@@ -2,10 +2,10 @@
 name: plan
 version: 1.0.0
 description: |
-  Consolidated engineering plan skill. Combines spec interview, brainstorming,
-  and technical plan review into one workflow. Three modes: INTERVIEW (surface
-  edge cases and write spec), BRAINSTORM (explore intent and design before
-  implementation), REVIEW (lock in architecture, data flow, edge cases, tests).
+  plan this, how should I implement, architecture review, design review, spec interview,
+  brainstorm this, flesh out the spec, review my plan, technical review.
+  Three modes: INTERVIEW (surface edge cases, write spec), BRAINSTORM (explore design),
+  REVIEW (lock in architecture, data flow, edge cases, tests).
 argument-hint: [mode] [spec-path]
 allowed-tools:
   - Read
@@ -252,3 +252,9 @@ For each new codepath: one realistic failure, whether a test covers it, whether 
   TODO.md updates:      ___ items proposed
   Failure modes:        ___ critical gaps
 ```
+
+## Gotchas
+
+- **AskUserQuestion strict rules only apply to REVIEW mode.** In INTERVIEW and BRAINSTORM modes, questions can be open-ended and exploratory — the lettered-option/recommendation format is not required.
+- **Use `origin/main` not local `main`** for all diff and log commands. Local main may be stale.
+- **Spec file paths vary.** Some projects use `.claude/specs/`, others use `docs/specs/` or top-level spec files. Always check `$ARGUMENTS` first, then look for common locations.

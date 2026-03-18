@@ -6,7 +6,7 @@
  * Lifecycle:
  *   1. Poll CI checks (ETag-based, zero rate-limit cost on 304)
  *   2. On failure → retry flaky CI once (gh run rerun --failed)
- *   3. On all pass → enable auto-merge (gh pr merge --auto --squash)
+ *   3. On all pass → notify human to merge (merging is always manual)
  *   4. Poll for merge conflicts → notify user
  *   5. On merge → notify user, exit
  *   6. On persistent failure → notify user, exit
@@ -25,7 +25,7 @@ const { spawnSync } = require('child_process');
 const ownerRepo = process.argv[2];
 const prNumber = process.argv[3];
 
-if (!ownerRepo || !prNumber) process.exit(1);
+if (!ownerRepo || !/^\d+$/.test(prNumber ?? '')) process.exit(1);
 
 const POLL_INTERVAL_MS = 30_000;       // 30 seconds
 const MAX_DURATION_MS = 60 * 60_000;   // 60 minutes
@@ -35,6 +35,8 @@ const LOG_FILE = path.join(os.tmpdir(), `claude-babysit-${prNumber}.log`);
 
 let retriesUsed = 0;
 let notifiedReady = false;
+let notifiedConflict = false;
+let notifiedFailure = false;
 
 // --- Helpers ---
 
@@ -74,6 +76,7 @@ function writeStatus(state, detail) {
     pr: parseInt(prNumber),
     repo: ownerRepo,
     url: `https://github.com/${ownerRepo}/pull/${prNumber}`,
+    pid: process.pid,
     state,    // watching | checks-passed | checks-failed | retrying | ready | merged | conflict | error
     detail,
     retriesUsed,
@@ -127,10 +130,10 @@ function getPrState() {
   try { return JSON.parse(result.stdout); } catch { return null; }
 }
 
-function retryFailedRuns() {
-  // Find workflow runs for this PR that failed, rerun them
+function retryFailedRuns(headSha) {
+  // Find workflow runs for the current head SHA that failed
   const result = gh([
-    'run', 'list', '--branch', getPrBranch(),
+    'run', 'list', '--commit', headSha,
     '--status', 'failure', '--json', 'databaseId', '--limit', '5',
     '-R', ownerRepo
   ]);
@@ -147,11 +150,6 @@ function retryFailedRuns() {
   } catch {
     return false;
   }
-}
-
-function getPrBranch() {
-  const result = ghApi(`repos/${ownerRepo}/pulls/${prNumber}`, '.head.ref');
-  return result.ok ? result.stdout : null;
 }
 
 function sleep(ms) {
@@ -188,10 +186,14 @@ async function run() {
       // Check for merge conflicts
       if (prState?.mergeableState === 'dirty') {
         writeStatus('conflict', 'PR has merge conflicts — needs manual resolution');
-        notify(`PR #${prNumber}`, 'Merge conflicts detected — manual resolution needed');
-        // Don't exit — keep watching in case user fixes it
+        if (!notifiedConflict) {
+          notifiedConflict = true;
+          notify(`PR #${prNumber}`, 'Merge conflicts detected — manual resolution needed');
+        }
         await sleep(POLL_INTERVAL_MS);
         continue;
+      } else if (notifiedConflict) {
+        notifiedConflict = false; // reset if conflicts resolved
       }
 
       // Get head SHA (may change if user pushes new commits)
@@ -207,6 +209,7 @@ async function run() {
         lastSha = sha;
         retriesUsed = 0; // reset retries for new commits
         notifiedReady = false;
+        notifiedFailure = false;
       }
 
       // Poll check runs with ETag
@@ -214,7 +217,11 @@ async function run() {
 
       if (response.status === 304) {
         // Not modified — zero cost, continue
-      } else if (response.status === 200 && response.body) {
+      } else if (response.status !== 200) {
+        // API error — log it but keep polling (may be transient)
+        writeStatus('watching', `GitHub API returned ${response.status} — will retry`);
+        notify(`PR #${prNumber}`, `GitHub API error (${response.status}) — check gh auth status`);
+      } else if (response.body) {
         etag = response.etag;
         const checks = response.body.check_runs || [];
 
@@ -239,17 +246,19 @@ async function run() {
             const failNames = failed.map(c => c.name).join(', ');
 
             if (retriesUsed < MAX_RETRIES) {
+              retriesUsed++; // always count the attempt
               writeStatus('retrying', `Retrying failed checks: ${failNames}`);
               notify(`PR #${prNumber}`, `CI failed (${failNames}) — retrying...`);
-              const retried = retryFailedRuns();
+              const retried = retryFailedRuns(sha);
               if (retried) {
-                retriesUsed++;
                 etag = null; // force re-poll after retry
               } else {
                 writeStatus('checks-failed', `Retry failed for: ${failNames}`);
                 notify(`PR #${prNumber}`, `CI failed and retry failed: ${failNames}`);
+                notifiedFailure = true;
               }
-            } else {
+            } else if (!notifiedFailure) {
+              notifiedFailure = true;
               writeStatus('checks-failed', `CI failed after ${retriesUsed} retry(s): ${failNames}`);
               notify(`PR #${prNumber}`, `CI failed after retry: ${failNames} — needs attention`);
               // Don't exit — keep watching in case user pushes a fix

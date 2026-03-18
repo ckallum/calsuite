@@ -2,11 +2,11 @@
 name: babysit-pr
 version: 1.0.0
 description: |
-  Monitor a PR through to merge. Auto-spawned after `gh pr create` via hook, or invoke
-  manually with `/babysit-pr <number>` to check status or start babysitting an existing PR.
-  The daemon runs as a detached background process: polls CI (ETag-based, zero rate-limit cost),
-  retries flaky failures once, notifies when checks pass (merging is always human), detects merge
-  conflicts, and sends macOS notifications only when action is needed.
+  watch this PR, monitor CI, babysit, watch CI, is CI done, check PR status,
+  watch for merge, keep an eye on this.
+  Monitor a PR through to merge. Polls CI (ETag-based, zero rate-limit cost),
+  retries flaky failures once, notifies when checks pass, detects merge conflicts.
+  Auto-spawned after `gh pr create` or invoke manually.
 argument-hint: [<pr-number>] [--status] [--stop] [--logs]
 allowed-tools:
   - Bash
@@ -16,6 +16,24 @@ allowed-tools:
 # /babysit-pr: PR Babysitter
 
 Monitors a PR from creation to merge. Runs autonomously in the background — you only hear from it when something needs your attention.
+
+## Setup
+
+On first run, check for `.claude/skills/babysit-pr/config.json`. If missing, ask the user with AskUserQuestion:
+
+1. **Notification style** — "How do you want to be notified?"
+   - A) macOS native notifications (recommended)
+   - B) Terminal bell only
+   - C) Silent (status file only)
+
+Save to `.claude/skills/babysit-pr/config.json`:
+```json
+{
+  "notification": "macos"
+}
+```
+
+On subsequent runs, load the config silently.
 
 ## What it does (automatically)
 
@@ -74,7 +92,7 @@ ls /tmp/claude-babysit-*.json 2>/dev/null
 
 For each status file, read and display:
 - PR number and URL
-- Current state (watching, checks-passed, retrying, auto-merge, merged, conflict, error)
+- Current state (watching, ready, retrying, merged, conflict, checks-failed, error)
 - Detail message
 - Last updated timestamp
 
@@ -89,15 +107,18 @@ cat /tmp/claude-babysit-<pr>.log
 
 ### If `$ARGUMENTS` contains `--stop`
 
-Find and kill the daemon process:
+Read the PID from the status file and kill it:
 ```bash
-# Find the process
-ps aux | grep "babysit-pr-daemon.js.*<pr>" | grep -v grep
+# Read PID from status file
+cat /tmp/claude-babysit-<pr>.json | jq '.pid'
+
+# Verify it's actually the daemon before killing
+ps -p <pid> -o command= | grep babysit-pr-daemon
 
 # Kill it
 kill <pid>
 
-# Clean up status file
+# Clean up
 rm /tmp/claude-babysit-<pr>.json /tmp/claude-babysit-<pr>.log 2>/dev/null
 ```
 
@@ -137,3 +158,11 @@ rm /tmp/claude-babysit-<pr>.json /tmp/claude-babysit-<pr>.log 2>/dev/null
 2. **Notifications are for action items only.** Don't notify on routine state changes.
 3. **One retry per push.** Don't retry more than once — persistent failures need human attention.
 4. **Keep watching after conflicts/failures.** The user might push a fix — don't exit prematurely.
+
+## Gotchas
+
+- **Daemon writes to `/tmp/`** which is cleared on reboot. Status and logs will be lost after a restart.
+- **Max 1 retry per push.** Persistent CI failures need human attention — don't loop.
+- **Merging is always human.** The daemon never merges, even if auto-merge is enabled on the repo. It only notifies.
+- **ETag polling requires `gh` auth.** If `gh auth status` fails, the daemon will error out immediately.
+- **Multiple babysitters for the same PR** can conflict. The skill checks for existing status files before spawning.

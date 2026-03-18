@@ -296,3 +296,11 @@ Minimum 0 per category.
 ```
 
 Report filenames use the domain and date: `qa-report-myapp-com-2026-03-15.md`
+
+## Gotchas
+
+- **Use `origin/main` not `main`** in diff-aware mode. Local main may be stale.
+- **Slow-load threshold is >3s everywhere.** Flag any page that takes longer than 3 seconds to become interactive.
+- **`agent-browser` is required** — there is no fallback. No cookie import support either; if auth requires cookies, the user must log in manually in the browser session.
+- **Screenshots are evidence.** Every issue needs at least one. If `agent-browser screenshot` fails, retry once before skipping.
+- **Quick mode skips the per-page checklist** — it only checks: loads? Visible errors? Broken links? Don't over-test in quick mode.

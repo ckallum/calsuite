@@ -2,8 +2,10 @@
 name: retro
 version: 1.0.0
 description: |
-  Weekly engineering retrospective. Analyzes commit history, work patterns,
-  and code quality metrics with persistent history and trend tracking.
+  retro, retrospective, what did I ship, weekly summary, how was my week,
+  shipping velocity, commit stats, engineering metrics.
+  Weekly engineering retrospective with commit history, work patterns,
+  code quality metrics, persistent history, and trend tracking.
 argument-hint: [window] [compare]
 allowed-tools:
   - Bash
@@ -24,6 +26,29 @@ Generates a comprehensive engineering retrospective analyzing commit history, wo
 - `/retro 30d` — last 30 days
 - `/retro compare` — compare current window vs prior same-length window
 - `/retro compare 14d` — compare with explicit window
+
+## Setup
+
+On first run, check for `.claude/skills/retro/config.json`. If missing, ask the user with AskUserQuestion:
+
+1. **Author email** — default from `git config user.email`. "Is this the correct email for your commits?"
+   - A) Use `<detected-email>` (recommended)
+   - B) Use a different email: `<input>`
+
+2. **Default window** — "What's your preferred retro window?"
+   - A) 7 days (recommended — weekly retro)
+   - B) 14 days
+   - C) 30 days
+
+Save to `.claude/skills/retro/config.json`:
+```json
+{
+  "author_email": "user@example.com",
+  "default_window": "7d"
+}
+```
+
+On subsequent runs, load the config silently. The user can override via arguments — config is just the default.
 
 ## Instructions
 
@@ -326,3 +351,10 @@ When `/retro compare` (or `/retro compare 14d`):
 - Round LOC/hour to nearest 50
 - Do not read CLAUDE.md — this skill is self-contained
 - On first run, skip comparison sections gracefully
+
+## Gotchas
+
+- **All git queries must be scoped by `--author`.** Without it, you'll include other contributors' commits in a personal retro.
+- **Compare mode uses the parsed window, not hardcoded 7 days.** If the user says `/retro compare 14d`, the prior window is also 14 days, using `--since` and `--until` to avoid overlap.
+- **Streak calculation counts backward from today.** A gap of even one day resets the streak to 0 (or to the count since the gap).
+- **`origin/main` must be fetched first.** The skill runs `git fetch origin main --quiet` at the start — if this fails (no remote, no auth), all queries will use stale data.

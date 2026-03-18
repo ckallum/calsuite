@@ -2,9 +2,9 @@
 name: ship
 version: 1.0.0
 description: |
-  Fully automated ship workflow. Merges main, runs tests, does pre-landing review,
-  splits bisectable commits, pushes, and creates PR. Also handles branch cleanup.
-  Replaces: commit-push-pr, verification-before-completion, clean_gone.
+  ship it, push this, create PR, land this, send it, merge this, commit and push,
+  open a pull request, ship this branch, clean gone branches.
+  Fully automated: merge main, test, review, split commits, push, create PR.
 argument-hint: [clean]
 allowed-tools:
   - Bash
@@ -219,6 +219,14 @@ EOF
 **Output the PR URL** — this should be the final output the user sees.
 
 ---
+
+## Gotchas
+
+- **Use `origin/main` not local `main`.** Local main may be stale. All diff/merge commands use `origin/main`.
+- **Review gate may block fix commits.** If you commit review fixes and the review gate blocks, re-run from Step 3 for a fresh stamp.
+- **Simplify runs BEFORE review** so the review stamp covers the final code state. Don't reorder Steps 4 and 4.5.
+- **`git push` may fail if the branch was force-pushed elsewhere.** Never force push to recover — ask the user.
+- **CHANGELOG auto-generation reads all commits on the branch** — if prior commits have bad messages, the CHANGELOG entries will be vague.
 
 ## Important Rules
 

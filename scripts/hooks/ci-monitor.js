@@ -2,7 +2,7 @@
 
 /**
  * CI Monitor — PostToolUse hook that spawns babysit-pr-daemon after
- * `gh pr create` to watch CI, retry flaky checks, and enable auto-merge.
+ * `gh pr create` to watch CI, retry flaky checks, and notify when ready to merge.
  * Fail-open: errors are silently ignored.
  */
 
@@ -30,7 +30,7 @@ async function main() {
   const prNumber = prMatch[2];
 
   log(`[Babysit PR] Spawning background daemon for PR #${prNumber}...`);
-  log(`[Babysit PR] Will monitor CI, retry failures, and enable auto-merge.`);
+  log(`[Babysit PR] Will monitor CI, retry failures, and notify when ready to merge.`);
   log(`[Babysit PR] Status: /tmp/claude-babysit-${prNumber}.json`);
 
   // Spawn detached daemon
