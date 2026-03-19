@@ -3,9 +3,11 @@ name: plan
 version: 1.0.0
 description: |
   plan this, how should I implement, architecture review, design review, spec interview,
-  brainstorm this, flesh out the spec, review my plan, technical review.
-  Three modes: INTERVIEW (surface edge cases, write spec), BRAINSTORM (explore design),
-  REVIEW (lock in architecture, data flow, edge cases, tests).
+  brainstorm this, flesh out the spec, review my plan, technical review, visualize the flow,
+  diagram this, draw the architecture, show me the data flow.
+  Four modes: INTERVIEW (surface edge cases, write spec), BRAINSTORM (explore design),
+  REVIEW (lock in architecture, data flow, edge cases, tests),
+  VISUALIZE (diagram-based design validation, bug shakeout).
 argument-hint: [mode] [spec-path]
 allowed-tools:
   - Read
@@ -30,6 +32,7 @@ Parse `$ARGUMENTS` for the mode. If not specified, use AskUserQuestion to ask:
 1. **INTERVIEW** — You have a spec or feature idea and want to flesh it out. Deep multi-round interview to surface edge cases, tradeoffs, and non-obvious decisions. Writes the final spec.
 2. **BRAINSTORM** — You have a vague idea and want to explore it. Explore user intent, requirements, and design options before committing to an approach.
 3. **REVIEW** — You have a plan/spec ready and want to lock in the technical execution. Architecture, data flow, edge cases, test coverage, performance.
+4. **VISUALIZE** — You have a completed spec and want to validate it visually before coding. Generates Mermaid diagrams (user flow, data flow, state machines, edge cases) to shake out bugs that prose alone misses.
 
 ---
 
@@ -123,6 +126,8 @@ Read CLAUDE.md, TODO.md, SPECLOG.md, and the spec being reviewed. Map:
 * Existing pain points relevant to this plan
 * Existing spec files in `.claude/specs/` that overlap
 
+Also check for `.claude/specs/<slug>/diagrams.md`. If it exists, read it — the review agents should validate diagrams match the spec. If it does NOT exist, note: **"Tip: Run `/plan visualize <slug>` first to visually validate the design."**
+
 ### Step 1: Scope Challenge
 Before reviewing anything, answer:
 1. **What existing code already partially or fully solves each sub-problem?** Can we reuse existing routes, components, services?
@@ -144,6 +149,8 @@ After scope is agreed, dispatch **4 parallel review agents** in a single message
 ```text
 prompt: "You are reviewing a technical plan. Read CLAUDE.md for project conventions, then read the spec at [SPEC_PATH].
 
+If .claude/specs/<SLUG>/diagrams.md exists, read it and verify the diagrams match the spec. Flag any discrepancies between diagrams and design.md as issues.
+
 Review the plan's architecture:
 * Overall system design — pages, API routes, backend services, DB schema, background jobs
 * Dependency graph and coupling concerns
@@ -151,7 +158,7 @@ Review the plan's architecture:
 * Multi-tenancy: every new table/query must scope appropriately
 * Security: auth boundaries, authorization checks, API surface
 * For each new codepath, describe one realistic production failure
-* ASCII diagrams for non-trivial flows
+* Diagram accuracy (if diagrams.md exists): do the visual flows match the spec?
 
 Return a numbered list of issues. For each: file/component reference, problem description, 2-3 concrete options with your recommendation and WHY. Mark severity as CRITICAL or INFORMATIONAL."
 description: "Architecture review"
@@ -253,8 +260,98 @@ For each new codepath: one realistic failure, whether a test covers it, whether 
   Failure modes:        ___ critical gaps
 ```
 
+## VISUALIZE Mode
+
+**Input:** Specs in `.claude/specs/<slug>/`.
+**Output:** Validated Mermaid diagrams at `.claude/specs/<slug>/diagrams.md`.
+
+### Step 1: Find and read the spec
+
+Same as REVIEW Step 0 — find the spec by slug or most recent. Read all three files (`requirements.md`, `design.md`, `tasks.md`).
+
+### Step 2: Assess which diagrams are needed
+
+Analyze the spec and determine which diagram types are relevant:
+
+| Diagram Type | When to Generate | Mermaid Type |
+|---|---|---|
+| **Data Flow** | Always — every feature has data moving somewhere | `flowchart TD` |
+| **User Flow** | Spec introduces new pages, UI interactions, or multi-step workflows | `flowchart LR` |
+| **State Machine** | Any entity has a status field, lifecycle states, or transitions | `stateDiagram-v2` |
+| **Sequence Diagram** | Background jobs, queue dispatch, multi-service interactions, external API calls | `sequenceDiagram` |
+
+Skip diagram types that don't apply. A simple CRUD feature might only need Data Flow + User Flow. A background job feature needs Sequence + State Machine.
+
+### Step 3: Generate diagrams
+
+For each relevant diagram type, generate a Mermaid diagram. Rules:
+
+- **5-15 nodes per diagram** — focused, not the entire system
+- **Include error paths and edge cases** — this is the whole point. The diagram should reveal what the text hides: What happens on failure? What if the queue message is retried? What if the user navigates away mid-flow?
+- **Label edges** with the action or data being passed
+- **For data flows:** Show org_id scoping checkpoints and auth boundaries
+- **For state machines:** Show ALL transitions including error/rollback. Every state must have an outbound edge (no stuck states)
+- **For sequence diagrams:** Show failure responses alongside the happy path (use `alt` blocks)
+- **For user flows:** Show empty states, loading states, and error states as nodes
+
+### Step 4: Interactive validation
+
+Present each diagram to the user via AskUserQuestion (one diagram per question):
+
+> Here's the [Data Flow / User Flow / State Machine / Sequence] diagram:
+>
+> [rendered Mermaid]
+>
+> Does this match your mental model?
+> A) Looks correct — move on
+> B) I see an issue — [describe what's wrong and I'll update]
+> C) Skip this diagram type
+
+This is the key step. The user stares at the visual and catches things the text missed. If they choose B, update the diagram and re-present.
+
+### Step 5: Write diagrams.md
+
+Write all validated diagrams to `.claude/specs/<slug>/diagrams.md`:
+
+```markdown
+# <Spec Name> — Design Diagrams
+
+Generated by `/plan visualize` on YYYY-MM-DD.
+
+## Data Flow
+\`\`\`mermaid
+flowchart TD
+  ...
+\`\`\`
+
+### Notes
+- [Edge cases or decisions surfaced during visual review]
+
+## Sequence Diagram
+\`\`\`mermaid
+sequenceDiagram
+  ...
+\`\`\`
+```
+
+### Step 6: Summary
+
+```text
+Diagrams written to .claude/specs/<slug>/diagrams.md
+  Data Flow:        ✓ validated (or "skipped — no data changes")
+  User Flow:        ✓ validated (or "skipped — no UI changes")
+  State Machine:    ✓ validated (or "skipped — no lifecycle states")
+  Sequence Diagram: ✓ validated (or "skipped — no async flows")
+
+Next step: /plan review <slug>
+```
+
+---
+
 ## Gotchas
 
 - **AskUserQuestion strict rules only apply to REVIEW mode.** In INTERVIEW and BRAINSTORM modes, questions can be open-ended and exploratory — the lettered-option/recommendation format is not required.
 - **Use `origin/main` not local `main`** for all diff and log commands. Local main may be stale.
 - **Spec file paths vary.** Some projects use `.claude/specs/`, others use `docs/specs/` or top-level spec files. Always check `$ARGUMENTS` first, then look for common locations.
+- **VISUALIZE mode is post-spec, pre-code.** Don't run it on a half-written spec — the diagrams will be wrong and the verification useless. Run INTERVIEW or BRAINSTORM first.
+- **Diagrams expose spec gaps, not code bugs.** If VISUALIZE finds issues, update the spec — don't start coding with known gaps.

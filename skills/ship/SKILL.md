@@ -3,9 +3,11 @@ name: ship
 version: 1.0.0
 description: |
   ship it, push this, create PR, land this, send it, merge this, commit and push,
-  open a pull request, ship this branch, clean gone branches.
+  open a pull request, ship this branch, clean gone branches, pr only, just make a pr,
+  quick pr, docs only pr.
   Fully automated: merge main, test, review, split commits, push, create PR.
-argument-hint: [clean]
+  PR-only mode for lightweight changes (docs, config, skills).
+argument-hint: [clean | pr]
 allowed-tools:
   - Bash
   - Read
@@ -25,7 +27,64 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 ## Arguments
 
 - `/ship` — full ship workflow (default)
+- `/ship pr` — PR-only mode: commit, push, create PR. Skips tests, review, and simplification. For docs, config, skills, and other lightweight changes.
 - `/ship clean` — clean up stale local branches marked as `[gone]` on remote, including worktrees
+
+---
+
+## PR-Only Mode
+
+If `$ARGUMENTS` contains "pr":
+
+Fast path — commit, push, and create a PR with a rich body. Skips tests, review, simplification, and CHANGELOG. Designed for docs-only, config, skill, and other low-risk changes.
+
+### Step 1: Pre-flight
+
+1. Check the current branch. If on `main`, **abort**: "You're on main. Ship from a feature branch."
+2. Run `git status` (never use `-uall`).
+3. Run `git diff origin/main...HEAD --stat` and `git log origin/main..HEAD --oneline` to understand what's being shipped.
+
+### Step 2: Commit
+
+Stage all changes and create a single commit:
+
+```bash
+git add -A && git commit -m "$(cat <<'EOF'
+<type>: <summary>
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+EOF
+)"
+```
+
+Use `docs:` for documentation, `chore:` for config/skills, `style:` for formatting. If there are already commits on the branch and no uncommitted changes, skip this step.
+
+### Step 3: Push and create PR
+
+```bash
+git push -u origin $(git branch --show-current)
+```
+
+Create the PR following the standard PR body structure:
+
+```bash
+gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
+## Summary
+<bullet points of what changed>
+
+## Important Files
+| File | Change |
+|------|--------|
+| `path/to/file` | description |
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+Skip "How It Works" / Mermaid diagrams, Test Results, Pre-Landing Review, and Doc Completeness sections — they don't apply to lightweight changes.
+
+**Output the PR URL** — this should be the final output the user sees, then **STOP**.
 
 ---
 
@@ -274,6 +333,7 @@ EOF
 - **Simplify runs BEFORE review** so the review stamp covers the final code state. Don't reorder Steps 4 and 4.5.
 - **`git push` may fail if the branch was force-pushed elsewhere.** Never force push to recover — ask the user.
 - **CHANGELOG auto-generation reads all commits on the branch** — if prior commits have bad messages, the CHANGELOG entries will be vague.
+- **`/ship pr` skips ALL safety checks** (tests, review, simplification). Only use for genuinely low-risk changes. If in doubt, use `/ship`.
 
 ## Important Rules
 
