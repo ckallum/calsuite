@@ -198,18 +198,65 @@ git push -u origin $(git branch --show-current)
 
 ## Step 8: Create PR
 
-Create a pull request using `gh`:
+Construct a rich PR body with these sections, then create the PR using `gh pr create`.
+
+### PR Body Structure
+
+**1. Summary** — bullet points from CHANGELOG entries (what shipped).
+
+**2. How It Works** (include when the PR has non-trivial logic):
+
+Generate a **Mermaid diagram** showing the key flow introduced or changed. Pick the diagram type that fits best:
+
+- `sequenceDiagram` — for request/response flows, multi-step pipelines, hook execution chains
+- `flowchart TD` — for decision trees, state machines, before/after architecture comparisons
+- `erDiagram` — for schema changes showing new tables/relationships
+
+Keep diagrams focused — show the **new/changed flow only**, not the entire system. 5-15 nodes max. If the PR is small (< 50 lines, config-only, docs-only), skip diagrams entirely.
+
+**3. Important Files** — table of the key files changed with a one-line description of what changed in each:
+
+```markdown
+| File | Change |
+|------|--------|
+| `path/to/file.ts` | Added X handler with Y validation |
+| `path/to/other.ts` | Updated Z to support new field |
+```
+
+Only include files with meaningful logic changes. Skip auto-generated files, lock files, and trivial formatting changes. Group by layer (schema → backend → API → frontend → infra → docs). Max 10-12 rows — if more files changed, summarize the remainder as "N additional files with minor changes".
+
+**4. Test Results** — table from Step 3.
+
+**5. Pre-Landing Review** — findings from Step 4.5, or "No issues found."
+
+**6. Doc Completeness** — checklist.
+
+### Create the PR
 
 ```bash
-gh pr create --title "<type>: <summary>" --body "$(cat <<'EOF'
+gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
 ## Summary
 <bullet points from CHANGELOG>
 
-## Pre-Landing Review
-<findings from Step 4, or "No issues found.">
+## How It Works
+<mermaid diagram — or omit section for small/docs-only PRs>
 
-## Test plan
-- [x] Tests pass (N tests)
+## Important Files
+| File | Change |
+|------|--------|
+| `path/to/file` | description |
+
+## Test Results
+| Suite | Result |
+|-------|--------|
+| <suite> | <pass/fail count> |
+
+## Pre-Landing Review
+<findings from Step 4.5, or "No issues found.">
+
+## Doc Completeness
+- [ ] README updated (if applicable)
+- [ ] CHANGELOG updated
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
