@@ -332,7 +332,8 @@ function installForProfile(targetDir, resolvedProfile, label) {
     enabledPlugins: { ...existingSettings.enabledPlugins, ...pluginsToEnable },
   };
 
-  // Merge guardian permissions for active mode
+  // Derive permissions from guardian-rules.json (single source of truth).
+  // On re-install, this replaces the entire allow list to prevent drift.
   const guardianConfig = readJsonSync(guardianDest);
   if (guardianConfig?.permissions) {
     const mode = guardianConfig.mode || 'supervised';
@@ -340,9 +341,9 @@ function installForProfile(targetDir, resolvedProfile, label) {
     if (modePerms?.allow) {
       merged.permissions = {
         ...merged.permissions,
-        allow: [...new Set([...(merged.permissions?.allow || []), ...modePerms.allow])],
+        allow: modePerms.allow,
       };
-      console.log(`  ✓ Merged guardian permissions for "${mode}" mode (${modePerms.allow.length} allow entries)`);
+      console.log(`  ✓ Set guardian permissions from "${mode}" mode (${modePerms.allow.length} allow entries)`);
     }
   }
 
