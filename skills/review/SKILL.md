@@ -4,9 +4,9 @@ version: 1.0.0
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
-  Five-agent parallel review: conventions, security checklist, git blame history,
-  previous PR comments, code comment compliance. Confidence scoring, Greptile triage,
-  TODO cross-reference, flow diagrams.
+  Up to 7 parallel review agents: conventions, security checklist, git blame history,
+  previous PR comments, code comment compliance, silent failure hunting, type design.
+  Confidence scoring, Greptile triage, TODO cross-reference, flow diagrams.
 argument-hint: [greptile | pr <number>]
 allowed-tools:
   - Bash
@@ -70,7 +70,7 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 ## Step 3: Dispatch Parallel Review Agents
 
-Dispatch **5 parallel agents** in a single message using the Agent tool:
+Dispatch **up to 7 parallel agents** in a single message using the Agent tool. Agents F and G are conditional — only dispatch them if the diff contains relevant code.
 
 **Agent A — Convention review (@code-reviewer):**
 ```text
@@ -163,13 +163,85 @@ not stale comments about unrelated code."
 description: "Code comment compliance"
 ```
 
-Wait for all 5 agents to return.
+**Agent F — Silent failure hunter (conditional):**
+
+Only dispatch if the diff contains error-handling code (try/catch, .catch, error callbacks, Result types, fallback logic).
+
+```text
+prompt: "Hunt for silent failures in the target diff for this review.
+
+Use the same diff source selected in Step 1:
+- local mode: `git diff origin/main`
+- PR mode: the `gh pr diff <number>` output already fetched
+For every error-handling
+location in the changed code, scrutinize:
+
+1. **Catch block specificity:** Does it catch only expected errors, or could
+   it accidentally suppress unrelated errors? List every unexpected error type
+   that could be hidden.
+2. **Logging quality:** Is the error logged with enough context to debug
+   6 months from now? Does it include what operation failed and relevant IDs?
+3. **User feedback:** Does the user receive actionable feedback, or does the
+   error vanish silently?
+4. **Fallback behavior:** Is fallback logic explicitly justified, or does it
+   mask the underlying problem? Would the user be confused by fallback behavior?
+5. **Error propagation:** Should this error bubble up instead of being caught here?
+
+Flag these patterns as CRITICAL:
+- Empty catch blocks
+- Catch blocks that only log and continue without user feedback
+- Returning null/undefined/default on error without logging
+- Broad exception catching that hides unrelated errors
+- Retry logic that exhausts attempts without informing the user
+
+Return findings with file:line, severity (CRITICAL/HIGH/MEDIUM),
+issue description, hidden error types, and recommended fix."
+description: "Silent failure hunter"
+```
+
+**Agent G — Type design review (conditional):**
+
+Only dispatch if the diff introduces or significantly modifies type definitions (types, interfaces, enums, classes, structs in TypeScript/Python/Go/Rust).
+
+```text
+prompt: "Review type design in the target diff for this review.
+
+Use the same diff source selected in Step 1:
+- local mode: `git diff origin/main`
+- PR mode: the `gh pr diff <number>` output already fetched
+Find new or modified type definitions
+(interfaces, types, enums, classes, structs).
+
+For each new or significantly modified type, evaluate:
+
+1. **Invariant expression:** Are constraints obvious from the type definition?
+   Can illegal states be represented? Rate 1-10.
+2. **Encapsulation:** Are internals properly hidden? Can invariants be
+   violated from outside? Rate 1-10.
+3. **Enforcement:** Are invariants checked at construction? Are all mutation
+   points guarded? Rate 1-10.
+4. **Usefulness:** Do the invariants prevent real bugs? Are they aligned
+   with business requirements? Rate 1-10.
+
+Flag these anti-patterns:
+- Anemic types with no behavior or validation
+- Types exposing mutable internals
+- Invariants enforced only through documentation/comments
+- Missing validation at construction boundaries
+- Types that rely on external code to maintain invariants
+
+Return findings with file:line, the type name, ratings, and specific
+improvement suggestions. Keep suggestions pragmatic — don't overcomplicate."
+description: "Type design review"
+```
+
+Wait for all agents to return.
 
 ---
 
 ## Step 4: Merge, Score, and Filter Findings
 
-1. Collect findings from all 5 agents.
+1. Collect findings from all agents (5-7 depending on which conditional agents ran).
 2. Deduplicate: if multiple agents flag the same file:line for the same issue, keep the one with most detail.
 3. **Confidence score each finding** on a 0-100 scale:
    - **0-25:** Likely false positive — doesn't stand up to scrutiny, or is a pre-existing issue.
@@ -193,7 +265,7 @@ Output all findings:
 ### CRITICAL (blocking) — confidence ≥ 80
 1. [file:line] Problem description (score: 85)
    Fix: suggested fix
-   Source: convention | checklist | blame | prev-PR | comments | greptile
+   Source: convention | checklist | blame | prev-PR | comments | silent-failure | type-design | greptile
 
 ### INFORMATIONAL (advisory) — confidence 60-79
 1. [file:line] Problem description (score: 65)

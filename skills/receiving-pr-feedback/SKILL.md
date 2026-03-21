@@ -48,6 +48,20 @@ For each review comment, classify it:
 | **Nitpick** | Fix if trivial, skip if subjective |
 | **Wrong / outdated** | Push back with evidence |
 
+## Step 2.5: Clarify ALL unclear items first
+
+Before implementing anything, check if any comments are unclear or ambiguous. If so, **stop and ask for clarification on ALL unclear items before touching any code.**
+
+Items may be related — partial understanding leads to wrong implementation.
+
+```
+IF you understand items 1,2,3,6 but not 4,5:
+  ❌ WRONG: Implement 1,2,3,6 now, ask about 4,5 later
+  ✅ RIGHT: "Understand 1,2,3,6. Need clarification on 4 and 5 before implementing."
+```
+
+---
+
 ## Step 3: Process each comment
 
 For each comment, follow this protocol:
@@ -72,7 +86,7 @@ Instead: verify, then respond with facts.
 Push back when a suggestion:
 - **Breaks functionality** — "This would break X because Y. The current approach handles Z."
 - **Lacks context** — "This pattern is intentional because [reason from spec/CLAUDE.md]."
-- **Violates YAGNI** — "Adding this abstraction isn't needed yet — only one callsite exists."
+- **Violates YAGNI** — grep the codebase for actual usage. "This endpoint isn't called anywhere. Remove it (YAGNI)? Or is there usage I'm missing?"
 - **Is technically incorrect** — "This would actually cause [problem]. Here's why: [evidence]."
 - **Conflicts with project conventions** — "CLAUDE.md specifies [convention]. Should we update the convention instead?"
 
@@ -87,9 +101,15 @@ Acknowledge with brief, factual statements: "Fixed — the null check was missin
 
 ## Step 4: Apply fixes
 
+Implement in this order:
+1. **Blocking issues** (breaks, security) — fix first
+2. **Simple fixes** (typos, imports, one-liners) — batch these
+3. **Complex fixes** (refactoring, logic changes) — one at a time, test each
+
 For each accepted comment:
 1. Make the fix
-2. Reply on the PR with what you changed (one-liner)
+2. Test it (run relevant tests to verify no regression)
+3. Reply on the PR with what you changed (one-liner)
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body="Fixed — added null check for empty array case."
