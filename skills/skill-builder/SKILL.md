@@ -133,6 +133,9 @@ Report to the user:
 - Do not create a `references/` folder with a single tiny file. If all reference content fits in SKILL.md without exceeding ~50 lines, inline it.
 - The `allowed-tools` frontmatter field controls which tools the skill can use. Omitting a needed tool means Claude cannot call it during skill execution. Check the category template for recommended tools.
 - Skill names become slash commands — use lowercase kebab-case, no spaces, no underscores.
+- **Heredoc quoting in shell snippets:** Use unquoted delimiters (`<<EOF`) when the body needs `$(cmd)` or `${VAR}` expansion. Single-quoted (`<<'EOF'`) suppresses ALL expansion — variables are sent as literal text. This is the #1 cause of broken shell in skills.
+- **Background PID capture:** `PID=$!` must come AFTER the heredoc closing delimiter, not inside the body. Everything between open/close delimiters is content, not shell code.
+- **Temp file paths in skills:** Never hardcode `/tmp/foo.txt` — concurrent invocations collide. Use `mktemp -d /tmp/prefix-XXXXXX` and clean up with `rm -rf "$TMPDIR"`.
 
 ## References
 

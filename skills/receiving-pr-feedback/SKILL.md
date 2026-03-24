@@ -23,12 +23,20 @@ Handle PR review feedback with technical rigor. Verify suggestions before implem
 
 ## Step 1: Load feedback
 
-If a PR number is in `$ARGUMENTS`, fetch comments:
+If a PR number is in `$ARGUMENTS`, fetch ALL comment types:
 
 ```bash
+# Issue-level comments (general PR discussion, including /review bot comments)
 gh pr view <number> --comments --json comments,reviews,reviewDecision
-gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[] | {path: .path, line: .line, body: .body, user: .user.login}'
+
+# Inline review comments (line-level code review feedback)
+gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '.[] | {id: .id, path: .path, line: .line, body: .body, user: .user.login}'
+
+# Top-level issue comments (general discussion not tied to specific lines)
+gh api repos/{owner}/{repo}/issues/<number>/comments --jq '.[] | {id: .id, body: .body, user: .user.login}'
 ```
+
+**Important:** PRs have TWO comment APIs — `/pulls/.../comments` for inline review comments and `/issues/.../comments` for general discussion. Both must be fetched. Automated review bots (like `/review pr`) post to issue comments, not inline comments.
 
 If no PR number, check the current branch:
 ```bash
