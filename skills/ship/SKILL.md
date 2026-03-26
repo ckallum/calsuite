@@ -65,24 +65,7 @@ Use `docs:` for documentation, `chore:` for config/skills, `style:` for formatti
 git push -u origin $(git branch --show-current)
 ```
 
-Create the PR following the standard PR body structure:
-
-```bash
-gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
-## Summary
-<bullet points of what changed>
-
-## Important Files
-| File | Change |
-|------|--------|
-| `path/to/file` | description |
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-```
-
-Skip "How It Works" / Mermaid diagrams, Test Results, Pre-Landing Review, and Doc Completeness sections — they don't apply to lightweight changes.
+Read the PR body template at `.claude/skills/ship/pr-template.md`. Create the PR following the template structure, but omit Test Results and Pre-Landing Review sections (not applicable in pr-only mode). Skip diagrams for trivial changes (< 50 lines, single-file edits).
 
 **Output the PR URL** — this should be the final output the user sees, then **STOP**.
 
@@ -257,72 +240,17 @@ git push -u origin $(git branch --show-current)
 
 ## Step 8: Create PR
 
-Construct a rich PR body with these sections, then create the PR using `gh pr create`.
+Read the PR body template at `.claude/skills/ship/pr-template.md` and follow its structure exactly.
 
-### PR Body Structure
+Populate each section:
+- **Summary** — bullet points from CHANGELOG entries (what shipped)
+- **How It Works** — Mermaid diagram for non-trivial PRs (skip for < 50 lines, config-only, docs-only)
+- **Important Files** — table of key files with one-line descriptions
+- **Test Results** — table from Step 3
+- **Pre-Landing Review** — findings from Step 4.5, or "No issues found."
+- **Doc Completeness** — checklist
 
-**1. Summary** — bullet points from CHANGELOG entries (what shipped).
-
-**2. How It Works** (include when the PR has non-trivial logic):
-
-Generate a **Mermaid diagram** showing the key flow introduced or changed. Pick the diagram type that fits best:
-
-- `sequenceDiagram` — for request/response flows, multi-step pipelines, hook execution chains
-- `flowchart TD` — for decision trees, state machines, before/after architecture comparisons
-- `erDiagram` — for schema changes showing new tables/relationships
-
-Keep diagrams focused — show the **new/changed flow only**, not the entire system. 5-15 nodes max. If the PR is small (< 50 lines, config-only, docs-only), skip diagrams entirely.
-
-**3. Important Files** — table of the key files changed with a one-line description of what changed in each:
-
-```markdown
-| File | Change |
-|------|--------|
-| `path/to/file.ts` | Added X handler with Y validation |
-| `path/to/other.ts` | Updated Z to support new field |
-```
-
-Only include files with meaningful logic changes. Skip auto-generated files, lock files, and trivial formatting changes. Group by layer (schema → backend → API → frontend → infra → docs). Max 10-12 rows — if more files changed, summarize the remainder as "N additional files with minor changes".
-
-**4. Test Results** — table from Step 3.
-
-**5. Pre-Landing Review** — findings from Step 4.5, or "No issues found."
-
-**6. Doc Completeness** — checklist.
-
-### Create the PR
-
-```bash
-gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
-## Summary
-<bullet points from CHANGELOG>
-
-## How It Works
-<mermaid diagram — or omit section for small/docs-only PRs>
-
-## Important Files
-| File | Change |
-|------|--------|
-| `path/to/file` | description |
-
-## Test Results
-| Suite | Result |
-|-------|--------|
-| <suite> | <pass/fail count> |
-
-## Pre-Landing Review
-<findings from Step 4.5, or "No issues found.">
-
-## Doc Completeness
-- [ ] README updated (if applicable)
-- [ ] CHANGELOG updated
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-```
-
-**Output the PR URL** — this should be the final output the user sees.
+Create the PR using `gh pr create` with a HEREDOC body. **Output the PR URL.**
 
 ---
 
