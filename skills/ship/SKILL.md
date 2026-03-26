@@ -67,7 +67,18 @@ git push -u origin $(git branch --show-current)
 
 Read the PR body template at `skills/ship/pr-template.md`. Create the PR following the template structure, but omit Test Results and Pre-Landing Review sections (not applicable in pr-only mode). Skip diagrams for trivial changes (< 50 lines, single-file edits).
 
-**Output the PR URL** — this should be the final output the user sees, then **STOP**.
+**Output the PR URL.**
+
+### Step 4: Sweep for Deferred Issues
+
+Invoke `/sweep-issues` using the Skill tool:
+
+```text
+skill: "sweep-issues"
+args: ""
+```
+
+Same as full ship mode — scans the conversation for deferred items and auto-creates GitHub issues.
 
 ---
 
@@ -251,6 +262,22 @@ Populate each section:
 - **Doc Completeness** — checklist
 
 Create the PR using `gh pr create` with a HEREDOC body. **Output the PR URL.**
+
+---
+
+## Step 9: Sweep for Deferred Issues
+
+After the PR is created, invoke `/sweep-issues` using the Skill tool:
+
+```text
+skill: "sweep-issues"
+args: ""
+```
+
+This scans the conversation for deferred items, fast-follows, enhancements, minor bugs, and technical debt identified during development — and auto-creates GitHub issues for each.
+
+**If nothing found:** Continue silently — the PR URL is the final output.
+**If items found:** Create the issues and output the sweep summary. The PR URL remains the last line of output.
 
 ---
 
