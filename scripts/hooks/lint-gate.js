@@ -11,7 +11,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { readStdinJson, runCommand, readFile, log } = require('../lib/utils');
+const { readStdinJson, runCommand, readFile, log } = require(path.join(__dirname, '..', 'lib', 'utils'));
 
 function loadAgentRules() {
   // Check project-local config first, then co-located config/

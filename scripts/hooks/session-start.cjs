@@ -8,6 +8,7 @@
  * files and notifies Claude of available context to load.
  */
 
+const path = require('path');
 const {
   getSessionsDir,
   getLearnedSkillsDir,
@@ -16,9 +17,9 @@ const {
   readFile,
   ensureDir,
   log
-} = require('../lib/utils.cjs');
-const { getPackageManager, getSelectionPrompt } = require('../lib/package-manager.cjs');
-const { listAliases } = require('../lib/session-aliases.cjs');
+} = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
+const { getPackageManager, getSelectionPrompt } = require(path.join(__dirname, '..', 'lib', 'package-manager.cjs'));
+const { listAliases } = require(path.join(__dirname, '..', 'lib', 'session-aliases.cjs'));
 
 async function main() {
   const sessionsDir = getSessionsDir();

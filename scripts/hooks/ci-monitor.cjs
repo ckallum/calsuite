@@ -8,7 +8,7 @@
 
 const path = require('path');
 const { spawn } = require('child_process');
-const { readStdinJson, log } = require('../lib/utils.cjs');
+const { readStdinJson, log } = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
 
 async function main() {
   const input = await readStdinJson();

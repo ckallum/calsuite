@@ -9,7 +9,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const { readStdinJson, runCommand, readFile, log } = require('../lib/utils.cjs');
+const { readStdinJson, runCommand, readFile, log } = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
 
 const REVIEW_FILE = path.join(process.cwd(), '.claude', '.last-review');
 

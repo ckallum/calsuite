@@ -19,7 +19,7 @@ const {
   readFile,
   countInFile,
   log
-} = require('../lib/utils.cjs');
+} = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
 
 async function main() {
   // Get script directory to find config

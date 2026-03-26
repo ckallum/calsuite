@@ -21,7 +21,7 @@ const {
   findSpecsDir,
   getGitModifiedFiles,
   log
-} = require('../lib/utils.cjs');
+} = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
 
 async function main() {
   const sessionsDir = getSessionsDir();

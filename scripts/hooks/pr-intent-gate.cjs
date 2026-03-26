@@ -6,7 +6,8 @@
  * Fail-open: if anything goes wrong, exits 0 (allows).
  */
 
-const { readStdinJson, log } = require('../lib/utils.cjs');
+const path = require('path');
+const { readStdinJson, log } = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
 
 async function main() {
   const input = await readStdinJson();

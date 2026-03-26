@@ -10,7 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readStdinJson } = require('../lib/utils.cjs');
+const { readStdinJson } = require(path.join(__dirname, '..', 'lib', 'utils.cjs'));
 
 async function main() {
   const data = await readStdinJson();
