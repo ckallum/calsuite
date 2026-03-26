@@ -65,7 +65,7 @@ Use `docs:` for documentation, `chore:` for config/skills, `style:` for formatti
 git push -u origin $(git branch --show-current)
 ```
 
-Read the PR body template at `.claude/skills/ship/pr-template.md`. Create the PR following the template structure, but omit Test Results and Pre-Landing Review sections (not applicable in pr-only mode). Skip diagrams for trivial changes (< 50 lines, single-file edits).
+Read the PR body template at `skills/ship/pr-template.md`. Create the PR following the template structure, but omit Test Results and Pre-Landing Review sections (not applicable in pr-only mode). Skip diagrams for trivial changes (< 50 lines, single-file edits).
 
 **Output the PR URL** — this should be the final output the user sees, then **STOP**.
 
@@ -240,7 +240,7 @@ git push -u origin $(git branch --show-current)
 
 ## Step 8: Create PR
 
-Read the PR body template at `.claude/skills/ship/pr-template.md` and follow its structure exactly.
+Read the PR body template at `skills/ship/pr-template.md` and follow its structure exactly.
 
 Populate each section:
 - **Summary** — bullet points from CHANGELOG entries (what shipped)
