@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/lint-gate.js\""
+            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/lint-gate.cjs\""
           }
         ],
         "description": "Lint gate: check structural lint rules before commits"
@@ -165,7 +165,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/eslint-check.js\""
+            "command": "node \"${CLAUDE_CONFIG_DIR}/scripts/hooks/eslint-check.cjs\""
           }
         ],
         "description": "ESLint check: report violations after JS/TS edits for agent self-correction"

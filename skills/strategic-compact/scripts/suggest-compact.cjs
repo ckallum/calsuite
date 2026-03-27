@@ -19,7 +19,7 @@ const {
   readFile,
   writeFile,
   log
-} = require('../../../scripts/lib/utils');
+} = require('../../../scripts/lib/utils.cjs');
 
 async function main() {
   // Track tool call count (increment in a temp file)
