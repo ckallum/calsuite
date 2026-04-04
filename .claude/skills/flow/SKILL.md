@@ -32,12 +32,13 @@ Then **STOP**. Do not output an empty diagram.
 ### 2. Parse JSONL entries
 
 Each line is a JSON object with:
-- `ts` — ISO timestamp
+- `ts` — ISO timestamp (used for ordering and parallel detection)
 - `type` — `"skill"` or `"agent"`
 - `name` — skill name or agent subagent_type
 - `description` — (agents only) task description
-- `seq` — sequence number
 - `args` — (skills only) arguments passed
+
+Sort entries by `ts` to determine ordering.
 
 ### 3. Build the Mermaid flowchart
 

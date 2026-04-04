@@ -1,6 +1,3 @@
 # Local project config (installed by configure-claude.js)
 .claude/
 .worktrees/
-
-# Flow trace session files
-.claude/flow-trace-*.jsonl

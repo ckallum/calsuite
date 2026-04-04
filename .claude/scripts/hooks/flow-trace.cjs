@@ -14,23 +14,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinJson } = require(path.join(__dirname, '..', 'lib', 'utils.js'));
 
 async function main() {
-  // Read stdin JSON
-  let data = '';
-  await new Promise((resolve) => {
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { data += chunk; });
-    process.stdin.on('end', resolve);
-    // Timeout safety — don't hang if stdin never closes
-    setTimeout(resolve, 200);
-  });
-
-  if (!data.trim()) {
+  const input = await readStdinJson();
+  if (!input || !input.tool_name) {
     process.exit(0);
   }
 
-  const input = JSON.parse(data);
   const tool = input.tool_name || input.tool;
   const toolInput = input.tool_input || {};
 
@@ -51,33 +42,25 @@ async function main() {
       description: toolInput.description || null
     };
   } else {
-    // Not a tool we track
     process.exit(0);
   }
 
-  const sessionId = process.env.CLAUDE_SESSION_ID || 'unknown';
+  // Sanitize session ID to prevent path traversal
+  const sessionId = (process.env.CLAUDE_SESSION_ID || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
   const traceFile = path.join(
     process.cwd(),
     '.claude',
     `flow-trace-${sessionId}.jsonl`
   );
 
-  // Calculate seq from existing lines
-  let seq = 1;
-  try {
-    const existing = fs.readFileSync(traceFile, 'utf8');
-    seq = existing.trim().split('\n').filter(Boolean).length + 1;
-  } catch (_) {
-    // File doesn't exist yet — seq stays 1
-  }
-
-  entry.seq = seq;
-
-  // Ensure .claude dir exists (it should, but be safe)
+  // Append entry — seq is omitted; /flow derives ordering from timestamps
   fs.mkdirSync(path.dirname(traceFile), { recursive: true });
   fs.appendFileSync(traceFile, JSON.stringify(entry) + '\n');
 
   process.exit(0);
 }
 
-main().catch(() => process.exit(0));
+main().catch((err) => {
+  process.stderr.write('[flow-trace] ' + err.message + '\n');
+  process.exit(0);
+});
