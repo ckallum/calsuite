@@ -225,10 +225,15 @@ Round number = count of existing `**Round N**` entries + 1. Date = today's date.
 
 **f. Update the PR:**
 
-Reassemble the body from the parsed/modified sections and update:
+Reassemble the body from the parsed/modified sections, write to a temp file, and update:
 
 ```bash
-gh pr edit <number> --body "<reassembled body>"
+tmp_body_file="$(mktemp)"
+cat >"$tmp_body_file" <<'EOF'
+<reassembled body>
+EOF
+gh pr edit <number> --body-file "$tmp_body_file"
+rm -f "$tmp_body_file"
 ```
 
 ## Step 5: Summary

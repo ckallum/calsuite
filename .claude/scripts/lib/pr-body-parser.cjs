@@ -65,14 +65,24 @@ function parsePrBody(body) {
 }
 
 /**
+ * Ensure non-empty text ends with a trailing newline.
+ */
+function ensureTrailingNewline(text) {
+  if (!text || text.endsWith('\n')) {
+    return text || '';
+  }
+  return text + '\n';
+}
+
+/**
  * Reassemble a PR body from a section map.
  * Takes the same structure returned by parsePrBody.
  */
 function assemblePrBody(parsed) {
-  let body = parsed.preamble;
+  let body = ensureTrailingNewline(parsed.preamble);
 
   for (const section of parsed.sections) {
-    body += '## ' + section.name + '\n' + section.content;
+    body += '## ' + section.name + '\n' + ensureTrailingNewline(section.content);
   }
 
   return body;

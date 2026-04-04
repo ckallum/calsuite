@@ -48,8 +48,9 @@ async function main() {
 
   // Sanitize session ID to prevent path traversal
   const sessionId = (process.env.CLAUDE_SESSION_ID || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const traceFile = path.join(
-    process.cwd(),
+    projectDir,
     '.claude',
     `flow-trace-${sessionId}.jsonl`
   );
