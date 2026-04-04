@@ -309,9 +309,9 @@ If the file exists and is non-empty, parse the JSONL entries and generate a Merm
 - Parallel detection: entries within 1s of each other from same predecessor = fan-out
 - Collapse N identical consecutive dispatches into one node with `xN` label
 
-This diagram will be inserted as a `### Development Flow` section in the PR body (see below).
+This diagram will be inserted as a `## Development Flow` section in the PR body (see below).
 
-If the trace file is missing or empty, skip the `### Development Flow` section entirely — no error, no placeholder.
+If the trace file is missing or empty, skip the `## Development Flow` section entirely — no error, no placeholder.
 
 ### Populate the PR body
 

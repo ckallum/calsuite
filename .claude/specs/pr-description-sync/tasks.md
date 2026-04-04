@@ -21,7 +21,7 @@
   - Build and append Revision History entry from Step 5 data
   - Update PR via `gh pr edit --body`
 - [x] Move Step 5 summary data generation before Step 4.5
-  - The revision history entry needs accepted/pushed-back/answered counts
+  - The revision history entry needs the accepted/pushed-back/answered counts
   - Generate the summary data first, use it in both 4.5 and 5
 
 ## Phase 3: Shared PR Body Generation

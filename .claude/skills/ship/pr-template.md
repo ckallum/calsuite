@@ -1,6 +1,6 @@
 # PR Body Template
 
-Shared template for PR creation across skills (`/ship`, `/execute`, `/receiving-pr-feedback`, parallel agents).
+Shared template for PR creation across skills (`/ship`, `/receiving-pr-feedback`, parallel agents).
 
 ## Usage
 
@@ -38,7 +38,7 @@ Pick the diagram type that fits best:
 Keep diagrams focused — show the **new/changed flow only**, not the entire system.
 5-15 nodes max. Skip for small PRs (< 50 lines, config-only, docs-only).
 
-### Development Flow
+## Development Flow
 <Mermaid flowchart TD diagram auto-generated from session flow trace data>
 
 Auto-generated from `.claude/flow-trace-{session}.jsonl` if trace data exists.
@@ -76,12 +76,13 @@ Omit suites that weren't run (e.g., no backend changes = no backend tests).
 - [ ] tasks.md updated (if working on a spec)
 
 ## Revision History
-<!-- Appended by /receiving-pr-feedback only. Not present on initial PR creation. -->
-
+<!-- Omit this section on initial PR creation. Only appended by /receiving-pr-feedback. -->
+<!-- Example format (do not copy literally):
 **Round 1** (YYYY-MM-DD):
 - Accepted: X comments — brief list of key changes
 - Pushed back: Y comments
 - Questions answered: Z comments
+-->
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```

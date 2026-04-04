@@ -57,6 +57,9 @@ Watch progress in the tmux panes. This instance is done.
 If a PR number is in `$ARGUMENTS`, fetch ALL comment types:
 
 ```bash
+# Derive owner/repo for gh api calls:
+# gh repo view --json nameWithOwner --jq '.nameWithOwner'
+
 # Issue-level comments (general PR discussion, including /review bot comments)
 gh pr view <number> --comments --json comments,reviews,reviewDecision
 
@@ -210,7 +213,7 @@ Reference implementation: `.claude/scripts/lib/pr-body-parser.cjs` (parsePrBody 
 If a `## Revision History` section exists, append to it. If not, create it after `## Doc Completeness` (or at the end if Doc Completeness is missing).
 
 ```markdown
-### Revision History
+## Revision History
 
 **Round N** (YYYY-MM-DD):
 - Accepted: X comments — brief list of key changes made
