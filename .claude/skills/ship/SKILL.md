@@ -249,7 +249,49 @@ git push -u origin $(git branch --show-current)
 
 ---
 
-## Step 8: Create PR
+## Step 8: Sweep and Fix Inline
+
+**Before** creating the PR, scan the conversation for deferred items, fast-follows, minor bugs, enhancements, and tech debt — the same categories `/sweep-issues` looks for.
+
+### 8a: Gather candidates
+
+Review the conversation for deferred work, TODOs, edge cases, minor bugs, and improvements. For each item, note a one-line description and its source.
+
+### 8b: Triage — fix now vs. create issue
+
+Classify each candidate:
+
+| Fix now (inline) | Create issue (later) |
+|---|---|
+| Minor bug in code touched by this PR | Feature request unrelated to this PR |
+| Missing edge case in a function this PR added/modified | Large refactor spanning multiple files not in this diff |
+| TODO/FIXME left in files changed by this PR | Work that requires design discussion |
+| Small enhancement coherent with the PR's purpose | Performance optimization with unclear scope |
+| Cleanup in files already being modified | Anything that would change the PR's scope significantly |
+
+**The test:** "Would a reviewer expect this to be part of this PR?" If yes → fix now. If no → create issue.
+
+### 8c: Apply inline fixes
+
+For each "fix now" item:
+1. Make the fix
+2. Stage it: `git add <files>`
+3. Commit: `git commit -m "fix: <what was fixed>"`
+
+### 8d: Re-run tests if fixes were applied
+
+If any inline fixes were made, re-run the test suites from Step 3 to verify no regressions. If tests fail, fix the failure before proceeding.
+
+### 8e: Push inline fixes
+
+If new commits were created:
+```bash
+git push
+```
+
+---
+
+## Step 9: Create PR
 
 Read the PR body template at `skills/ship/pr-template.md` and follow its structure exactly.
 
@@ -274,11 +316,11 @@ If the trace file is missing or empty, skip the `### Development Flow` section e
 ### Populate the PR body
 
 Populate each section:
-- **Summary** — bullet points from CHANGELOG entries (what shipped)
+- **Summary** — bullet points from CHANGELOG entries (what shipped). Include any inline fixes from Step 8 in the summary.
 - **How It Works** — Mermaid diagram for non-trivial PRs (skip for < 50 lines, config-only, docs-only)
 - **Development Flow** — Mermaid diagram from flow trace (insert after How It Works, before Important Files). Only include if trace data exists.
 - **Important Files** — table of key files with one-line descriptions
-- **Test Results** — table from Step 3
+- **Test Results** — table from Step 3 (or re-run from Step 8d)
 - **Pre-Landing Review** — findings from Step 4.5, or "No issues found."
 - **Doc Completeness** — checklist
 
@@ -286,19 +328,17 @@ Create the PR using `gh pr create` with a HEREDOC body. **Output the PR URL.**
 
 ---
 
-## Step 9: Sweep for Deferred Issues
+## Step 10: Create Issues for Remaining Items
 
-After the PR is created, invoke `/sweep-issues` using the Skill tool:
+For any candidates from Step 8b that were triaged as "create issue", invoke `/sweep-issues` to create GitHub issues. Pass context so it doesn't re-scan — it should create issues only for the deferred items, not re-discover them.
 
 ```text
 skill: "sweep-issues"
 args: ""
 ```
 
-This scans the conversation for deferred items, fast-follows, enhancements, minor bugs, and technical debt identified during development — and auto-creates GitHub issues for each.
-
-**If nothing found:** Continue silently — the PR URL is the final output.
-**If items found:** Create the issues and output the sweep summary. The PR URL remains the last line of output.
+**If no deferred items remain:** Skip silently — the PR URL is the final output.
+**If items remain:** Create the issues and output the sweep summary. The PR URL remains the last line of output.
 
 ---
 
