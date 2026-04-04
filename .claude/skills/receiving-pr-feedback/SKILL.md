@@ -57,6 +57,9 @@ Watch progress in the tmux panes. This instance is done.
 If a PR number is in `$ARGUMENTS`, fetch ALL comment types:
 
 ```bash
+# Derive owner/repo for gh api calls:
+# gh repo view --json nameWithOwner --jq '.nameWithOwner'
+
 # Issue-level comments (general PR discussion, including /review bot comments)
 gh pr view <number> --comments --json comments,reviews,reviewDecision
 
@@ -160,6 +163,74 @@ For each rejected comment, reply with your reasoning:
 gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body="This is intentional — [reason]. Happy to discuss if you see an issue I'm missing."
 ```
 
+## Step 4.5: Update PR Description
+
+After fixes are applied and commits pushed, update the PR description to reflect the current state. Both `/ship` (Step 8) and this skill follow the same PR body structure defined in `skills/ship/pr-template.md`.
+
+### Compute summary data first
+
+Before updating the description, tally the results from Steps 3-4:
+- **Accepted count**: number of comments where fixes were applied
+- **Pushed back count**: number of comments rejected with reasoning
+- **Questions answered count**: number of clarification replies
+
+These counts are used in both the Revision History entry (below) and the final user summary (Step 5).
+
+### Update procedure
+
+**a. Fetch current PR body:**
+
+```bash
+gh pr view <number> --json body --jq '.body'
+```
+
+**b. Parse into sections:**
+
+Split the body on `^## ` at line start (regex). This yields:
+- **Preamble**: any text before the first `## ` header
+- **Sections**: each `## Header` + content until the next `## ` or EOF
+
+Identify sections by header name. Known sections: Summary, How It Works, Important Files, Test Results, Pre-Landing Review, Development Flow, Doc Completeness, Revision History. Unknown sections are preserved in their original position.
+
+Reference implementation: `.claude/scripts/lib/pr-body-parser.cjs` (parsePrBody / assemblePrBody).
+
+**c. Regenerate dynamic sections:**
+
+- **Summary**: Analyze all commits on the branch (`git log origin/main..HEAD --oneline`) and generate updated bullet points summarizing what shipped.
+- **Important Files**: Run `git diff origin/main --stat` and rebuild the file/change table matching the format in `pr-template.md`.
+- **Test Results**: Re-run the project's test suites and rebuild the results table. Omit suites that weren't run.
+- **Development Flow**: If `.claude/flow-trace-*.jsonl` exists, regenerate the Mermaid diagram. If no trace file exists, skip this section entirely.
+
+**d. Preserve static sections as-is (do not regenerate):**
+
+- `## How It Works`
+- `## Pre-Landing Review`
+- `## Doc Completeness`
+- Any custom/unknown sections not in the known list
+
+**e. Build and append Revision History entry:**
+
+If a `## Revision History` section exists, append to it. If not, create it after `## Doc Completeness` (or at the end if Doc Completeness is missing).
+
+```markdown
+## Revision History
+
+**Round N** (YYYY-MM-DD):
+- Accepted: X comments — brief list of key changes made
+- Pushed back: Y comments
+- Questions answered: Z comments
+```
+
+Round number = count of existing `**Round N**` entries + 1. Date = today's date.
+
+**f. Update the PR:**
+
+Reassemble the body from the parsed/modified sections and update:
+
+```bash
+gh pr edit <number> --body "<reassembled body>"
+```
+
 ## Step 5: Summary
 
 Report to the user:
@@ -168,6 +239,7 @@ PR #N feedback processed:
   Accepted: X comments (fixes applied)
   Pushed back: Y comments (replies posted)
   Questions answered: Z comments
+  PR description: updated with revision round N
 ```
 
 ## Gotchas
