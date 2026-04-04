@@ -5,7 +5,8 @@ description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.
   Rigorous handling of PR review feedback — verify before implementing, push back when wrong.
-argument-hint: [pr-number]
+  Multi-PR mode: /receiving-pr-feedback 323,324,325 --multi spawns separate Claude Code instances per PR.
+argument-hint: "[pr-number[,number,...]] [--multi]"
 allowed-tools:
   - Bash
   - Read
@@ -20,6 +21,36 @@ allowed-tools:
 # Receiving PR Feedback
 
 Handle PR review feedback with technical rigor. Verify suggestions before implementing, push back when they're wrong, and never blindly agree.
+
+## Step 0: Multi-PR Mode
+
+**If `$ARGUMENTS` contains `--multi`:**
+
+`--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance with a fresh context window.
+
+1. Parse PR numbers from arguments (single number like `323` or comma-separated like `323,324,325`).
+2. Get the current tmux window: `tmux display-message -p '#S:#I'`
+3. For each PR number, create a new tmux pane and launch a Claude Code instance:
+
+```bash
+# For each PR number in the list:
+tmux split-window -t "$SESSION:$WINDOW" -h "claude --dangerously-skip-permissions --print 'Run /receiving-pr-feedback <NUMBER>. Process all review feedback, apply fixes, and reply to comments on the PR.' 2>&1; echo '--- PR #<NUMBER> feedback complete. Press Enter to close. ---'; read"
+tmux select-layout -t "$SESSION:$WINDOW" tiled
+```
+
+4. Output:
+```text
+Multi-PR feedback launched:
+  PRs: #323, #324, #325
+  Panes: 3 new tmux panes created
+  Mode: context-free — each instance handles feedback independently
+
+Watch progress in the tmux panes. This instance is done.
+```
+
+5. **STOP.** Do not proceed to Step 1 — the tmux instances handle the feedback.
+
+---
 
 ## Step 1: Load feedback
 
