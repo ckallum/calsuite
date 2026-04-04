@@ -50,7 +50,7 @@ templates/   # Spec, doc, and changelog templates (never overwritten on re-insta
 
 ## Versioning
 
-Current version: **2.1**
+Current version: **2.2**
 
 When making changes to this repo:
 1. Bump the version in both CLAUDE.md and README.md
@@ -58,6 +58,7 @@ When making changes to this repo:
 
 ## Changelog
 
+- **2.2** — Flow trace and ship sweep-fix: `flow-trace.cjs` PreToolUse hook captures Skill/Agent invocations to per-session JSONL, `/flow` skill generates Mermaid workflow diagrams, `/ship` embeds Development Flow in PR body, `/ship` Step 8 now triages swept issues and fixes minor items inline before PR creation
 - **2.1** — Lint-directed agents: ESLint config auto-install, `agent-rules.json` structural lint rules, `lint-gate.js` pre-commit hook, `eslint-check.js` post-edit hook, `/lint-rule-gen` skill, Guardian architectural boundary rules (cross-layer imports, test colocation, file placement)
 - **2.0** — Consolidated skills: `/plan` (interview + brainstorm + review), `/plan-ceo` (founder-mode plan review), `/ship` (automated test + review + PR pipeline), `/retro` (weekly engineering retrospective with trend tracking)
 - **1.9** — Pre-commit review gate: `review-gate.js` hook + `@code-reviewer` agent for convention-aware code reviews before commits

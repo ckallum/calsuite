@@ -23,7 +23,7 @@
         "code-simplifier@claude-plugins-official",
         "security-guidance@claude-plugins-official"
       ],
-      "skills": ["configure-claude", "strategic-compact", "session-start", "context7", "guardian", "plan", "plan-ceo", "ship", "retro", "review", "qa", "babysit-pr", "skill-builder", "receiving-pr-feedback", "execute", "worktrees", "debug", "lint-rule-gen", "prevent", "new-spec", "sweep-issues"],
+      "skills": ["configure-claude", "strategic-compact", "session-start", "context7", "guardian", "plan", "plan-ceo", "ship", "retro", "review", "qa", "babysit-pr", "skill-builder", "receiving-pr-feedback", "execute", "worktrees", "debug", "lint-rule-gen", "prevent", "new-spec", "sweep-issues", "flow"],
       "agents": ["code-reviewer"]
     },
     "typescript": {
@@ -45,7 +45,7 @@
     },
     "monorepo-root": {
       "extends": "base",
-      "skills": ["configure-claude", "strategic-compact", "update-docs", "session-start", "context7", "guardian", "plan", "plan-ceo", "ship", "retro", "review", "qa", "babysit-pr", "skill-builder", "receiving-pr-feedback", "execute", "worktrees", "debug", "lint-rule-gen", "prevent", "new-spec", "sweep-issues"],
+      "skills": ["configure-claude", "strategic-compact", "update-docs", "session-start", "context7", "guardian", "plan", "plan-ceo", "ship", "retro", "review", "qa", "babysit-pr", "skill-builder", "receiving-pr-feedback", "execute", "worktrees", "debug", "lint-rule-gen", "prevent", "new-spec", "sweep-issues", "flow"],
       "agents": ["context-loader", "doc-updater", "browser", "code-reviewer"],
       "templates": ["specs"]
     }

@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/guardian.cjs\""
+          }
+        ],
+        "description": "Guardian: evaluate tool call risk and block dangerous operations"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"gh\\\\s+pr\\\\s+create\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/pr-intent-gate.cjs\""
+          }
+        ],
+        "description": "PR Intent Gate: require ## Why section in PR body"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"git\\\\s+(push|commit|rebase|merge)(\\\\s|$)\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/merged-branch-guard.cjs\""
+          }
+        ],
+        "description": "Merged Branch Guard: block operations on branches with merged PRs"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"git commit(\\\\s|$)\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/review-gate.cjs\""
+          }
+        ],
+        "description": "Review gate: require code review before commits"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"git commit(\\\\s|$)\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/lint-gate.cjs\""
+          }
+        ],
+        "description": "Lint gate: check structural lint rules before commits"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"(npm (install|test)|pnpm (install|test)|yarn (install|test)?|bun (install|test)|cargo build|make|docker|pytest|vitest|playwright)\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"if(!process.env.TMUX){console.error('[Hook] Consider running in tmux for session persistence');console.error('[Hook] tmux new -s dev  |  tmux attach -t dev')}\""
+          }
+        ],
+        "description": "Reminder to use tmux for long-running commands"
+      },
+      {
+        "matcher": "tool == \"Skill\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/skill-usage-tracker.cjs\""
+          }
+        ],
+        "description": "Track skill invocations for usage analytics"
+      },
+      {
+        "matcher": "tool == \"Edit\" || tool == \"Write\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/skills/strategic-compact/scripts/suggest-compact.cjs\""
+          }
+        ],
+        "description": "Suggest manual compaction at logical intervals"
+      },
+      {
+        "matcher": "tool == \"Skill\" || tool == \"Agent\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/flow-trace.cjs\""
+          }
+        ],
+        "description": "Trace skill and agent invocations for /flow diagrams"
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/pre-compact.cjs\""
+          }
+        ],
+        "description": "Save state before context compaction"
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/session-start.cjs\""
+          }
+        ],
+        "description": "Load previous context and detect package manager on new session"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "tool == \"Bash\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/pr-url-logger.cjs\""
+          }
+        ],
+        "description": "Log PR URL and provide review command after PR creation"
+      },
+      {
+        "matcher": "tool == \"Bash\" && tool_input.command matches \"gh\\\\s+pr\\\\s+create\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/ci-monitor.cjs\"",
+            "async": true,
+            "timeout": 30
+          }
+        ],
+        "description": "CI Monitor: spawn background poller for PR check status"
+      },
+      {
+        "matcher": "tool == \"Edit\" && tool_input.file_path matches \"\\\\.(ts|tsx|js|jsx)$\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/prettier-format.cjs\""
+          }
+        ],
+        "description": "Auto-format JS/TS files with Prettier after edits"
+      },
+      {
+        "matcher": "tool == \"Edit\" && tool_input.file_path matches \"\\\\.(ts|tsx)$\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/typescript-check.cjs\""
+          }
+        ],
+        "description": "TypeScript check after editing .ts/.tsx files"
+      },
+      {
+        "matcher": "tool == \"Edit\" && tool_input.file_path matches \"\\\\.(ts|tsx|js|jsx)$\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/console-log-warn.cjs\""
+          }
+        ],
+        "description": "Warn about console.log statements after edits"
+      },
+      {
+        "matcher": "(tool == \"Edit\" || tool == \"Write\") && tool_input.file_path matches \"\\\\.(ts|tsx|js|jsx)$\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/eslint-check.cjs\""
+          }
+        ],
+        "description": "ESLint check: report violations after JS/TS edits for agent self-correction"
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/check-console-log.cjs\""
+          }
+        ],
+        "description": "Check for console.log in modified files after each response"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/session-end.cjs\""
+          }
+        ],
+        "description": "Persist session state on end"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/evaluate-session.cjs\""
+          }
+        ],
+        "description": "Evaluate session for extractable patterns"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f .claude/flow-trace-*.jsonl"
+          }
+        ],
+        "description": "Clean up flow trace files"
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "commit-commands@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Edit",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Bash(git:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+      "Bash(yarn:*)",
+      "Bash(bun:*)",
+      "Bash(node:*)",
+      "Bash(gh:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(jq:*)",
+      "Bash(which:*)",
+      "Bash(pwd:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(touch:*)",
+      "Bash(diff:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(tee:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(docker:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip:*)",
+      "Bash(cargo:*)",
+      "Bash(make:*)",
+      "Bash(cmake:*)",
+      "Bash(go:*)",
+      "Bash(pytest:*)",
+      "Bash(vitest:*)",
+      "Bash(jest:*)",
+      "Bash(playwright:*)",
+      "Bash(tsc:*)",
+      "Bash(eslint:*)",
+      "Bash(prettier:*)",
+      "Bash(rm:*)",
+      "Bash(tmux:*)",
+      "Bash(env:*)",
+      "Bash(printenv:*)",
+      "Bash(date:*)",
+      "Bash(stat:*)",
+      "Bash(file:*)",
+      "Bash(realpath:*)",
+      "Bash(dirname:*)",
+      "Bash(basename:*)",
+      "Bash(xargs:*)",
+      "Bash(tr:*)",
+      "Bash(cut:*)"
+    ]
+  }
+}
