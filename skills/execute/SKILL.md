@@ -182,7 +182,11 @@ description: "Quality review: <task title>"
 
 **If critical issues found:** Fix them (or dispatch implementer to fix). Re-review.
 
-### 3d: Mark task complete
+### 3d: Simplify
+
+After quality review passes, run `/simplify` to clean up the changed code — reuse opportunities, clarity, consistency. This ensures the final code is polished before marking the task complete.
+
+### 3e: Mark task complete
 
 - **SPEC mode:** Update `tasks.md` — check off the completed task.
 - **ISSUE/RAW mode:** Track completion internally (no tasks.md to update).
