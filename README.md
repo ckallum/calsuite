@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.2**
+**Version: 2.3**
 
 ## Getting started
 
@@ -60,14 +60,4 @@ Servers are written to `~/.mcp.json` and enabled in `~/.claude/settings.local.js
 
 ## Changelog
 
-- **2.1** — Lint-directed agents: ESLint config auto-install, `agent-rules.json` structural lint rules, `lint-gate.js` pre-commit hook, `eslint-check.js` post-edit hook, `/lint-rule-gen` skill, Guardian architectural boundary rules
-- **1.9** — Pre-commit review gate: `review-gate.js` hook + `@code-reviewer` agent for convention-aware code reviews before commits
-- **1.8** — Guardian autonomous approval system: smart PreToolUse hook with configurable deny/warn rules, audit logging, and mode-based permissions
-- **1.7** — Context7 MCP server and `/context7` skill for current library documentation lookup
-- **1.6** — `@browser` agent, Excalidraw MCP integration for `@doc-updater`, MCP auto-installation, monorepo workspace plugin check fix
-- **1.5** — Mono-repo support + spec-driven development: profile-based installer, agents, templates, spec-aware hooks
-- **1.4** — Added marketplace checks to `configure-claude.js`; manifest now includes `marketplaces` array
-- **1.3** — Added `configure-claude.js` installer script + `config/global-settings.json` manifest
-- **1.2** — Added `configure-claude` skill for installing configs into projects
-- **1.1** — Added hooks system: hooks.json config, hook scripts, lib utilities
-- **1.0** — Initial setup: repo structure, CLAUDE.md, README.md
+See [CHANGELOG.md](./CHANGELOG.md).

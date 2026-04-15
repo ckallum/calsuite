@@ -272,7 +272,39 @@ Save JSON snapshot with this schema:
 }
 ```
 
-### Step 13: Write the Narrative
+### Step 13: Skill Usage Telemetry
+
+Read `~/.claude/analytics/skill-usage.jsonl` (written by `skill-usage-tracker.cjs`). Filter entries by timestamp within the retro window. Skip this step silently if the file doesn't exist.
+
+Compute:
+- **Top skills by invocation count** (top 5)
+- **Skills invoked but session was abandoned mid-flow** — heuristic: a skill invocation followed by no commits in the next 2 hours on the same session
+- **Skills declared in profile but never invoked in window** — cross-reference against `config/profiles.json` for the current profile
+- **Heavy-use candidates for cron/scheduling** — any skill invoked 5+ times in the window
+
+Output a short section:
+```
+### Skill Usage
+Top 5: /ship (12), /review (8), /debug (5), /plan (4), /context7 (3)
+Heavy use → consider automating: /babysit-pr (7× — run via /loop?)
+Never used in window: /plan-ceo, /retro — keep or drop from profile?
+```
+
+### Step 14: Learning Loop
+
+For each item in **3 Things to Improve** (Step 13's narrative), propose one concrete rule update to the most likely-responsible skill file. Format:
+
+```
+### Proposed Skill Updates
+- Improve: "XL PRs slipped through unsplit"
+  → Edit skills/ship/SKILL.md Step 6: add hard rule — abort if diff > 1500 LOC without explicit override.
+- Improve: "Fix-ratio 60% on auth module"
+  → Edit skills/review/SKILL.md: add auth-module checklist (regression tests required).
+```
+
+Do **not** apply the edits automatically. Print the proposals and ask (AskUserQuestion) whether to apply each one. Learning loop is opt-in — this is where the skills self-improve from lived evidence.
+
+### Step 15: Write the Narrative
 
 **Tweetable summary** (first line):
 ```
@@ -320,6 +352,12 @@ Small, practical, realistic. Each takes <5 minutes to adopt.
 
 ### Week-over-Week Trends
 (if applicable, from Step 9)
+
+### Skill Usage
+(from Step 13)
+
+### Proposed Skill Updates
+(from Step 14 — opt-in)
 
 ---
 
