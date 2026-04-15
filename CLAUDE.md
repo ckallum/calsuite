@@ -35,7 +35,7 @@ templates/   # Spec, doc, and changelog templates (never overwritten on re-insta
 - Plugins can be enabled at global (`~/.claude/settings.json`) OR project scope (`.claude/settings.json`) — check both
 - `String.prototype.replace` with a string replacement interprets `$` sequences — use a function replacer `() => value` for literal paths
 - `JSON.stringify(undefined)` returns `undefined` (not a string) — guard inputs to `resolveHookPaths`
-- Git repo lives at `Projects/claude/`, NOT at parent `Projects/` — was migrated in this session
+- Git repo lives at `Projects/calsuite/`, NOT at parent `Projects/` — was migrated in this session
 - Profiles in `profiles.json` with an explicit `skills` array override (not merge with) the parent — when adding a new skill to `base`, also add it to `monorepo-root` and any other profile that declares its own `skills`
 - `config/global-settings.json` stores empty placeholders for API keys (e.g., `CONTEXT7_API_KEY: ""`); actual keys go in `~/.mcp.json` only — never commit real keys to the manifest
 - When writing MCP skills, verify tool names against the live server or latest README — tool names change across versions (e.g., Context7 renamed `get-library-docs` → `query-docs`)

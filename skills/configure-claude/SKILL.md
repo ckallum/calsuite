@@ -18,16 +18,16 @@ Install all Claude Code configs from this repository into a project's `.claude/`
 
 When this skill is invoked:
 
-1. Determine the target project directory. If the current working directory is this config repo (`/Users/callumke/Projects/claude`), ask the user which project to configure. Otherwise, use the current working directory.
+1. Determine the target project directory. If the current working directory is this config repo (`/Users/callumke/Projects/calsuite`), ask the user which project to configure. Otherwise, use the current working directory.
 
 2. Run the installer script:
    ```bash
-   node /Users/callumke/Projects/claude/scripts/configure-claude.js <target-directory>
+   node /Users/callumke/Projects/calsuite/scripts/configure-claude.js <target-directory>
    ```
 
 3. Review the output and report what was installed to the user, including any global settings warnings.
 
 4. If ccstatusline config is missing or outdated, offer to install it:
    ```bash
-   node /Users/callumke/Projects/claude/scripts/configure-claude.js --install-ccstatusline
+   node /Users/callumke/Projects/calsuite/scripts/configure-claude.js --install-ccstatusline
    ```

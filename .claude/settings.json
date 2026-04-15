@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/guardian.cjs\""
+            "command": "node \".claude/scripts/hooks/guardian.cjs\""
           }
         ],
         "description": "Guardian: evaluate tool call risk and block dangerous operations"
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/pr-intent-gate.cjs\""
+            "command": "node \".claude/scripts/hooks/pr-intent-gate.cjs\""
           }
         ],
         "description": "PR Intent Gate: require ## Why section in PR body"
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/merged-branch-guard.cjs\""
+            "command": "node \".claude/scripts/hooks/merged-branch-guard.cjs\""
           }
         ],
         "description": "Merged Branch Guard: block operations on branches with merged PRs"
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/review-gate.cjs\""
+            "command": "node \".claude/scripts/hooks/review-gate.cjs\""
           }
         ],
         "description": "Review gate: require code review before commits"
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/lint-gate.cjs\""
+            "command": "node \".claude/scripts/hooks/lint-gate.cjs\""
           }
         ],
         "description": "Lint gate: check structural lint rules before commits"
@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/skill-usage-tracker.cjs\""
+            "command": "node \".claude/scripts/hooks/skill-usage-tracker.cjs\""
           }
         ],
         "description": "Track skill invocations for usage analytics"
@@ -77,7 +77,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/skills/strategic-compact/scripts/suggest-compact.cjs\""
+            "command": "node \".claude/skills/strategic-compact/scripts/suggest-compact.cjs\""
           }
         ],
         "description": "Suggest manual compaction at logical intervals"
@@ -87,7 +87,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/flow-trace.cjs\""
+            "command": "node \".claude/scripts/hooks/flow-trace.cjs\""
           }
         ],
         "description": "Trace skill and agent invocations for /flow diagrams"
@@ -99,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/pre-compact.cjs\""
+            "command": "node \".claude/scripts/hooks/pre-compact.cjs\""
           }
         ],
         "description": "Save state before context compaction"
@@ -111,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/session-start.cjs\""
+            "command": "node \".claude/scripts/hooks/session-start.cjs\""
           }
         ],
         "description": "Load previous context and detect package manager on new session"
@@ -123,7 +123,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/pr-url-logger.cjs\""
+            "command": "node \".claude/scripts/hooks/pr-url-logger.cjs\""
           }
         ],
         "description": "Log PR URL and provide review command after PR creation"
@@ -133,7 +133,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/ci-monitor.cjs\"",
+            "command": "node \".claude/scripts/hooks/ci-monitor.cjs\"",
             "async": true,
             "timeout": 30
           }
@@ -145,7 +145,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/prettier-format.cjs\""
+            "command": "node \".claude/scripts/hooks/prettier-format.cjs\""
           }
         ],
         "description": "Auto-format JS/TS files with Prettier after edits"
@@ -155,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/typescript-check.cjs\""
+            "command": "node \".claude/scripts/hooks/typescript-check.cjs\""
           }
         ],
         "description": "TypeScript check after editing .ts/.tsx files"
@@ -165,7 +165,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/console-log-warn.cjs\""
+            "command": "node \".claude/scripts/hooks/console-log-warn.cjs\""
           }
         ],
         "description": "Warn about console.log statements after edits"
@@ -175,7 +175,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/eslint-check.cjs\""
+            "command": "node \".claude/scripts/hooks/eslint-check.cjs\""
           }
         ],
         "description": "ESLint check: report violations after JS/TS edits for agent self-correction"
@@ -187,7 +187,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/check-console-log.cjs\""
+            "command": "node \".claude/scripts/hooks/check-console-log.cjs\""
           }
         ],
         "description": "Check for console.log in modified files after each response"
@@ -199,7 +199,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/session-end.cjs\""
+            "command": "node \".claude/scripts/hooks/session-end.cjs\""
           }
         ],
         "description": "Persist session state on end"
@@ -209,7 +209,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/callumke/Projects/claude/.claude/scripts/hooks/evaluate-session.cjs\""
+            "command": "node \".claude/scripts/hooks/evaluate-session.cjs\""
           }
         ],
         "description": "Evaluate session for extractable patterns"
