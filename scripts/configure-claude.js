@@ -576,6 +576,45 @@ function syncParentAssets() {
   console.log(`  ✓ Symlinked ${agentCount} shared agent(s) → ${parentAgentsDir}`);
 }
 
+function installTarget(targetDir, profilesConfig, opts = {}) {
+  const detectedProfiles = detectProfiles(targetDir);
+  if (opts.logProfiles) {
+    console.log(`  Detected profiles: ${detectedProfiles.join(', ')}`);
+  }
+
+  const isMonorepo = detectedProfiles.includes('monorepo');
+
+  if (isMonorepo) {
+    const rootProfileNames = detectedProfiles.filter(p => p !== 'monorepo').concat('monorepo-root');
+    const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
+    installForProfile(targetDir, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, opts);
+
+    const workspaces = findWorkspaces(targetDir);
+    for (const ws of workspaces) {
+      const wsProfiles = detectProfiles(ws.path);
+      if (opts.logProfiles) {
+        console.log(`\n  Workspace "${ws.name}" profiles: ${wsProfiles.join(', ')}`);
+      }
+      const wsResolved = resolveProfile(wsProfiles, profilesConfig);
+      installForProfile(ws.path, wsResolved, `workspace: ${ws.name} [${wsProfiles.join(', ')}]`, opts);
+
+      if (opts.copyWorkspaceDocs && rootResolved.templates.includes('specs')) {
+        const wsDocs = path.join(ws.path, 'docs');
+        if (!fs.existsSync(wsDocs)) {
+          copyDirSyncNoOverwrite(path.join(TEMPLATES_DIR, 'docs'), wsDocs);
+          console.log(`  ✓ Created ${ws.name}/docs/ folder`);
+        }
+      }
+    }
+
+    return { detectedProfiles, isMonorepo, rootProfileNames };
+  }
+
+  const resolved = resolveProfile(detectedProfiles, profilesConfig);
+  installForProfile(targetDir, resolved, detectedProfiles.join(', '), opts);
+  return { detectedProfiles, isMonorepo };
+}
+
 function parseArgv() {
   const args = process.argv.slice(2);
   const flags = {};
@@ -657,25 +696,7 @@ function main() {
         console.log(`  ⚠ Skipping ${target.path} (not found)`);
         continue;
       }
-
-      const detectedProfiles = detectProfiles(targetPath);
-      const isMonorepo = detectedProfiles.includes('monorepo');
-
-      if (isMonorepo) {
-        const rootProfileNames = detectedProfiles.filter(p => p !== 'monorepo').concat('monorepo-root');
-        const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
-        installForProfile(targetPath, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, { copy: flags.copy });
-
-        const workspaces = findWorkspaces(targetPath);
-        for (const ws of workspaces) {
-          const wsProfiles = detectProfiles(ws.path);
-          const wsResolved = resolveProfile(wsProfiles, profilesConfig);
-          installForProfile(ws.path, wsResolved, `workspace: ${ws.name} [${wsProfiles.join(', ')}]`, { copy: flags.copy });
-        }
-      } else {
-        const resolved = resolveProfile(detectedProfiles, profilesConfig);
-        installForProfile(targetPath, resolved, detectedProfiles.join(', '), { copy: flags.copy });
-      }
+      installTarget(targetPath, profilesConfig, { copy: flags.copy });
     }
 
     console.log('\nSync complete!\n');
@@ -706,42 +727,11 @@ function main() {
 
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
 
-  // Detect profiles
-  const detectedProfiles = detectProfiles(targetDir);
-  console.log(`  Detected profiles: ${detectedProfiles.join(', ')}`);
-
-  const isMonorepo = detectedProfiles.includes('monorepo');
-
-  if (isMonorepo) {
-    // Install root with monorepo-root profile
-    const rootProfileNames = detectedProfiles.filter(p => p !== 'monorepo').concat('monorepo-root');
-    const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
-    installForProfile(targetDir, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, { copy: flags.copy });
-
-    // Create docs/ in each workspace (if templates include specs)
-    const workspaces = findWorkspaces(targetDir);
-
-    // Install each workspace with its own detected profile
-    for (const ws of workspaces) {
-      const wsProfiles = detectProfiles(ws.path);
-      console.log(`\n  Workspace "${ws.name}" profiles: ${wsProfiles.join(', ')}`);
-      const wsResolved = resolveProfile(wsProfiles, profilesConfig);
-      installForProfile(ws.path, wsResolved, `workspace: ${ws.name} [${wsProfiles.join(', ')}]`, { copy: flags.copy });
-
-      // Create docs/ in workspace if root has specs template
-      if (rootResolved.templates.includes('specs')) {
-        const wsDocs = path.join(ws.path, 'docs');
-        if (!fs.existsSync(wsDocs)) {
-          copyDirSyncNoOverwrite(path.join(TEMPLATES_DIR, 'docs'), wsDocs);
-          console.log(`  ✓ Created ${ws.name}/docs/ folder`);
-        }
-      }
-    }
-  } else {
-    // Single project installation
-    const resolved = resolveProfile(detectedProfiles, profilesConfig);
-    installForProfile(targetDir, resolved, detectedProfiles.join(', '), { copy: flags.copy });
-  }
+  const { isMonorepo } = installTarget(targetDir, profilesConfig, {
+    copy: flags.copy,
+    logProfiles: true,
+    copyWorkspaceDocs: true,
+  });
 
   // Global settings check
   const manifest = readJsonSync(GLOBAL_MANIFEST);
