@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.3** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.4** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -10,7 +10,7 @@ When the user's intent matches, read the pointed file *before* doing anything el
 
 | Intent | Read |
 |---|---|
-| Modify installer / profiles | `scripts/configure-claude.js`, `config/profiles.json`, `config/global-settings.json` |
+| Modify installer / profiles / sync | `scripts/configure-claude.js`, `config/profiles.json`, `config/targets.json`, `config/global-settings.json` |
 | Add/change a hook | `hooks/hooks.json`, `scripts/hooks/<name>.cjs`, `scripts/lib/utils.cjs` |
 | Add/change a skill | `skills/<name>/SKILL.md` (skills are parameterized — document args in a `## Arguments` section) |
 | Add/change an agent | `agents/<name>.md` (YAML frontmatter) |
@@ -44,6 +44,10 @@ templates/   # spec / doc / changelog templates
 - `~/.claude/analytics/skill-usage.jsonl` — skill invocations (written by `skill-usage-tracker.cjs`, read by `/retro`)
 - `~/.config/ccstatusline/settings.json` — ccstatusline layout
 - `~/.mcp.json` — global MCP server configs (installer adds missing servers from manifest)
+- `~/Projects/.claude/skills/` — shared skills (symlinked from calsuite, inherited by all repos)
+- `~/Projects/.claude/agents/` — shared agents (symlinked from calsuite, inherited by all repos)
+- `config/targets.json` — repos that `--sync` installs to
+- `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config change
 
 ## Gotchas
 
@@ -55,6 +59,9 @@ templates/   # spec / doc / changelog templates
 - Profiles with an explicit `skills` array **override** (not merge with) parent — when adding a skill to `base`, also add to `monorepo-root` and any other profile declaring its own `skills`.
 - `global-settings.json` stores empty placeholders for API keys; real keys go in `~/.mcp.json` only.
 - MCP tool names change across versions (e.g. Context7 `get-library-docs` → `query-docs`) — verify against the live server.
+- Hook entries in `hooks.json` MUST have `"_origin": "calsuite"` — the installer uses this to merge without overwriting project-specific hooks.
+- Hook scripts are symlinked (not copied) — editing them in calsuite edits them everywhere. Use `--copy` flag for portability.
+- `symlinkDirSync` skips non-symlink files in dest — project-specific hook scripts are preserved.
 - Claude Code MCP schema uses `"type": "http"` for remote servers, NOT `"type": "url"`.
 - Review gate blocks commits without `@code-reviewer` approval — bypass with `[skip-review]`, `docs:`/`chore:`/`style:` prefix, or md-only changes.
 

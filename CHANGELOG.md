@@ -2,7 +2,23 @@
 
 All notable changes to this repository.
 
-Current version: **2.3**
+Current version: **2.4**
+
+## [2.4] — 2026-04-16
+
+### Added
+- `--sync` flag — re-runs installer against all repos listed in `config/targets.json`
+- `--copy` flag — falls back to file copying instead of symlinks (for portability)
+- `config/targets.json` — manifest of target repos for `--sync`
+- Git post-commit hook — auto-syncs to targets when hooks/skills/agents/scripts/config change
+- `syncParentAssets()` — symlinks shared skills and agents into `~/Projects/.claude/` for hierarchy-based inheritance
+- `mergeHooks()` — origin-aware hook merge that preserves project-specific hooks across re-installs
+
+### Changed
+- Hook scripts now symlinked instead of copied — changes in calsuite propagate instantly
+- Lib scripts now symlinked instead of copied
+- `hooks.json` entries tagged with `"_origin": "calsuite"` to enable merge-aware installs
+- `installForProfile()` accepts `opts.copy` to control symlink vs copy behavior
 
 ## [2.3] — 2026-04-15
 
