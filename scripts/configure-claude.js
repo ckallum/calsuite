@@ -14,6 +14,8 @@
  *   --only skill1,skill2,...     Install only specific skills (skips hooks/plugins/settings)
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
+ *   --sync                       Re-run install against all targets in config/targets.json
+ *   --copy                       Copy scripts instead of symlinking (for portability)
  */
 
 const fs = require('fs');
@@ -29,11 +31,15 @@ const SKILLS_DIR = path.join(CONFIG_REPO, 'skills');
 const AGENTS_DIR = path.join(CONFIG_REPO, 'agents');
 const TEMPLATES_DIR = path.join(CONFIG_REPO, 'templates');
 const LINT_CONFIGS_DIR = path.join(CONFIG_REPO, 'config', 'lint-configs');
+const TARGETS_JSON = path.join(CONFIG_REPO, 'config', 'targets.json');
+const PARENT_CLAUDE_DIR = path.join(CONFIG_REPO, '..', '.claude');
 const HOME_DIR = require('os').homedir();
 const HOME_SETTINGS = path.join(HOME_DIR, '.claude', 'settings.json');
 const HOME_SETTINGS_LOCAL = path.join(HOME_DIR, '.claude', 'settings.local.json');
 const HOME_MCP_JSON = path.join(HOME_DIR, '.mcp.json');
 const KNOWN_MARKETPLACES = path.join(HOME_DIR, '.claude', 'plugins', 'known_marketplaces.json');
+// Skills that only make sense in the config repo itself — never export to target repos
+const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder']);
 
 function copyDirSync(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -63,6 +69,52 @@ function copyDirSyncNoOverwrite(src, dest) {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function symlinkDirSync(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      symlinkDirSync(srcPath, destPath);
+    } else {
+      symlinkOrSkip(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Create or refresh a symlink. Replaces existing symlinks, skips real files/dirs.
+ * Returns true if the symlink was created, false if skipped.
+ */
+function symlinkOrSkip(srcPath, destPath) {
+  if (fs.existsSync(destPath)) {
+    const stat = fs.lstatSync(destPath);
+    if (stat.isSymbolicLink()) {
+      fs.unlinkSync(destPath);
+    } else {
+      return false; // Real file/directory — project-specific, skip
+    }
+  }
+  fs.symlinkSync(path.resolve(srcPath), destPath);
+  return true;
+}
+
+function mergeHooks(existingHooks, newHooks) {
+  const merged = {};
+  const allEvents = new Set([...Object.keys(existingHooks || {}), ...Object.keys(newHooks || {})]);
+
+  for (const event of allEvents) {
+    const existing = existingHooks?.[event] || [];
+    const incoming = newHooks?.[event] || [];
+    // Keep project-specific hooks (no _origin or _origin !== "calsuite")
+    const projectHooks = existing.filter(h => !h._origin || h._origin !== 'calsuite');
+    // Calsuite hooks come first, then project-specific
+    merged[event] = [...incoming, ...projectHooks];
+  }
+
+  return merged;
 }
 
 function readJsonSync(filePath) {
@@ -219,7 +271,8 @@ function findWorkspaces(targetDir) {
 
 // --- Installation ---
 
-function installForProfile(targetDir, resolvedProfile, label) {
+function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
+  const useCopy = opts.copy || false;
   const claudeDir = path.join(targetDir, '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
 
@@ -229,15 +282,21 @@ function installForProfile(targetDir, resolvedProfile, label) {
   fs.mkdirSync(claudeDir, { recursive: true });
   console.log(`  ✓ Ensured ${claudeDir} exists`);
 
-  // 2. Copy scripts/hooks/ and scripts/lib/
+  // 2. Symlink (or copy) scripts/hooks/ and scripts/lib/
   const destHooks = path.join(claudeDir, 'scripts', 'hooks');
   const destLib = path.join(claudeDir, 'scripts', 'lib');
 
-  copyDirSync(SCRIPTS_HOOKS, destHooks);
-  console.log(`  ✓ Copied hook scripts → ${destHooks}`);
-
-  copyDirSync(SCRIPTS_LIB, destLib);
-  console.log(`  ✓ Copied lib scripts  → ${destLib}`);
+  if (useCopy) {
+    copyDirSync(SCRIPTS_HOOKS, destHooks);
+    console.log(`  ✓ Copied hook scripts → ${destHooks}`);
+    copyDirSync(SCRIPTS_LIB, destLib);
+    console.log(`  ✓ Copied lib scripts  → ${destLib}`);
+  } else {
+    symlinkDirSync(SCRIPTS_HOOKS, destHooks);
+    console.log(`  ✓ Symlinked hook scripts → ${destHooks}`);
+    symlinkDirSync(SCRIPTS_LIB, destLib);
+    console.log(`  ✓ Symlinked lib scripts  → ${destLib}`);
+  }
 
   // 2b. Copy guardian rules config
   const guardianSrc = path.join(CONFIG_REPO, 'config', 'guardian-rules.json');
@@ -287,8 +346,6 @@ function installForProfile(targetDir, resolvedProfile, label) {
   }
 
   // 3. Copy skills (only those in resolved profile)
-  // Skills that only make sense in the config repo itself — never export to target repos
-  const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder']);
   const destSkills = path.join(claudeDir, 'skills');
   let skillCount = 0;
   for (const skillName of resolvedProfile.skills) {
@@ -358,16 +415,22 @@ function installForProfile(targetDir, resolvedProfile, label) {
   const resolvedHooks = resolveHookPaths(hooksConfig.hooks, claudeDir);
 
   // 7. Merge hooks and plugins into target settings.json
+  //    Uses _origin tags to replace only calsuite-managed hooks, preserving project-specific ones
   const existingSettings = readJsonSync(settingsPath) || {};
   const pluginsToEnable = {};
   for (const plugin of resolvedProfile.plugins) {
     pluginsToEnable[plugin] = true;
   }
 
+  const mergedHooks = mergeHooks(existingSettings.hooks, resolvedHooks);
+  const projectHookCount = Object.values(mergedHooks)
+    .flat()
+    .filter(h => !h._origin || h._origin !== 'calsuite').length;
+
   const merged = {
     ...existingSettings,
     ...(hooksConfig.$schema ? { $schema: hooksConfig.$schema } : {}),
-    hooks: resolvedHooks,
+    hooks: mergedHooks,
     enabledPlugins: { ...existingSettings.enabledPlugins, ...pluginsToEnable },
   };
 
@@ -387,7 +450,7 @@ function installForProfile(targetDir, resolvedProfile, label) {
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
-  console.log(`  ✓ Merged hooks into ${settingsPath}`);
+  console.log(`  ✓ Merged hooks into ${settingsPath}${projectHookCount > 0 ? ` (preserved ${projectHookCount} project-specific hook(s))` : ''}`);
   console.log(`  ✓ Enabled ${resolvedProfile.plugins.length} plugin(s) in project settings`);
 
   // Verify no unresolved placeholders remain
@@ -426,12 +489,11 @@ function installOnly(targetDir, onlySkills, onlyAgents) {
   const missing = [];
 
   // Install specified skills
-  const INTERNAL_ONLY = new Set(['configure-claude', 'skill-builder']);
   if (onlySkills.length > 0) {
     const destSkills = path.join(claudeDir, 'skills');
     let count = 0;
     for (const skillName of onlySkills) {
-      if (INTERNAL_ONLY.has(skillName)) {
+      if (INTERNAL_SKILLS.has(skillName)) {
         console.log(`  ⊘ Skipped internal skill: ${skillName}`);
         continue;
       }
@@ -481,6 +543,39 @@ function installOnly(targetDir, onlySkills, onlyAgents) {
   return missing;
 }
 
+function syncParentAssets() {
+  if (!fs.existsSync(PARENT_CLAUDE_DIR)) {
+    console.log(`  ⚠ Parent .claude dir not found at ${PARENT_CLAUDE_DIR} — skipping shared asset sync`);
+    return;
+  }
+
+  const parentSkillsDir = path.join(PARENT_CLAUDE_DIR, 'skills');
+  const parentAgentsDir = path.join(PARENT_CLAUDE_DIR, 'agents');
+
+  fs.mkdirSync(parentSkillsDir, { recursive: true });
+  fs.mkdirSync(parentAgentsDir, { recursive: true });
+
+  // Symlink shared skills
+  let skillCount = 0;
+  for (const entry of fs.readdirSync(SKILLS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory() || INTERNAL_SKILLS.has(entry.name) || entry.name.startsWith('.')) continue;
+    if (symlinkOrSkip(path.join(SKILLS_DIR, entry.name), path.join(parentSkillsDir, entry.name))) {
+      skillCount++;
+    }
+  }
+  console.log(`  ✓ Symlinked ${skillCount} shared skill(s) → ${parentSkillsDir}`);
+
+  // Symlink shared agents
+  let agentCount = 0;
+  for (const entry of fs.readdirSync(AGENTS_DIR, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (symlinkOrSkip(path.join(AGENTS_DIR, entry.name), path.join(parentAgentsDir, entry.name))) {
+      agentCount++;
+    }
+  }
+  console.log(`  ✓ Symlinked ${agentCount} shared agent(s) → ${parentAgentsDir}`);
+}
+
 function parseArgv() {
   const args = process.argv.slice(2);
   const flags = {};
@@ -503,6 +598,10 @@ function parseArgv() {
       flags.agents = args[++i].split(',').map(s => s.trim()).filter(Boolean);
     } else if (args[i] === '--install-ccstatusline') {
       flags.installCcstatusline = true;
+    } else if (args[i] === '--sync') {
+      flags.sync = true;
+    } else if (args[i] === '--copy') {
+      flags.copy = true;
     } else if (args[i].startsWith('--')) {
       console.error(`  ✗ Unknown flag: ${args[i]}`);
       process.exit(1);
@@ -530,6 +629,56 @@ function main() {
       process.exit(1);
     }
     installCcstatuslineConfig(manifest);
+    return;
+  }
+
+  // Handle --sync mode: re-run install against all targets in config/targets.json
+  if (flags.sync) {
+    const targets = readJsonSync(TARGETS_JSON);
+    if (!targets?.targets?.length) {
+      console.error('  ✗ No targets found in config/targets.json');
+      process.exit(1);
+    }
+
+    console.log(`\nSyncing to ${targets.targets.length} target(s)...\n`);
+
+    const profilesConfig = readJsonSync(PROFILES_JSON);
+    if (!profilesConfig) {
+      console.error('  ✗ Could not read profiles.json');
+      process.exit(1);
+    }
+
+    // Also sync shared skills/agents to parent .claude/
+    syncParentAssets();
+
+    for (const target of targets.targets) {
+      const targetPath = path.resolve(target.path.replace(/^~/, HOME_DIR));
+      if (!fs.existsSync(targetPath)) {
+        console.log(`  ⚠ Skipping ${target.path} (not found)`);
+        continue;
+      }
+
+      const detectedProfiles = detectProfiles(targetPath);
+      const isMonorepo = detectedProfiles.includes('monorepo');
+
+      if (isMonorepo) {
+        const rootProfileNames = detectedProfiles.filter(p => p !== 'monorepo').concat('monorepo-root');
+        const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
+        installForProfile(targetPath, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, { copy: flags.copy });
+
+        const workspaces = findWorkspaces(targetPath);
+        for (const ws of workspaces) {
+          const wsProfiles = detectProfiles(ws.path);
+          const wsResolved = resolveProfile(wsProfiles, profilesConfig);
+          installForProfile(ws.path, wsResolved, `workspace: ${ws.name} [${wsProfiles.join(', ')}]`, { copy: flags.copy });
+        }
+      } else {
+        const resolved = resolveProfile(detectedProfiles, profilesConfig);
+        installForProfile(targetPath, resolved, detectedProfiles.join(', '), { copy: flags.copy });
+      }
+    }
+
+    console.log('\nSync complete!\n');
     return;
   }
 
@@ -567,7 +716,7 @@ function main() {
     // Install root with monorepo-root profile
     const rootProfileNames = detectedProfiles.filter(p => p !== 'monorepo').concat('monorepo-root');
     const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
-    installForProfile(targetDir, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`);
+    installForProfile(targetDir, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, { copy: flags.copy });
 
     // Create docs/ in each workspace (if templates include specs)
     const workspaces = findWorkspaces(targetDir);
@@ -577,7 +726,7 @@ function main() {
       const wsProfiles = detectProfiles(ws.path);
       console.log(`\n  Workspace "${ws.name}" profiles: ${wsProfiles.join(', ')}`);
       const wsResolved = resolveProfile(wsProfiles, profilesConfig);
-      installForProfile(ws.path, wsResolved, `workspace: ${ws.name} [${wsProfiles.join(', ')}]`);
+      installForProfile(ws.path, wsResolved, `workspace: ${ws.name} [${wsProfiles.join(', ')}]`, { copy: flags.copy });
 
       // Create docs/ in workspace if root has specs template
       if (rootResolved.templates.includes('specs')) {
@@ -591,7 +740,7 @@ function main() {
   } else {
     // Single project installation
     const resolved = resolveProfile(detectedProfiles, profilesConfig);
-    installForProfile(targetDir, resolved, detectedProfiles.join(', '));
+    installForProfile(targetDir, resolved, detectedProfiles.join(', '), { copy: flags.copy });
   }
 
   // Global settings check
