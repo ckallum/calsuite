@@ -21,6 +21,7 @@
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "no-shadow": "warn",
     "no-redeclare": "error",
+    "no-undef": "error",
     "no-constant-condition": "error",
     "no-dupe-keys": "error",
     "no-duplicate-case": "error",
