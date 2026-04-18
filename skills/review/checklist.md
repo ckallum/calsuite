@@ -60,6 +60,7 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 #### Conditional Side Effects
 - Code paths that branch on a condition but forget to apply a side effect on one branch (e.g., status updated but related field only set in one branch — creating inconsistent state)
 - Log messages that claim an action happened but the action was conditionally skipped
+- State variables (counters, flags, accumulators) added for a feature lifecycle — verify they reset on deactivation/reactivation, not just on success
 
 #### Magic Numbers & String Coupling
 - Bare numeric literals used in multiple files — should be named constants
@@ -70,6 +71,7 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - Unused imports or unreachable code paths
 - Comments/docstrings that describe old behavior after the code changed
 - Version mismatch between PR and VERSION/CHANGELOG files
+- Mechanical refactors claiming "all X converted" — grep the full file for the old pattern to verify completeness
 
 #### LLM Prompt Issues
 - 0-indexed lists in prompts (LLMs reliably return 1-indexed)
@@ -81,6 +83,7 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - Assertions on string content without checking format (e.g., asserting title present but not URL format)
 - Missing assertions that a code path should explicitly NOT call an external service
 - Security enforcement features (blocking, rate limiting, auth) without integration tests verifying enforcement
+- Changed function return type or error contract (e.g., `Ok(None)` → `Err`) — verify at least one test exercises the new error/failure path
 
 #### Error Handling
 - Missing error handling at system boundaries (API routes, background jobs, external service calls)
