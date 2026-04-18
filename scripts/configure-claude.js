@@ -345,18 +345,11 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
     console.log(`  ✓ ESLint config already exists (skipped)`);
   }
 
-  // 3. Copy skills (only those in resolved profile)
-  const destSkills = path.join(claudeDir, 'skills');
-  let skillCount = 0;
-  for (const skillName of resolvedProfile.skills) {
-    if (INTERNAL_SKILLS.has(skillName)) continue;
-    const srcSkill = path.join(SKILLS_DIR, skillName);
-    if (fs.existsSync(srcSkill) && fs.statSync(srcSkill).isDirectory()) {
-      copyDirSync(srcSkill, path.join(destSkills, skillName));
-      skillCount++;
-    }
-  }
-  console.log(`  ✓ Copied ${skillCount} skill(s) → ${destSkills}`);
+  // 3. Skills are inherited from ~/Projects/.claude/skills/ (symlinked by syncParentAssets).
+  //    Per-target copies are intentionally not written — they would clobber local edits
+  //    on every --sync (copyDirSync is unconditional-overwrite). Use `--only <skill>` for
+  //    a one-off per-target install.
+  console.log(`  ✓ Skills inherited from parent .claude/ (not copied per-target)`);
 
   // 4. Copy agents (only those in resolved profile)
   if (resolvedProfile.agents.length > 0) {

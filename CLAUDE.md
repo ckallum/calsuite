@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.4** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.5** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -62,6 +62,7 @@ templates/   # spec / doc / changelog templates
 - Hook entries in `hooks.json` MUST have `"_origin": "calsuite"` — the installer uses this to merge without overwriting project-specific hooks.
 - Hook scripts are symlinked (not copied) — editing them in calsuite edits them everywhere. Use `--copy` flag for portability.
 - `symlinkDirSync` skips non-symlink files in dest — project-specific hook scripts are preserved.
+- Skills are **not** copied into each target's `.claude/skills/` — they inherit from `~/Projects/.claude/skills/` (parent-level symlinks). Prevents `copyDirSync` from clobbering local downstream edits on every `--sync`. Use `--only <skill>` for a one-off per-target install.
 - Claude Code MCP schema uses `"type": "http"` for remote servers, NOT `"type": "url"`.
 - Review gate blocks commits without `@code-reviewer` approval — bypass with `[skip-review]`, `docs:`/`chore:`/`style:` prefix, or md-only changes.
 

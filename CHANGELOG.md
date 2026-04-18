@@ -2,7 +2,13 @@
 
 All notable changes to this repository.
 
-Current version: **2.4**
+Current version: **2.5**
+
+## [2.5] — 2026-04-18
+
+### Changed
+- Skills are no longer copied into each target's `.claude/skills/` — targets now rely solely on the symlinks at `~/Projects/.claude/skills/` created by `syncParentAssets()`. Previously, `installForProfile()` ran `copyDirSync` on every `--sync`, which unconditionally overwrote any local edits downstream made to their skill files. The per-target copy provided no real isolation (profiles barely differed) and was a silent-data-loss footgun.
+- `--only <skill>` remains the escape hatch for a one-off per-target skill install when a project genuinely needs a local copy.
 
 ## [2.4] — 2026-04-16
 
