@@ -15,7 +15,8 @@
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
  *   --sync                       Re-run install against all targets in config/targets.json
- *   --copy                       Copy scripts instead of symlinking (for portability)
+ *   --copy                       (deprecated, no-op) formerly toggled script copy vs symlink;
+ *                                hook scripts are now referenced directly from $CALSUITE_DIR
  */
 
 const fs = require('fs');
@@ -25,8 +26,6 @@ const CONFIG_REPO = path.resolve(__dirname, '..');
 const HOOKS_JSON = path.join(CONFIG_REPO, 'hooks', 'hooks.json');
 const GLOBAL_MANIFEST = path.join(CONFIG_REPO, 'config', 'global-settings.json');
 const PROFILES_JSON = path.join(CONFIG_REPO, 'config', 'profiles.json');
-const SCRIPTS_HOOKS = path.join(CONFIG_REPO, 'scripts', 'hooks');
-const SCRIPTS_LIB = path.join(CONFIG_REPO, 'scripts', 'lib');
 const SKILLS_DIR = path.join(CONFIG_REPO, 'skills');
 const AGENTS_DIR = path.join(CONFIG_REPO, 'agents');
 const TEMPLATES_DIR = path.join(CONFIG_REPO, 'templates');
@@ -39,6 +38,32 @@ const HOME_MCP_JSON = path.join(HOME_DIR, '.mcp.json');
 const KNOWN_MARKETPLACES = path.join(HOME_DIR, '.claude', 'plugins', 'known_marketplaces.json');
 // Skills that only make sense in the config repo itself — never export to target repos
 const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder']);
+
+/**
+ * Resolve the absolute path to the calsuite checkout on this machine.
+ * Order: $CALSUITE_DIR env var → ~/Projects/calsuite → installer's parent.
+ * The resolved path is written literally into target's settings.local.json —
+ * Claude Code's hook runner does not shell-expand hook commands, so embedded
+ * $VAR syntax would not work at runtime.
+ */
+function resolveCalsuiteDir() {
+  if (process.env.CALSUITE_DIR) return path.resolve(process.env.CALSUITE_DIR);
+  const defaultPath = path.join(HOME_DIR, 'Projects', 'calsuite');
+  if (fs.existsSync(defaultPath)) return defaultPath;
+  return CONFIG_REPO;
+}
+
+/**
+ * Substitute every occurrence of the ${CALSUITE_DIR} placeholder in a
+ * parsed hooks config with the resolved absolute path. Operates on the
+ * JSON-stringified form so it catches the placeholder regardless of which
+ * nested field it appears in.
+ */
+function substituteCalsuiteDir(hooksObj, calsuiteDir) {
+  const json = JSON.stringify(hooksObj);
+  const safeDir = calsuiteDir.replace(/\\/g, '\\\\');
+  return JSON.parse(json.replace(/\$\{CALSUITE_DIR\}/g, () => safeDir));
+}
 
 function copyDirSync(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -70,36 +95,6 @@ function copyDirSyncNoOverwrite(src, dest) {
   }
 }
 
-function symlinkDirSync(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      symlinkDirSync(srcPath, destPath);
-    } else {
-      symlinkOrSkip(srcPath, destPath);
-    }
-  }
-}
-
-/**
- * Create or refresh a symlink. Replaces existing symlinks, skips real files/dirs.
- * Returns true if the symlink was created, false if skipped.
- */
-function symlinkOrSkip(srcPath, destPath) {
-  if (fs.existsSync(destPath)) {
-    const stat = fs.lstatSync(destPath);
-    if (stat.isSymbolicLink()) {
-      fs.unlinkSync(destPath);
-    } else {
-      return false; // Real file/directory — project-specific, skip
-    }
-  }
-  fs.symlinkSync(path.resolve(srcPath), destPath);
-  return true;
-}
-
 function mergeHooks(existingHooks, newHooks) {
   const merged = {};
   const allEvents = new Set([...Object.keys(existingHooks || {}), ...Object.keys(newHooks || {})]);
@@ -122,12 +117,6 @@ function readJsonSync(filePath) {
   } catch {
     return null;
   }
-}
-
-function resolveHookPaths(obj, claudeConfigDir) {
-  const json = JSON.stringify(obj);
-  const safeDir = claudeConfigDir.replace(/\\/g, '\\\\');
-  return JSON.parse(json.replace(/\$\{CLAUDE_CONFIG_DIR\}/g, () => safeDir));
 }
 
 // --- Profile detection ---
@@ -271,7 +260,6 @@ function findWorkspaces(targetDir) {
 // --- Installation ---
 
 function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
-  const useCopy = opts.copy || false;
   const claudeDir = path.join(targetDir, '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
 
@@ -281,21 +269,9 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
   fs.mkdirSync(claudeDir, { recursive: true });
   console.log(`  ✓ Ensured ${claudeDir} exists`);
 
-  // 2. Symlink (or copy) scripts/hooks/ and scripts/lib/
-  const destHooks = path.join(claudeDir, 'scripts', 'hooks');
-  const destLib = path.join(claudeDir, 'scripts', 'lib');
-
-  if (useCopy) {
-    copyDirSync(SCRIPTS_HOOKS, destHooks);
-    console.log(`  ✓ Copied hook scripts → ${destHooks}`);
-    copyDirSync(SCRIPTS_LIB, destLib);
-    console.log(`  ✓ Copied lib scripts  → ${destLib}`);
-  } else {
-    symlinkDirSync(SCRIPTS_HOOKS, destHooks);
-    console.log(`  ✓ Symlinked hook scripts → ${destHooks}`);
-    symlinkDirSync(SCRIPTS_LIB, destLib);
-    console.log(`  ✓ Symlinked lib scripts  → ${destLib}`);
-  }
+  // 2. Hook scripts (scripts/hooks/, scripts/lib/) are NOT copied or symlinked
+  //    into target/.claude/. Hook commands in settings.local.json reference them
+  //    directly from $CALSUITE_DIR, so there's no target-side footprint to manage.
 
   // 2b. Copy guardian rules config
   const guardianSrc = path.join(CONFIG_REPO, 'config', 'guardian-rules.json');
@@ -411,27 +387,69 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
     console.error('  ✗ hooks.json is missing "hooks" key');
     process.exit(1);
   }
-  const resolvedHooks = resolveHookPaths(hooksConfig.hooks, claudeDir);
 
-  // 7. Merge hooks and plugins into target settings.json
-  //    Uses _origin tags to replace only calsuite-managed hooks, preserving project-specific ones
+  // Substitute ${CALSUITE_DIR} with the literal absolute path. Claude Code's
+  // hook runner does not shell-expand command strings, so $VAR syntax cannot
+  // resolve at runtime — the installer must resolve it now.
+  const calsuiteDir = resolveCalsuiteDir();
+  const resolvedHooks = substituteCalsuiteDir(hooksConfig.hooks, calsuiteDir);
+
+  // 7. Write calsuite hooks into settings.local.json (gitignored, per-user).
+  //    settings.json is team-shared and must never contain per-machine paths.
+  const settingsLocalPath = path.join(claudeDir, 'settings.local.json');
+  const existingLocal = readJsonSync(settingsLocalPath) || {};
+  const mergedLocalHooks = mergeHooks(existingLocal.hooks, resolvedHooks);
+  const projectHookCount = Object.values(mergedLocalHooks)
+    .flat()
+    .filter(h => !h._origin || h._origin !== 'calsuite').length;
+  const calsuiteHookCount = Object.values(mergedLocalHooks)
+    .flat()
+    .filter(h => h._origin === 'calsuite').length;
+  const mergedLocal = {
+    ...existingLocal,
+    hooks: mergedLocalHooks,
+  };
+  fs.writeFileSync(settingsLocalPath, JSON.stringify(mergedLocal, null, 2) + '\n');
+  console.log(`  ✓ Wrote ${calsuiteHookCount} calsuite hook(s) to ${settingsLocalPath}${projectHookCount > 0 ? ` (preserved ${projectHookCount} project-specific hook(s))` : ''}`);
+
+  // 8. Update target settings.json with plugins + guardian permissions only.
+  //    Migration: strip any legacy calsuite-origin hooks that earlier versions
+  //    of this installer wrote into settings.json; those now belong in
+  //    settings.local.json and would otherwise be duplicated.
   const existingSettings = readJsonSync(settingsPath) || {};
+  const legacyHooks = existingSettings.hooks || {};
+  const cleanedHooks = {};
+  let migratedCount = 0;
+  for (const [event, entries] of Object.entries(legacyHooks)) {
+    const kept = Array.isArray(entries)
+      ? entries.filter(e => e._origin !== 'calsuite')
+      : entries;
+    if (Array.isArray(entries)) {
+      migratedCount += entries.length - kept.length;
+    }
+    if (!Array.isArray(entries) || kept.length > 0) {
+      cleanedHooks[event] = kept;
+    }
+  }
+  if (migratedCount > 0) {
+    console.log(`  ✓ Removed ${migratedCount} legacy calsuite hook(s) from ${settingsPath} (now in settings.local.json)`);
+  }
+
   const pluginsToEnable = {};
   for (const plugin of resolvedProfile.plugins) {
     pluginsToEnable[plugin] = true;
   }
 
-  const mergedHooks = mergeHooks(existingSettings.hooks, resolvedHooks);
-  const projectHookCount = Object.values(mergedHooks)
-    .flat()
-    .filter(h => !h._origin || h._origin !== 'calsuite').length;
-
   const merged = {
     ...existingSettings,
     ...(hooksConfig.$schema ? { $schema: hooksConfig.$schema } : {}),
-    hooks: mergedHooks,
     enabledPlugins: { ...existingSettings.enabledPlugins, ...pluginsToEnable },
   };
+  if (Object.keys(cleanedHooks).length > 0) {
+    merged.hooks = cleanedHooks;
+  } else {
+    delete merged.hooks;
+  }
 
   // Derive permissions from guardian-rules.json (single source of truth).
   // On re-install, this replaces the entire allow list to prevent drift.
@@ -449,16 +467,7 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
-  console.log(`  ✓ Merged hooks into ${settingsPath}${projectHookCount > 0 ? ` (preserved ${projectHookCount} project-specific hook(s))` : ''}`);
-  console.log(`  ✓ Enabled ${resolvedProfile.plugins.length} plugin(s) in project settings`);
-
-  // Verify no unresolved placeholders remain
-  const written = fs.readFileSync(settingsPath, 'utf8');
-  if (written.includes('${CLAUDE_CONFIG_DIR}')) {
-    console.error('  ✗ WARNING: Unresolved ${CLAUDE_CONFIG_DIR} found in settings.json');
-  } else {
-    console.log('  ✓ All hook paths resolved (no ${CLAUDE_CONFIG_DIR} remaining)');
-  }
+  console.log(`  ✓ Updated ${settingsPath} (plugins + permissions; no hooks/paths)`);
 }
 
 function installCcstatuslineConfig(manifest) {
