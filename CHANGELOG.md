@@ -69,6 +69,18 @@ Expected first-sync output for a target with local edits:
 - `hooks/hooks.json` placeholder renamed from `${CLAUDE_CONFIG_DIR}` to `${CALSUITE_DIR}` to match the actual semantic (18 occurrences).
 - `settings.json` now only carries `enabledPlugins` and `permissions` — both portable across machines.
 
+### Fixed
+
+- `--only <skill>` mode (`installOnly`) now routes through the `_origin` safe-overwrite protocol. Previously it used `copyDirSync` / `copyFileSync` directly, bypassing the whole point of the refactor — an explicit `--only review` would silently clobber local edits.
+- `currentCalsuiteSha` throws on git failure instead of returning the sentinel string `'unknown'`. The old fallback would have stamped every file with `_origin: calsuite@unknown`, permanently breaking future `contentAtSha` lookups.
+- `contentAtSha` distinguishes benign "path not in git at that sha" from infra failures (git not installed, shallow-clone pruning, corrupt repo). Only the former returns null; anything else throws with a clear message.
+- `readJsonSync` throws on `SyntaxError` (malformed JSON) instead of silently returning null. The `|| {}` idiom at callsites would otherwise rebuild broken `settings.json` from scratch, wiping user hooks/plugins/permissions silently. ENOENT still returns null (benign).
+- `--force-adopt` prompts for confirmation before overwriting; `--yes` / `-y` flag skips the prompt for non-interactive use. Aligns with the design spec's explicit "one-line confirmation prompt; `--yes` to skip" requirement.
+- `stampOrigin` uses a function replacer instead of a string replacement — defends against `$` sequences in `originValue` (e.g. target basenames in unusual directories).
+- `skip-exists` counter separated from `skip-claimed` so log lines don't mislabel non-markdown-file no-overwrites as "user-claimed".
+- `guardian-rules.json` and `agent-rules.json` are now copy-no-overwrite (per design spec S4 row). Previously they were unconditionally overwritten on every install, clobbering any local tuning.
+- Top-level `try/catch` in `main()` prints clean error messages for thrown exceptions (no Node stack traces for user-facing failures).
+
 ### Removed
 
 - `syncParentAssets()` and `PARENT_CLAUDE_DIR` — they created symlinks at `~/Projects/.claude/` under the assumption that Claude Code inherits skills from parent-directory `.claude/` dirs. Per the [official docs](https://code.claude.com/docs/en/skills), only enterprise/personal/project/plugin levels are discovered — parent-dir inheritance is not a supported feature.
