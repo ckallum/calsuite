@@ -106,6 +106,87 @@ function installProtectedFile({ srcFile, destFile, calsuiteDir, currentSha, stat
 }
 
 /**
+ * If a directory exists and every entry in it is a symbolic link whose target
+ * lives inside `calsuiteDir`, remove the whole directory. No-op otherwise —
+ * any real file or symlink-to-elsewhere signals user content to preserve.
+ *
+ * Cleans up the pre-refactor installer's `.claude/scripts/hooks/` and
+ * `.claude/scripts/lib/` dirs. Those directories are no longer populated;
+ * hook commands in settings.local.json reference calsuite directly.
+ */
+function removeIfAllCalsuiteSymlinks(dir, calsuiteDir) {
+  if (!fs.existsSync(dir)) return false;
+  const stat = fs.lstatSync(dir);
+  if (!stat.isDirectory()) return false;
+
+  const entries = fs.readdirSync(dir);
+  if (entries.length === 0) {
+    fs.rmdirSync(dir);
+    return true;
+  }
+
+  for (const name of entries) {
+    const entryPath = path.join(dir, name);
+    const entryStat = fs.lstatSync(entryPath);
+    if (!entryStat.isSymbolicLink()) return false;
+    const linkTarget = fs.readlinkSync(entryPath);
+    const resolved = path.resolve(dir, linkTarget);
+    if (!resolved.startsWith(calsuiteDir + path.sep) && resolved !== calsuiteDir) {
+      return false;
+    }
+  }
+
+  for (const name of entries) {
+    fs.unlinkSync(path.join(dir, name));
+  }
+  fs.rmdirSync(dir);
+  return true;
+}
+
+/**
+ * Ensure a `.gitignore` file in `dir` contains `.claude/settings.local.json`.
+ * Additive only — preserves any existing content and never removes entries.
+ * Returns true if the file was modified, false if the entry was already there.
+ */
+function ensureGitignoreEntry(dir) {
+  const gitignorePath = path.join(dir, '.gitignore');
+  const entry = '.claude/settings.local.json';
+  let existing = '';
+  if (fs.existsSync(gitignorePath)) {
+    existing = fs.readFileSync(gitignorePath, 'utf8');
+    const lines = existing.split(/\r?\n/).map(l => l.trim());
+    if (lines.includes(entry)) return false;
+  }
+  const prefix = existing && !existing.endsWith('\n') ? '\n' : '';
+  const block = `${prefix}\n# calsuite (personal harness) — never commit\n${entry}\n`;
+  fs.writeFileSync(gitignorePath, existing + block);
+  return true;
+}
+
+/**
+ * Print a one-block end-of-sync summary of files that couldn't be safely
+ * auto-updated. skip-claimed entries aren't included — those are working
+ * as designed (user-owned files).
+ */
+function printDivergenceSummary(divergences) {
+  const blocking = divergences.filter(d => d.action === 'skip-diverged' || d.action === 'skip-unknown');
+  if (blocking.length === 0) return;
+  console.log('');
+  console.log('  ───────────────────────────────────────────────────────────────');
+  console.log(`  ${blocking.length} file(s) skipped pending reconciliation:`);
+  for (const d of blocking) {
+    console.log(`    • ${d.destPath}`);
+    console.log(`      ${d.action}: ${d.reason}`);
+  }
+  console.log('');
+  console.log('  Resolve with:');
+  console.log('    node scripts/configure-claude.js --force-adopt <path>   # overwrite with calsuite current');
+  console.log('    node scripts/configure-claude.js --claim <path>         # stamp _origin=<target>, keep local');
+  console.log('    node scripts/configure-claude.js --reconcile <path>     # (issue #42) three-way merge');
+  console.log('  ───────────────────────────────────────────────────────────────');
+}
+
+/**
  * Recursively list every file under a directory as absolute paths.
  * Skips `.claude/` and any dot-prefixed directories.
  */
@@ -325,6 +406,31 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
   const currentSha = originProtocol.currentCalsuiteSha(calsuiteDir);
 
   console.log(`\n--- Installing: ${label} (${targetDir}) ---\n`);
+
+  // 0. Clean up pre-refactor stale dirs: .claude/scripts/hooks and .claude/scripts/lib.
+  //    These were populated with symlinks to calsuite before the hook-refactor.
+  //    Safe to remove iff every entry is still a calsuite symlink (user-added
+  //    scripts are preserved).
+  const staleHooks = path.join(claudeDir, 'scripts', 'hooks');
+  const staleLib = path.join(claudeDir, 'scripts', 'lib');
+  const removedHooks = removeIfAllCalsuiteSymlinks(staleHooks, calsuiteDir);
+  const removedLib = removeIfAllCalsuiteSymlinks(staleLib, calsuiteDir);
+  if (removedHooks || removedLib) {
+    const parts = [];
+    if (removedHooks) parts.push('scripts/hooks');
+    if (removedLib) parts.push('scripts/lib');
+    console.log(`  ✓ Removed stale pre-refactor ${parts.join(', ')} dir(s) (were all calsuite symlinks)`);
+    // Remove the now-empty scripts dir too if nothing else is in it
+    const scriptsDir = path.join(claudeDir, 'scripts');
+    if (fs.existsSync(scriptsDir) && fs.readdirSync(scriptsDir).length === 0) {
+      fs.rmdirSync(scriptsDir);
+    }
+  }
+
+  // 0b. Ensure `.claude/settings.local.json` is gitignored in the target.
+  if (ensureGitignoreEntry(targetDir)) {
+    console.log(`  ✓ Added .claude/settings.local.json to ${path.join(targetDir, '.gitignore')}`);
+  }
 
   // 1. Create .claude/ directory
   fs.mkdirSync(claudeDir, { recursive: true });
@@ -730,16 +836,18 @@ function main() {
       process.exit(1);
     }
 
+    const divergences = [];
     for (const target of targets.targets) {
       const targetPath = path.resolve(target.path.replace(/^~/, HOME_DIR));
       if (!fs.existsSync(targetPath)) {
         console.log(`  ⚠ Skipping ${target.path} (not found)`);
         continue;
       }
-      installTarget(targetPath, profilesConfig, { copy: flags.copy });
+      installTarget(targetPath, profilesConfig, { copy: flags.copy, divergences });
     }
 
     console.log('\nSync complete!\n');
+    printDivergenceSummary(divergences);
     return;
   }
 
@@ -766,11 +874,13 @@ function main() {
   }
 
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
+  const divergences = [];
 
   const { isMonorepo } = installTarget(targetDir, profilesConfig, {
     copy: flags.copy,
     logProfiles: true,
     copyWorkspaceDocs: true,
+    divergences,
   });
 
   // Global settings check
@@ -790,6 +900,7 @@ function main() {
   }
 
   console.log('\nDone!\n');
+  printDivergenceSummary(divergences);
 }
 
 function checkGlobalSettings(manifest, projectSettingsPaths) {
