@@ -454,17 +454,21 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
   const guardianDest = path.join(claudeDir, 'config', 'guardian-rules.json');
   if (fs.existsSync(guardianSrc)) {
     fs.mkdirSync(path.join(claudeDir, 'config'), { recursive: true });
-    fs.copyFileSync(guardianSrc, guardianDest);
-    console.log(`  ✓ Copied guardian rules → ${guardianDest}`);
+    if (!fs.existsSync(guardianDest)) {
+      fs.copyFileSync(guardianSrc, guardianDest);
+      console.log(`  ✓ Seeded guardian rules → ${guardianDest}`);
+    }
   }
 
-  // 2c. Copy agent lint rules config
+  // 2c. Copy agent lint rules config (no-overwrite — user is expected to tune)
   const agentRulesSrc = path.join(LINT_CONFIGS_DIR, 'agent-rules.json');
   const agentRulesDest = path.join(claudeDir, 'config', 'agent-rules.json');
   if (fs.existsSync(agentRulesSrc)) {
     fs.mkdirSync(path.join(claudeDir, 'config'), { recursive: true });
-    fs.copyFileSync(agentRulesSrc, agentRulesDest);
-    console.log(`  ✓ Copied agent lint rules → ${agentRulesDest}`);
+    if (!fs.existsSync(agentRulesDest)) {
+      fs.copyFileSync(agentRulesSrc, agentRulesDest);
+      console.log(`  ✓ Seeded agent lint rules → ${agentRulesDest}`);
+    }
   }
 
   // 2d. Copy ESLint base configs (no-overwrite — respect existing project configs)
