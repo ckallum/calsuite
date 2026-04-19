@@ -15,6 +15,12 @@
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
  *   --sync                       Re-run install against all targets in config/targets.json
+ *   --force-adopt <path>         Overwrite a target skill/agent file with calsuite's
+ *                                current version. Discards local edits. Stamps fresh
+ *                                `_origin: calsuite@<sha>`.
+ *   --claim <path>               Mark a target skill/agent file as user-owned. Stamps
+ *                                `_origin: <target-name>` in frontmatter, preserves
+ *                                content. Subsequent syncs never touch it.
  *   --copy                       (deprecated, no-op) formerly toggled script copy vs symlink;
  *                                hook scripts are now referenced directly from $CALSUITE_DIR
  */
@@ -427,14 +433,17 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
     }
   }
 
-  // 0b. Ensure `.claude/settings.local.json` is gitignored in the target.
+
+  // 1. Create .claude/ directory (and targetDir itself if missing)
+  fs.mkdirSync(claudeDir, { recursive: true });
+  console.log(`  ✓ Ensured ${claudeDir} exists`);
+
+  // 1b. Ensure `.claude/settings.local.json` is gitignored in the target.
+  //     Has to run after targetDir exists (the .claude mkdir above creates it
+  //     via { recursive: true }).
   if (ensureGitignoreEntry(targetDir)) {
     console.log(`  ✓ Added .claude/settings.local.json to ${path.join(targetDir, '.gitignore')}`);
   }
-
-  // 1. Create .claude/ directory
-  fs.mkdirSync(claudeDir, { recursive: true });
-  console.log(`  ✓ Ensured ${claudeDir} exists`);
 
   // 2. Hook scripts (scripts/hooks/, scripts/lib/) are NOT copied or symlinked
   //    into target/.claude/. Hook commands in settings.local.json reference them
@@ -764,6 +773,67 @@ function installTarget(targetDir, profilesConfig, opts = {}) {
   return { detectedProfiles, isMonorepo };
 }
 
+/**
+ * Given a destination file inside a target's .claude/skills or .claude/agents,
+ * return the calsuite-relative path to the same file (skills/<name>/...
+ * or agents/<name>.md). Returns null if the path isn't under a recognized
+ * managed dir.
+ */
+function destToCalsuiteRel(destPath) {
+  const marker = path.sep + '.claude' + path.sep;
+  const idx = destPath.indexOf(marker);
+  if (idx === -1) return null;
+  const afterClaude = destPath.slice(idx + marker.length);
+  const first = afterClaude.split(path.sep)[0];
+  if (first === 'skills' || first === 'agents') {
+    return afterClaude.replace(new RegExp('\\' + path.sep, 'g'), '/');
+  }
+  return null;
+}
+
+function deriveTargetName(destPath) {
+  const marker = path.sep + '.claude' + path.sep;
+  const idx = destPath.indexOf(marker);
+  if (idx === -1) return 'local';
+  const targetDir = destPath.slice(0, idx);
+  return path.basename(targetDir);
+}
+
+function handleForceAdopt(targetPath) {
+  const destPath = path.resolve(targetPath);
+  const calsuiteRel = destToCalsuiteRel(destPath);
+  if (!calsuiteRel) {
+    console.error(`  ✗ ${destPath} is not under a target's .claude/skills or .claude/agents`);
+    process.exit(1);
+  }
+  const calsuiteDir = resolveCalsuiteDir();
+  const srcFile = path.join(calsuiteDir, calsuiteRel);
+  if (!fs.existsSync(srcFile)) {
+    console.error(`  ✗ Calsuite has no matching source file: ${srcFile}`);
+    process.exit(1);
+  }
+  const currentSha = originProtocol.currentCalsuiteSha(calsuiteDir);
+  const content = fs.readFileSync(srcFile, 'utf8');
+  const stamped = originProtocol.stampOrigin(content, `calsuite@${currentSha}`);
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  fs.writeFileSync(destPath, stamped);
+  console.log(`  ✓ Force-adopted ${destPath} ← calsuite@${currentSha}`);
+}
+
+function handleClaim(targetPath) {
+  const destPath = path.resolve(targetPath);
+  if (!fs.existsSync(destPath)) {
+    console.error(`  ✗ ${destPath} does not exist`);
+    process.exit(1);
+  }
+  const targetName = deriveTargetName(destPath);
+  const content = fs.readFileSync(destPath, 'utf8');
+  const stamped = originProtocol.stampOrigin(content, targetName);
+  fs.writeFileSync(destPath, stamped);
+  console.log(`  ✓ Claimed ${destPath} → _origin: ${targetName}`);
+  console.log(`    Subsequent --sync will leave this file alone.`);
+}
+
 function parseArgv() {
   const args = process.argv.slice(2);
   const flags = {};
@@ -790,6 +860,22 @@ function parseArgv() {
       flags.sync = true;
     } else if (args[i] === '--copy') {
       flags.copy = true;
+    } else if (args[i] === '--force-adopt') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('  ✗ --force-adopt requires a path argument');
+        process.exit(1);
+      }
+      flags.forceAdopt = next;
+      i++;
+    } else if (args[i] === '--claim') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('  ✗ --claim requires a path argument');
+        process.exit(1);
+      }
+      flags.claim = next;
+      i++;
     } else if (args[i].startsWith('--')) {
       console.error(`  ✗ Unknown flag: ${args[i]}`);
       process.exit(1);
@@ -808,6 +894,17 @@ function parseArgv() {
 
 function main() {
   const { flags, positional } = parseArgv();
+
+  // Handle --force-adopt and --claim early — they touch a single file
+  // and shouldn't trigger a full install.
+  if (flags.forceAdopt) {
+    handleForceAdopt(flags.forceAdopt);
+    return;
+  }
+  if (flags.claim) {
+    handleClaim(flags.claim);
+    return;
+  }
 
   // Handle --install-ccstatusline flag
   if (flags.installCcstatusline) {
