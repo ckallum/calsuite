@@ -8,7 +8,7 @@ Current version: **2.8**
 
 ### Added
 
-- **Rust silent-failure lint pack** in `config/lint-configs/agent-rules.json` — 5 patterns (`let _ = .await`, `if let Ok(Some(...`, `.ok()` without `.or`, `debug_assert!`, `.contains("...not active")`) scoped to `**/*.rs`. Fires through the existing `lint-gate.cjs` hook — no runtime changes. Grouped under a `_pack` metadata key as forward-looking scaffolding for future per-language enable/disable; `lint-gate.cjs` currently treats them like any other rule.
+- **Rust silent-failure lint pack** in `config/lint-configs/agent-rules.json` — 5 patterns (`let _ = .await`, `if let Ok(Some(...`, `.ok()` on a non-chained/non-`?` result, `debug_assert!`, `.contains("...not active")`) scoped to `**/*.rs` via the `files` glob. Fires through the existing `lint-gate.cjs` hook — no runtime changes. Adding a pack for another language is just more rule entries with a different `files` glob.
 - **`/plan` — signal-gated state × event matrix.** Path signals (`session/`, `actor/`, `state_machine/`, `lifecycle/`, `fsm/`) + content signals (`enum *State|Lifecycle|Status`, `impl *Manager`) + explicit `--lifecycle` flag trigger matrix emission in INTERVIEW, BRAINSTORM, and REVIEW outputs. Skipped for CRUD/stateless work.
 - **`/review` — format-consistency agent (H).** Parallel agent that greps the full module around each changed file for mixed datetime writers, mixed `ORDER BY` directions, and snake/camel serialization drift. Rust-first; TS/JS/Python/Go/SQL patterns included.
 - **`/review` — spec-contract deviation agent (I).** Reads the active `.claude/specs/<slug>/design.md` + `tasks.md`, flags MISSING (spec promises / diff drops) and EXTRA (diff builds / spec silent) deviations.

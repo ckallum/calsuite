@@ -1,8 +1,7 @@
 {
-  "_description": "Agent-directed structural lint rules. Checked by the lint-gate.cjs hook. These encode conventions that ESLint AST rules cannot express — file placement, import patterns, naming. Language packs are scoped via the `files` glob; add patterns for new languages without touching lint-gate.cjs.",
+  "_description": "Agent-directed structural lint rules. Checked by the lint-gate.cjs hook. These encode conventions that ESLint AST rules cannot express — file placement, import patterns, naming. Language scoping is handled by the `files` glob on each rule; add patterns for new languages without touching lint-gate.cjs.",
   "rules": [
     {
-      "_pack": "rust-silent-failures",
       "id": "rust-no-let-underscore-await",
       "pattern": "let\\s+_\\s*=.*\\.await",
       "files": "**/*.rs",
@@ -12,7 +11,6 @@
       "autofix": null
     },
     {
-      "_pack": "rust-silent-failures",
       "id": "rust-if-let-ok-some-swallow",
       "pattern": "if\\s+let\\s+Ok\\(Some\\(",
       "files": "**/*.rs",
@@ -22,17 +20,15 @@
       "autofix": null
     },
     {
-      "_pack": "rust-silent-failures",
       "id": "rust-ok-drops-err",
-      "pattern": "\\.ok\\(\\)(?!\\s*\\.or)",
+      "pattern": "\\.ok\\(\\)(?!\\s*(?:\\?|\\.(?:or|or_else|map|map_or|map_or_else|and_then|unwrap_or|unwrap_or_else|unwrap_or_default|ok_or|ok_or_else|filter|inspect|expect|is_some|is_none)\\b))",
       "files": "**/*.rs",
       "exclude": ["**/tests/**", "**/*_test.rs"],
       "severity": "warn",
-      "message": ".ok() drops the Err; log or propagate before discarding",
+      "message": ".ok() drops the Err silently; chain .map/.unwrap_or/? or match the Err first",
       "autofix": null
     },
     {
-      "_pack": "rust-silent-failures",
       "id": "rust-debug-assert-in-prod",
       "pattern": "debug_assert!\\(",
       "files": "**/*.rs",
@@ -42,7 +38,6 @@
       "autofix": null
     },
     {
-      "_pack": "rust-silent-failures",
       "id": "rust-string-match-err-message",
       "pattern": "\\.contains\\(\"[^\"]*not active\"\\)",
       "files": "**/*.rs",
