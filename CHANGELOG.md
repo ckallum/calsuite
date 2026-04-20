@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.6**
+Current version: **2.7**
+
+## [2.7] — 2026-04-19
+
+### Added
+
+- `/customise <skill-name> [instructions]` skill — fuses "edit a calsuite skill" and "claim it locally" into one atomic action. Invoked from any target repo; applies edits (via an implementer agent if instructions are given, otherwise interactively), then calls `configure-claude.js --claim` so the next `--sync` skips the file. Prevents the footgun of editing a skill and forgetting to claim, which would have logged the file as divergent on every future sync.
+- `customise` added to the `base` and `monorepo-root` profile skill lists so every target picks it up.
+
+### Why
+
+The v2.6 protocol introduced `--claim` as the way to diverge a skill locally without losing edits to `--sync`. In practice, users edit first and claim later (or forget). `/customise` makes the intent explicit and claims automatically. Overlaps with but doesn't replace the planned interactive `--reconcile` helper ([#42](https://github.com/ckallum/calsuite/issues/42)) — that one merges calsuite's updates with local edits; `/customise` deliberately breaks that propagation.
 
 ## [2.6] — 2026-04-19
 
