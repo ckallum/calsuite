@@ -22,6 +22,11 @@
  *   --claim <path>               Mark a target skill/agent file as user-owned. Stamps
  *                                `_origin: <target-name>` in frontmatter, preserves
  *                                content. Subsequent syncs never touch it.
+ *   --reconcile <path>           Interactive three-way merge helper for divergent
+ *                                skill/agent files. Shows calsuite-current, calsuite
+ *                                at install sha, and target-current side-by-side, then
+ *                                offers keep / adopt / merge-in-$EDITOR / skip. Requires
+ *                                a TTY.
  *   --yes, -y                    Skip confirmation prompts for destructive operations.
  */
 
@@ -941,6 +946,190 @@ function handleClaim(targetPath) {
   console.log(`    Subsequent --sync will leave this file alone.`);
 }
 
+function handleReconcile(targetPath) {
+  const destPath = path.resolve(targetPath);
+  if (!fs.existsSync(destPath)) {
+    console.error(`  ✗ ${destPath} does not exist`);
+    process.exit(1);
+  }
+  const calsuiteRel = destToCalsuiteRel(destPath);
+  if (!calsuiteRel) {
+    console.error(`  ✗ --reconcile only supports files under a target's .claude/skills or .claude/agents`);
+    console.error(`    got: ${destPath}`);
+    process.exit(1);
+  }
+  if (!destPath.endsWith('.md')) {
+    console.error(`  ✗ --reconcile only supports markdown files (got ${destPath})`);
+    process.exit(1);
+  }
+  const calsuiteDir = resolveCalsuiteDir();
+  const srcFile = path.join(calsuiteDir, calsuiteRel);
+  if (!fs.existsSync(srcFile)) {
+    console.error(`  ✗ Calsuite has no matching source file: ${srcFile}`);
+    process.exit(1);
+  }
+
+  const destContent = fs.readFileSync(destPath, 'utf8');
+  const origin = originProtocol.readOrigin(destContent);
+
+  // Claimed-elsewhere short-circuit: nothing to reconcile against calsuite.
+  if (origin && !origin.startsWith('calsuite@')) {
+    console.log(`  ⊘ File is claimed (_origin: ${origin}). Use --force-adopt to overwrite, or leave it.`);
+    return;
+  }
+
+  const calsuiteCurrent = fs.readFileSync(srcFile, 'utf8');
+  const currentSha = originProtocol.currentCalsuiteSha(calsuiteDir);
+
+  let installSha = null;
+  let ancestorContent = null;
+  if (origin && origin.startsWith('calsuite@')) {
+    installSha = origin.slice('calsuite@'.length);
+    ancestorContent = originProtocol.contentAtSha(calsuiteRel, installSha, calsuiteDir);
+  }
+
+  // Three-pane diff view
+  const hr = '─'.repeat(60);
+  console.log('');
+  console.log(hr);
+  console.log(`=== calsuite current (as of ${currentSha}) ===`);
+  console.log(hr);
+  console.log(calsuiteCurrent);
+  console.log('');
+  console.log(hr);
+  if (installSha && ancestorContent !== null) {
+    console.log(`=== calsuite at install sha (${installSha}) ===`);
+    console.log(hr);
+    console.log(ancestorContent);
+  } else if (installSha && ancestorContent === null) {
+    console.log(`=== calsuite at install sha (${installSha}) ===`);
+    console.log(hr);
+    console.log(`<unavailable: sha ${installSha} has no record of ${calsuiteRel}>`);
+  } else {
+    console.log(`=== calsuite at install sha (<unavailable: file has no _origin marker>) ===`);
+    console.log(hr);
+    console.log(`<unavailable: file has no _origin marker>`);
+  }
+  console.log('');
+  console.log(hr);
+  console.log(`=== target current (${destPath}) ===`);
+  console.log(hr);
+  console.log(destContent);
+  console.log('');
+
+  if (!process.stdin.isTTY) {
+    console.error(`  ✗ --reconcile requires an interactive TTY`);
+    process.exit(1);
+  }
+
+  console.log('Resolution options:');
+  console.log(`  [k] Keep target's version (stamp _origin: ${deriveTargetName(destPath)})`);
+  console.log(`  [a] Adopt calsuite's current version (overwrite)`);
+  console.log(`  [m] Three-way merge in $EDITOR`);
+  console.log(`  [s] Skip (leave file flagged)`);
+  process.stdout.write('Choice [k/a/m/s]: ');
+
+  const buf = Buffer.alloc(16);
+  let bytesRead = 0;
+  try {
+    bytesRead = fs.readSync(0, buf, 0, 16, null);
+  } catch {
+    console.error(`  ✗ Unable to read choice from stdin`);
+    process.exit(1);
+  }
+  const choice = buf.slice(0, bytesRead).toString('utf8').trim().toLowerCase();
+
+  if (choice === 'k' || choice === 'keep') {
+    const targetName = deriveTargetName(destPath);
+    const stamped = originProtocol.stampOrigin(destContent, targetName);
+    fs.writeFileSync(destPath, stamped);
+    console.log(`  ✓ Kept target's version. Stamped ${destPath} → _origin: ${targetName}`);
+    console.log(`    Subsequent --sync will leave this file alone.`);
+    return;
+  }
+
+  if (choice === 'a' || choice === 'adopt') {
+    const stamped = originProtocol.stampOrigin(calsuiteCurrent, `calsuite@${currentSha}`);
+    fs.writeFileSync(destPath, stamped);
+    console.log(`  ✓ Adopted calsuite's current version. ${destPath} ← calsuite@${currentSha}`);
+    return;
+  }
+
+  if (choice === 's' || choice === 'skip') {
+    console.log(`  ⊘ Skipped. File remains flagged. Re-run --reconcile to resolve later.`);
+    return;
+  }
+
+  if (choice !== 'm' && choice !== 'merge') {
+    console.error(`  ✗ Unrecognized choice: ${choice || '<empty>'}. Expected one of k/a/m/s.`);
+    process.exit(1);
+  }
+
+  // [m] three-way merge in $EDITOR.
+  const destBody = originProtocol.parseFrontmatter(destContent).body;
+  const calsuiteBody = originProtocol.parseFrontmatter(calsuiteCurrent).body;
+  const ancestorBody =
+    ancestorContent !== null
+      ? originProtocol.parseFrontmatter(ancestorContent).body
+      : null;
+
+  const ancestorLabel = installSha || 'unknown';
+  const middleBlock =
+    ancestorBody !== null
+      ? ancestorBody
+      : '<no ancestor — file had no _origin marker>\n';
+
+  const conflictMarked =
+    `<<<<<<< target (${destPath})\n` +
+    `${destBody}${destBody.endsWith('\n') ? '' : '\n'}` +
+    `||||||| calsuite at install sha (${ancestorLabel})\n` +
+    `${middleBlock}${middleBlock.endsWith('\n') ? '' : '\n'}` +
+    `=======\n` +
+    `${calsuiteBody}${calsuiteBody.endsWith('\n') ? '' : '\n'}` +
+    `>>>>>>> calsuite current (${currentSha})\n`;
+
+  const tmpDir = require('os').tmpdir();
+  const tmpFile = path.join(
+    tmpDir,
+    `calsuite-reconcile-${Date.now()}-${process.pid}-${path.basename(destPath)}`
+  );
+  fs.writeFileSync(tmpFile, conflictMarked);
+
+  const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
+  console.log(`  → Opening ${editor} on ${tmpFile}`);
+  console.log(`    Resolve all conflict markers, then save & quit.`);
+  const { spawnSync } = require('child_process');
+  const result = spawnSync(editor, [tmpFile], { stdio: 'inherit' });
+
+  if (result.status !== 0) {
+    console.error(`  ✗ Editor exited with status ${result.status}. ${destPath} left untouched.`);
+    console.error(`    Conflict-marked file preserved at ${tmpFile}`);
+    process.exit(1);
+  }
+
+  const resolved = fs.readFileSync(tmpFile, 'utf8');
+  // Check for any remaining conflict markers at line start.
+  const markerRe = /^(?:<{7}|\|{7}|={7}|>{7})(?:\s|$)/m;
+  if (markerRe.test(resolved)) {
+    console.error(`  ✗ Conflict markers still present in ${tmpFile}. ${destPath} left untouched.`);
+    console.error(`    Edit and resolve, then re-run --reconcile.`);
+    process.exit(1);
+  }
+
+  // Strip any leading frontmatter the user may have left in the resolved body —
+  // stampOrigin will prepend a fresh one. This prevents a double-frontmatter block.
+  const resolvedParsed = originProtocol.parseFrontmatter(resolved);
+  const bodyForStamp = resolvedParsed.hasFrontmatter ? resolvedParsed.body : resolved;
+  const stamped = originProtocol.stampOrigin(bodyForStamp, `calsuite@${currentSha}`);
+  fs.writeFileSync(destPath, stamped);
+  try {
+    fs.unlinkSync(tmpFile);
+  } catch {
+    /* non-fatal */
+  }
+  console.log(`  ✓ Merged. ${destPath} ← calsuite@${currentSha} (user-resolved)`);
+}
+
 function parseArgv() {
   const args = process.argv.slice(2);
   const flags = {};
@@ -983,6 +1172,14 @@ function parseArgv() {
       }
       flags.claim = next;
       i++;
+    } else if (args[i] === '--reconcile') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('  ✗ --reconcile requires a path argument');
+        process.exit(1);
+      }
+      flags.reconcile = next;
+      i++;
     } else if (args[i].startsWith('--')) {
       console.error(`  ✗ Unknown flag: ${args[i]}`);
       process.exit(1);
@@ -1010,6 +1207,10 @@ function main() {
   }
   if (flags.claim) {
     handleClaim(flags.claim);
+    return;
+  }
+  if (flags.reconcile) {
+    handleReconcile(flags.reconcile);
     return;
   }
 

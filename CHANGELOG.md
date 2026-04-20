@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.7**
+Current version: **2.8**
+
+## [2.8] — 2026-04-20
+
+### Added
+
+- `configure-claude.js --reconcile <path>` — interactive three-way merge helper for divergent skill/agent files. Shows three panes (calsuite current, calsuite at install sha, target current), then offers: [k] keep target's version (stamps `_origin: <target-name>`, same effect as `--claim`), [a] adopt calsuite's current (same as `--force-adopt`), [m] three-way merge in `$EDITOR` with git-style conflict markers (including `|||||||` ancestor block when the install sha is available), or [s] skip. On [m], the resolved file is stamped with a fresh `_origin: calsuite@<current-sha>`; leftover conflict markers or a non-zero editor exit abort the operation with the original file untouched. Requires a TTY. Closes [#42](https://github.com/ckallum/calsuite/issues/42).
+
+### Why
+
+The v2.6 refactor made `--force-adopt` and `--claim` the two escape hatches for the mechanical sync protocol — they cover the "take calsuite's" and "keep mine" ends of the spectrum. `--reconcile` closes the middle case: the user wants _both_ sides — calsuite's upstream changes merged on top of their local edits — which the blunt flags can't express without data loss. Feeds the planned `/reconcile-targets` agentic layer ([#40](https://github.com/ckallum/calsuite/issues/40)).
 
 ## [2.7] — 2026-04-19
 
