@@ -924,6 +924,15 @@ function handleClaim(targetPath) {
     console.error(`  ✗ ${destPath} does not exist`);
     process.exit(1);
   }
+  // Guard: stampOrigin unconditionally prepends YAML frontmatter, which would
+  // corrupt JSON/non-markdown files. Match the scope handleForceAdopt enforces
+  // and the scope the --claim docblock advertises: skill/agent markdown only.
+  const calsuiteRel = destToCalsuiteRel(destPath);
+  if (!calsuiteRel || !destPath.endsWith('.md')) {
+    console.error(`  ✗ --claim only supports markdown files under a target's .claude/skills or .claude/agents`);
+    console.error(`    got: ${destPath}`);
+    process.exit(1);
+  }
   const targetName = deriveTargetName(destPath);
   const content = fs.readFileSync(destPath, 'utf8');
   const stamped = originProtocol.stampOrigin(content, targetName);
