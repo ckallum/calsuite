@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.11**
+Current version: **2.12**
+
+## [2.12] — 2026-04-21
+
+### Added
+
+- `configure-claude.js --prune-stale [path]` — opt-in cleanup of orphaned calsuite state from prior distribution models. Three categories: **[A]** parent-level symlinks under `~/Projects/.claude/{skills,agents}` that point into calsuite (no longer discovered by Claude Code post-refactor); **[B]** mixed `<target>/.claude/scripts/{hooks,lib}` dirs where calsuite symlinks coexist with user files (the existing `--sync` pure-symlink-dir auto-cleanup skips mixed dirs); **[C]** skill/agent markdown files with no `_origin` that diverge from calsuite's current (row 6 of the safe-overwrite matrix — `decideFileAction → skip-unknown`). Without a path, iterates every target in `config/targets.json`; with a path, scopes to that single target and skips the global category A sweep. Dry-run by default — pass `--yes` to apply. Categories A & B remove automatically under `--yes`; category C always prompts per-file because deleting a potentially-edited file is irreversible. Non-TTY + `--yes` + category C candidates errors out rather than silently skipping or deleting. Respects user-added files by only considering category C candidates whose basename matches a calsuite source (cleaner signal than parsing `.gitignore`). Closes [#41](https://github.com/ckallum/calsuite/issues/41).
+
+### Why
+
+The v2.6 personal-harness-refactor intentionally left orphaned state on disk — deleting across five target repos is a footgun that belongs to the user, not the installer. `--prune-stale` is the clean way to reconcile that orphan state when the user is ready. Complements the certain-safe pure-symlink-dir cleanup that `--sync` already performs automatically.
 
 ## [2.11] — 2026-04-21
 
