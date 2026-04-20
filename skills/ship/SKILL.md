@@ -253,6 +253,52 @@ git push -u origin $(git branch --show-current)
 
 ---
 
+## Step 7.2: Sweep and Fix Inline
+
+**Before** running Pre-PR Gates, scan the conversation for deferred items, fast-follows, minor bugs, enhancements, and tech debt — the same categories `/sweep-issues` looks for. Fix anything coherent with the current PR; defer the rest to Step 9.
+
+### 7.2a: Gather candidates
+
+Review the conversation for deferred work, TODOs, edge cases, minor bugs, and improvements. For each item, note a one-line description and its source (conversation turn, review finding, etc.).
+
+### 7.2b: Triage — fix now vs. create issue
+
+Classify each candidate:
+
+| Fix now (inline) | Create issue (later) |
+|---|---|
+| Minor bug in code touched by this PR | Feature request unrelated to this PR |
+| Missing edge case in a function this PR added/modified | Large refactor spanning multiple files not in this diff |
+| TODO/FIXME left in files changed by this PR | Work that requires design discussion |
+| Small enhancement coherent with the PR's purpose | Performance optimization with unclear scope |
+| Cleanup in files already being modified | Anything that would change the PR's scope significantly |
+
+**The test:** "Would a reviewer expect this to be part of this PR?" If yes → fix now. If no → create issue.
+
+### 7.2c: Apply inline fixes
+
+For each "fix now" item:
+1. Make the fix
+2. Stage it: `git add <files>`
+3. Commit: `git commit -m "fix: <what was fixed>"`
+
+### 7.2d: Re-run tests if fixes were applied
+
+If any inline fixes were made, re-run the test suites from Step 3 to verify no regressions. If tests fail, fix the failure before proceeding.
+
+### 7.2e: Push inline fixes
+
+If new commits were created:
+```bash
+git push
+```
+
+### 7.2f: Hand off deferred items
+
+Record the "create issue" candidates from 7.2b as `DEFERRED_ITEMS` — Step 9 will turn them into GitHub issues. Do not create the issues now (the PR should be open first, so issues can cross-link it).
+
+---
+
 ## Step 7.4: Pre-PR Gates
 
 Before drafting the PR body, run three cheap grep/glob-based gates against the diff, then collect their output. These gates **warn but do not block** by default — surface context so the user can either proceed with intent or pause to address. Each gate runs independently; collect all outputs and show them together before Step 8.
@@ -468,18 +514,18 @@ Create the PR using `gh pr create` with `PR_BODY_DRAFT` passed via HEREDOC. **Ou
 
 ---
 
-## Step 9: Sweep for Deferred Issues
+## Step 9: Create Issues for Deferred Items
 
-After the PR is created, invoke `/sweep-issues` using the Skill tool:
+After the PR is created, turn the `DEFERRED_ITEMS` list from Step 7.2b into GitHub issues. The triage already happened — `/sweep-issues` only needs to create the issues.
 
 ```text
 skill: "sweep-issues"
 args: ""
 ```
 
-This scans the conversation for deferred items, fast-follows, enhancements, minor bugs, and technical debt identified during development — and auto-creates GitHub issues for each.
+`/sweep-issues` re-scans the conversation as a safety net in case new items emerged after Step 7.2 (e.g. from Step 4.5 review or the claim-grep in 8.5). It deduplicates against the `DEFERRED_ITEMS` list and against existing GitHub issues.
 
-**If nothing found:** Continue silently — the PR URL is the final output.
+**If nothing remains to defer:** Continue silently — the PR URL is the final output.
 **If items found:** Create the issues and output the sweep summary. The PR URL remains the last line of output.
 
 ---
