@@ -33,6 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 const originProtocol = require('./lib/origin-protocol.cjs');
+const { destToCalsuiteRel, deriveTargetName } = require('./lib/path-helpers.cjs');
 
 const CONFIG_REPO = path.resolve(__dirname, '..');
 const HOOKS_JSON = path.join(CONFIG_REPO, 'hooks', 'hooks.json');
@@ -845,33 +846,6 @@ function installTarget(targetDir, profilesConfig, opts = {}) {
   const resolved = resolveProfile(detectedProfiles, profilesConfig);
   installForProfile(targetDir, resolved, detectedProfiles.join(', '), opts);
   return { detectedProfiles, isMonorepo };
-}
-
-/**
- * Given a destination file inside a target's .claude/skills or .claude/agents,
- * return the calsuite-relative path to the same file (skills/<name>/...
- * or agents/<name>.md). Returns null if the path isn't under a recognized
- * managed dir.
- */
-function destToCalsuiteRel(destPath) {
-  const marker = path.sep + '.claude' + path.sep;
-  const idx = destPath.indexOf(marker);
-  if (idx === -1) return null;
-  const afterClaude = destPath.slice(idx + marker.length);
-  const first = afterClaude.split(path.sep)[0];
-  if (first === 'skills' || first === 'agents') {
-    // Normalize to forward-slashes so the path matches calsuite's git-tracked layout on Windows too.
-    return afterClaude.split(path.sep).join('/');
-  }
-  return null;
-}
-
-function deriveTargetName(destPath) {
-  const marker = path.sep + '.claude' + path.sep;
-  const idx = destPath.indexOf(marker);
-  if (idx === -1) return 'local';
-  const targetDir = destPath.slice(0, idx);
-  return path.basename(targetDir);
 }
 
 function promptYesNo(question) {
