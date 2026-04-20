@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.10**
+Current version: **2.11**
+
+## [2.11] — 2026-04-21
+
+### Added
+
+- `/reconcile-targets` skill — second-layer agentic reconciliation on top of the mechanical `_origin` `--sync` protocol. Runs `configure-claude.js --sync` to enumerate divergent skill/agent files across every target in `config/targets.json`, pulls target-side local history and calsuite-side changes since each file's install sha, dispatches a read-only agent to summarise why each side diverged, then routes the user through five per-file decisions: upstream-to-calsuite (port the target's edit back), cross-port (apply to other targets too), keep-target-local (invokes `--claim`), adopt-calsuite (invokes `--force-adopt --yes`), or three-way-merge (hands off to interactive `--reconcile`). Opens PRs only with explicit confirmation; never force-pushes, never stamps `_origin` by hand. Explicitly manual — not wired into the post-commit hook. Scoped to markdown divergences under `skills/` and `agents/`; hooks and settings are out of scope. Added to `base` and `monorepo-root` profiles. Closes [#40](https://github.com/ckallum/calsuite/issues/40).
+
+### Why
+
+v2.6's mechanical sync is cheap and deterministic but binary — `skip-diverged` files either stay stuck or get resolved by blunt `--force-adopt` / `--claim` flags that discard one side. v2.8's `--reconcile` added a three-way merge primitive for the single-file case. `/reconcile-targets` composes both into the cross-target catch-up workflow the personal-harness design doc called out as future work: when verity's `/ship` has a custom Lambda step and calsuite's `/ship` gained a new Development Flow section, both should coexist — and the decision of which side to prefer, per file, needs an LLM in the loop. Fires only when the user invokes it, so the token cost stays bounded to actual divergences.
 
 ## [2.10] — 2026-04-21
 
