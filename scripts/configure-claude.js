@@ -15,24 +15,29 @@
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
  *   --sync                       Re-run install against all targets in config/targets.json
- *   --copy                       Copy scripts instead of symlinking (for portability)
+ *   --force-adopt <path>         Overwrite a target skill/agent file with calsuite's
+ *                                current version. Discards local edits. Stamps fresh
+ *                                `_origin: calsuite@<sha>`. Prompts for confirmation;
+ *                                pass --yes (or -y) to skip the prompt.
+ *   --claim <path>               Mark a target skill/agent file as user-owned. Stamps
+ *                                `_origin: <target-name>` in frontmatter, preserves
+ *                                content. Subsequent syncs never touch it.
+ *   --yes, -y                    Skip confirmation prompts for destructive operations.
  */
 
 const fs = require('fs');
 const path = require('path');
+const originProtocol = require('./lib/origin-protocol.cjs');
 
 const CONFIG_REPO = path.resolve(__dirname, '..');
 const HOOKS_JSON = path.join(CONFIG_REPO, 'hooks', 'hooks.json');
 const GLOBAL_MANIFEST = path.join(CONFIG_REPO, 'config', 'global-settings.json');
 const PROFILES_JSON = path.join(CONFIG_REPO, 'config', 'profiles.json');
-const SCRIPTS_HOOKS = path.join(CONFIG_REPO, 'scripts', 'hooks');
-const SCRIPTS_LIB = path.join(CONFIG_REPO, 'scripts', 'lib');
 const SKILLS_DIR = path.join(CONFIG_REPO, 'skills');
 const AGENTS_DIR = path.join(CONFIG_REPO, 'agents');
 const TEMPLATES_DIR = path.join(CONFIG_REPO, 'templates');
 const LINT_CONFIGS_DIR = path.join(CONFIG_REPO, 'config', 'lint-configs');
 const TARGETS_JSON = path.join(CONFIG_REPO, 'config', 'targets.json');
-const PARENT_CLAUDE_DIR = path.join(CONFIG_REPO, '..', '.claude');
 const HOME_DIR = require('os').homedir();
 const HOME_SETTINGS = path.join(HOME_DIR, '.claude', 'settings.json');
 const HOME_SETTINGS_LOCAL = path.join(HOME_DIR, '.claude', 'settings.local.json');
@@ -40,6 +45,202 @@ const HOME_MCP_JSON = path.join(HOME_DIR, '.mcp.json');
 const KNOWN_MARKETPLACES = path.join(HOME_DIR, '.claude', 'plugins', 'known_marketplaces.json');
 // Skills that only make sense in the config repo itself — never export to target repos
 const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder']);
+
+/**
+ * Resolve the absolute path to the calsuite checkout on this machine.
+ * Order: $CALSUITE_DIR env var → ~/Projects/calsuite → installer's parent.
+ * The resolved path is written literally into target's settings.local.json —
+ * Claude Code's hook runner does not shell-expand hook commands, so embedded
+ * $VAR syntax would not work at runtime.
+ */
+function resolveCalsuiteDir() {
+  if (process.env.CALSUITE_DIR) return path.resolve(process.env.CALSUITE_DIR);
+  const defaultPath = path.join(HOME_DIR, 'Projects', 'calsuite');
+  if (fs.existsSync(defaultPath)) return defaultPath;
+  return CONFIG_REPO;
+}
+
+/**
+ * Substitute every occurrence of the ${CALSUITE_DIR} placeholder in a
+ * parsed hooks config with the resolved absolute path. Operates on the
+ * JSON-stringified form so it catches the placeholder regardless of which
+ * nested field it appears in.
+ */
+function substituteCalsuiteDir(hooksObj, calsuiteDir) {
+  const json = JSON.stringify(hooksObj);
+  const safeDir = calsuiteDir.replace(/\\/g, '\\\\');
+  return JSON.parse(json.replace(/\$\{CALSUITE_DIR\}/g, () => safeDir));
+}
+
+// Actions that should result in (re)writing the destination file.
+const WRITE_ACTIONS = new Set(['write-new', 'write-update', 'migrate']);
+// Actions that indicate a file was skipped and needs user reconciliation.
+const BLOCKING_SKIP_ACTIONS = new Set(['skip-diverged', 'skip-unknown']);
+
+// Fresh counters for every action installProtectedFile can emit.
+function makeInstallStats() {
+  return {
+    'write-new': 0,
+    'write-update': 0,
+    'migrate': 0,
+    'skip-diverged': 0,
+    'skip-unknown': 0,
+    'skip-claimed': 0,
+    'skip-exists': 0,
+  };
+}
+
+// Aggregate a stats object into the three numbers used in log lines.
+function summarizeInstallStats(stats) {
+  return {
+    written: stats['write-new'] + stats['write-update'] + stats['migrate'],
+    skipped: stats['skip-diverged'] + stats['skip-unknown'],
+    preserved: stats['skip-claimed'] + stats['skip-exists'],
+  };
+}
+
+/**
+ * Install one calsuite-managed file into a target, respecting the
+ * `_origin` safe-overwrite protocol for markdown files. Non-markdown
+ * files use copy-no-overwrite semantics (simpler; can be promoted to
+ * sidecar-`.origin` tracking later if it matters).
+ *
+ * Mutates `stats` (an object with per-action counters) and `divergences`
+ * (an array of { destPath, action, reason }) so the caller can aggregate
+ * across many files.
+ */
+function installProtectedFile({ srcFile, destFile, calsuiteDir, currentSha, stats, divergences }) {
+  fs.mkdirSync(path.dirname(destFile), { recursive: true });
+
+  if (!srcFile.endsWith('.md')) {
+    // Non-markdown files inside a skill dir use copy-no-overwrite semantics
+    // (they can't host YAML frontmatter, so the _origin protocol doesn't
+    // apply). A pre-existing file at dest means "leave alone" — this is
+    // not the same as user-claimed; separate counter to avoid confusing logs.
+    if (fs.existsSync(destFile)) {
+      stats['skip-exists']++;
+      return;
+    }
+    fs.copyFileSync(srcFile, destFile);
+    stats['write-new']++;
+    return;
+  }
+
+  const calsuiteRelPath = path.relative(calsuiteDir, srcFile);
+  const decision = originProtocol.decideFileAction(destFile, calsuiteRelPath, calsuiteDir);
+  stats[decision.action]++;
+
+  if (WRITE_ACTIONS.has(decision.action)) {
+    const srcContent = fs.readFileSync(srcFile, 'utf8');
+    const stamped = originProtocol.stampOrigin(srcContent, `calsuite@${currentSha}`);
+    fs.writeFileSync(destFile, stamped);
+    return;
+  }
+
+  if (BLOCKING_SKIP_ACTIONS.has(decision.action)) {
+    divergences.push({ destPath: destFile, action: decision.action, reason: decision.reason });
+  }
+}
+
+/**
+ * If a directory exists and every entry in it is a symbolic link whose target
+ * lives inside `calsuiteDir`, remove the whole directory. No-op otherwise —
+ * any real file or symlink-to-elsewhere signals user content to preserve.
+ *
+ * Cleans up the pre-refactor installer's `.claude/scripts/hooks/` and
+ * `.claude/scripts/lib/` dirs. Those directories are no longer populated;
+ * hook commands in settings.local.json reference calsuite directly.
+ */
+function removeIfAllCalsuiteSymlinks(dir, calsuiteDir) {
+  if (!fs.existsSync(dir)) return false;
+  const stat = fs.lstatSync(dir);
+  if (!stat.isDirectory()) return false;
+
+  const entries = fs.readdirSync(dir);
+  if (entries.length === 0) {
+    fs.rmdirSync(dir);
+    return true;
+  }
+
+  for (const name of entries) {
+    const entryPath = path.join(dir, name);
+    const entryStat = fs.lstatSync(entryPath);
+    if (!entryStat.isSymbolicLink()) return false;
+    const linkTarget = fs.readlinkSync(entryPath);
+    const resolved = path.resolve(dir, linkTarget);
+    if (!resolved.startsWith(calsuiteDir + path.sep) && resolved !== calsuiteDir) {
+      return false;
+    }
+  }
+
+  for (const name of entries) {
+    fs.unlinkSync(path.join(dir, name));
+  }
+  fs.rmdirSync(dir);
+  return true;
+}
+
+/**
+ * Ensure a `.gitignore` file in `dir` contains `.claude/settings.local.json`.
+ * Additive only — preserves any existing content and never removes entries.
+ * Returns true if the file was modified, false if the entry was already there.
+ */
+function ensureGitignoreEntry(dir) {
+  const gitignorePath = path.join(dir, '.gitignore');
+  const entry = '.claude/settings.local.json';
+  let existing = '';
+  if (fs.existsSync(gitignorePath)) {
+    existing = fs.readFileSync(gitignorePath, 'utf8');
+    const lines = existing.split(/\r?\n/).map(l => l.trim());
+    if (lines.includes(entry)) return false;
+  }
+  const prefix = existing && !existing.endsWith('\n') ? '\n' : '';
+  const block = `${prefix}\n# calsuite (personal harness) — never commit\n${entry}\n`;
+  fs.writeFileSync(gitignorePath, existing + block);
+  return true;
+}
+
+/**
+ * Print a one-block end-of-sync summary of files that couldn't be safely
+ * auto-updated. skip-claimed entries aren't included — those are working
+ * as designed (user-owned files).
+ */
+function printDivergenceSummary(divergences) {
+  const blocking = divergences.filter(d => BLOCKING_SKIP_ACTIONS.has(d.action));
+  if (blocking.length === 0) return;
+  console.log('');
+  console.log('  ───────────────────────────────────────────────────────────────');
+  console.log(`  ${blocking.length} file(s) skipped pending reconciliation:`);
+  for (const d of blocking) {
+    console.log(`    • ${d.destPath}`);
+    console.log(`      ${d.action}: ${d.reason}`);
+  }
+  console.log('');
+  console.log('  Resolve with:');
+  console.log('    node scripts/configure-claude.js --force-adopt <path>   # overwrite with calsuite current');
+  console.log('    node scripts/configure-claude.js --claim <path>         # stamp _origin=<target>, keep local');
+  console.log('    node scripts/configure-claude.js --reconcile <path>     # (issue #42) three-way merge');
+  console.log('  ───────────────────────────────────────────────────────────────');
+}
+
+/**
+ * Recursively list every file under a directory as absolute paths.
+ * Skips `.claude/` and any dot-prefixed directories.
+ */
+function listFilesRecursive(dir) {
+  const out = [];
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.')) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listFilesRecursive(full));
+    } else if (entry.isFile()) {
+      out.push(full);
+    }
+  }
+  return out;
+}
 
 function copyDirSync(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -71,36 +272,6 @@ function copyDirSyncNoOverwrite(src, dest) {
   }
 }
 
-function symlinkDirSync(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      symlinkDirSync(srcPath, destPath);
-    } else {
-      symlinkOrSkip(srcPath, destPath);
-    }
-  }
-}
-
-/**
- * Create or refresh a symlink. Replaces existing symlinks, skips real files/dirs.
- * Returns true if the symlink was created, false if skipped.
- */
-function symlinkOrSkip(srcPath, destPath) {
-  if (fs.existsSync(destPath)) {
-    const stat = fs.lstatSync(destPath);
-    if (stat.isSymbolicLink()) {
-      fs.unlinkSync(destPath);
-    } else {
-      return false; // Real file/directory — project-specific, skip
-    }
-  }
-  fs.symlinkSync(path.resolve(srcPath), destPath);
-  return true;
-}
-
 function mergeHooks(existingHooks, newHooks) {
   const merged = {};
   const allEvents = new Set([...Object.keys(existingHooks || {}), ...Object.keys(newHooks || {})]);
@@ -117,18 +288,28 @@ function mergeHooks(existingHooks, newHooks) {
   return merged;
 }
 
+/**
+ * Read and parse a JSON file. Returns null if the file is missing (ENOENT)
+ * — a common and benign case — so callers can idiom `readJsonSync(...) || {}`.
+ * THROWS on parse errors; silently returning null for malformed JSON would
+ * let the installer rebuild the file from scratch, wiping user content.
+ */
 function readJsonSync(filePath) {
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw new Error(`Failed to read ${filePath}: ${err.message}`);
   }
-}
-
-function resolveHookPaths(obj, claudeConfigDir) {
-  const json = JSON.stringify(obj);
-  const safeDir = claudeConfigDir.replace(/\\/g, '\\\\');
-  return JSON.parse(json.replace(/\$\{CLAUDE_CONFIG_DIR\}/g, () => safeDir));
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `${filePath} is not valid JSON (${err.message}).\n` +
+      `Refusing to overwrite — fix or delete the file manually, then re-run the installer.`
+    );
+  }
 }
 
 // --- Profile detection ---
@@ -272,48 +453,69 @@ function findWorkspaces(targetDir) {
 // --- Installation ---
 
 function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
-  const useCopy = opts.copy || false;
   const claudeDir = path.join(targetDir, '.claude');
   const settingsPath = path.join(claudeDir, 'settings.json');
+  const calsuiteDir = resolveCalsuiteDir();
+  const currentSha = originProtocol.currentCalsuiteSha(calsuiteDir);
 
   console.log(`\n--- Installing: ${label} (${targetDir}) ---\n`);
 
-  // 1. Create .claude/ directory
+  // 0. Clean up pre-refactor stale dirs: .claude/scripts/hooks and .claude/scripts/lib.
+  //    These were populated with symlinks to calsuite before the hook-refactor.
+  //    Safe to remove iff every entry is still a calsuite symlink (user-added
+  //    scripts are preserved).
+  const staleHooks = path.join(claudeDir, 'scripts', 'hooks');
+  const staleLib = path.join(claudeDir, 'scripts', 'lib');
+  const removedHooks = removeIfAllCalsuiteSymlinks(staleHooks, calsuiteDir);
+  const removedLib = removeIfAllCalsuiteSymlinks(staleLib, calsuiteDir);
+  if (removedHooks || removedLib) {
+    const parts = [];
+    if (removedHooks) parts.push('scripts/hooks');
+    if (removedLib) parts.push('scripts/lib');
+    console.log(`  ✓ Removed stale pre-refactor ${parts.join(', ')} dir(s) (were all calsuite symlinks)`);
+    // Remove the now-empty scripts dir too if nothing else is in it
+    const scriptsDir = path.join(claudeDir, 'scripts');
+    if (fs.existsSync(scriptsDir) && fs.readdirSync(scriptsDir).length === 0) {
+      fs.rmdirSync(scriptsDir);
+    }
+  }
+
+
+  // 1. Create .claude/ directory (and targetDir itself if missing)
   fs.mkdirSync(claudeDir, { recursive: true });
   console.log(`  ✓ Ensured ${claudeDir} exists`);
 
-  // 2. Symlink (or copy) scripts/hooks/ and scripts/lib/
-  const destHooks = path.join(claudeDir, 'scripts', 'hooks');
-  const destLib = path.join(claudeDir, 'scripts', 'lib');
-
-  if (useCopy) {
-    copyDirSync(SCRIPTS_HOOKS, destHooks);
-    console.log(`  ✓ Copied hook scripts → ${destHooks}`);
-    copyDirSync(SCRIPTS_LIB, destLib);
-    console.log(`  ✓ Copied lib scripts  → ${destLib}`);
-  } else {
-    symlinkDirSync(SCRIPTS_HOOKS, destHooks);
-    console.log(`  ✓ Symlinked hook scripts → ${destHooks}`);
-    symlinkDirSync(SCRIPTS_LIB, destLib);
-    console.log(`  ✓ Symlinked lib scripts  → ${destLib}`);
+  // 1b. Ensure `.claude/settings.local.json` is gitignored in the target.
+  //     Has to run after targetDir exists (the .claude mkdir above creates it
+  //     via { recursive: true }).
+  if (ensureGitignoreEntry(targetDir)) {
+    console.log(`  ✓ Added .claude/settings.local.json to ${path.join(targetDir, '.gitignore')}`);
   }
+
+  // 2. Hook scripts (scripts/hooks/, scripts/lib/) are NOT copied or symlinked
+  //    into target/.claude/. Hook commands in settings.local.json reference them
+  //    directly from $CALSUITE_DIR, so there's no target-side footprint to manage.
 
   // 2b. Copy guardian rules config
   const guardianSrc = path.join(CONFIG_REPO, 'config', 'guardian-rules.json');
   const guardianDest = path.join(claudeDir, 'config', 'guardian-rules.json');
   if (fs.existsSync(guardianSrc)) {
     fs.mkdirSync(path.join(claudeDir, 'config'), { recursive: true });
-    fs.copyFileSync(guardianSrc, guardianDest);
-    console.log(`  ✓ Copied guardian rules → ${guardianDest}`);
+    if (!fs.existsSync(guardianDest)) {
+      fs.copyFileSync(guardianSrc, guardianDest);
+      console.log(`  ✓ Seeded guardian rules → ${guardianDest}`);
+    }
   }
 
-  // 2c. Copy agent lint rules config
+  // 2c. Copy agent lint rules config (no-overwrite — user is expected to tune)
   const agentRulesSrc = path.join(LINT_CONFIGS_DIR, 'agent-rules.json');
   const agentRulesDest = path.join(claudeDir, 'config', 'agent-rules.json');
   if (fs.existsSync(agentRulesSrc)) {
     fs.mkdirSync(path.join(claudeDir, 'config'), { recursive: true });
-    fs.copyFileSync(agentRulesSrc, agentRulesDest);
-    console.log(`  ✓ Copied agent lint rules → ${agentRulesDest}`);
+    if (!fs.existsSync(agentRulesDest)) {
+      fs.copyFileSync(agentRulesSrc, agentRulesDest);
+      console.log(`  ✓ Seeded agent lint rules → ${agentRulesDest}`);
+    }
   }
 
   // 2d. Copy ESLint base configs (no-overwrite — respect existing project configs)
@@ -345,32 +547,41 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
     console.log(`  ✓ ESLint config already exists (skipped)`);
   }
 
-  // 3. Copy skills (only those in resolved profile)
+  // 3. Install skills via the _origin safe-overwrite protocol.
+  //    Every markdown file under each profile-listed skill dir is copied
+  //    with `_origin: calsuite@<sha>` stamped into its frontmatter.
+  //    Existing files with local edits are detected and preserved.
   const destSkills = path.join(claudeDir, 'skills');
-  let skillCount = 0;
+  const skillStats = makeInstallStats();
+  const divergences = opts.divergences || [];
   for (const skillName of resolvedProfile.skills) {
     if (INTERNAL_SKILLS.has(skillName)) continue;
     const srcSkill = path.join(SKILLS_DIR, skillName);
-    if (fs.existsSync(srcSkill) && fs.statSync(srcSkill).isDirectory()) {
-      copyDirSync(srcSkill, path.join(destSkills, skillName));
-      skillCount++;
+    if (!fs.existsSync(srcSkill) || !fs.statSync(srcSkill).isDirectory()) continue;
+    for (const srcFile of listFilesRecursive(srcSkill)) {
+      const relFromSkills = path.relative(SKILLS_DIR, srcFile);
+      const destFile = path.join(destSkills, relFromSkills);
+      installProtectedFile({ srcFile, destFile, calsuiteDir, currentSha, stats: skillStats, divergences });
     }
   }
-  console.log(`  ✓ Copied ${skillCount} skill(s) → ${destSkills}`);
+  const skillSummary = summarizeInstallStats(skillStats);
+  const preservedBreakdown = [];
+  if (skillStats['skip-claimed']) preservedBreakdown.push(`${skillStats['skip-claimed']} user-claimed`);
+  if (skillStats['skip-exists']) preservedBreakdown.push(`${skillStats['skip-exists']} non-md kept`);
+  console.log(`  ✓ Skills: ${skillSummary.written} written (${skillStats['write-new']} new / ${skillStats['write-update']} updated / ${skillStats['migrate']} migrated), ${skillSummary.skipped} skipped${skillSummary.preserved ? `, ${preservedBreakdown.join(' / ')}` : ''}`);
 
-  // 4. Copy agents (only those in resolved profile)
+  // 4. Install agents via the same protocol (agent files are single .md each)
   if (resolvedProfile.agents.length > 0) {
     const destAgents = path.join(claudeDir, 'agents');
-    fs.mkdirSync(destAgents, { recursive: true });
-    let agentCount = 0;
+    const agentStats = makeInstallStats();
     for (const agentName of resolvedProfile.agents) {
       const srcAgent = path.join(AGENTS_DIR, `${agentName}.md`);
-      if (fs.existsSync(srcAgent)) {
-        fs.copyFileSync(srcAgent, path.join(destAgents, `${agentName}.md`));
-        agentCount++;
-      }
+      if (!fs.existsSync(srcAgent)) continue;
+      const destAgent = path.join(destAgents, `${agentName}.md`);
+      installProtectedFile({ srcFile: srcAgent, destFile: destAgent, calsuiteDir, currentSha, stats: agentStats, divergences });
     }
-    console.log(`  ✓ Copied ${agentCount} agent(s) → ${destAgents}`);
+    const agentSummary = summarizeInstallStats(agentStats);
+    console.log(`  ✓ Agents: ${agentSummary.written} written, ${agentSummary.skipped} skipped${agentStats['skip-claimed'] ? `, ${agentStats['skip-claimed']} user-claimed` : ''}`);
   }
 
   // 5. Copy templates (never overwrite existing)
@@ -412,27 +623,68 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
     console.error('  ✗ hooks.json is missing "hooks" key');
     process.exit(1);
   }
-  const resolvedHooks = resolveHookPaths(hooksConfig.hooks, claudeDir);
 
-  // 7. Merge hooks and plugins into target settings.json
-  //    Uses _origin tags to replace only calsuite-managed hooks, preserving project-specific ones
+  // Substitute ${CALSUITE_DIR} with the literal absolute path. Claude Code's
+  // hook runner does not shell-expand command strings, so $VAR syntax cannot
+  // resolve at runtime — the installer must resolve it now.
+  const resolvedHooks = substituteCalsuiteDir(hooksConfig.hooks, calsuiteDir);
+
+  // 7. Write calsuite hooks into settings.local.json (gitignored, per-user).
+  //    settings.json is team-shared and must never contain per-machine paths.
+  const settingsLocalPath = path.join(claudeDir, 'settings.local.json');
+  const existingLocal = readJsonSync(settingsLocalPath) || {};
+  const mergedLocalHooks = mergeHooks(existingLocal.hooks, resolvedHooks);
+  const projectHookCount = Object.values(mergedLocalHooks)
+    .flat()
+    .filter(h => !h._origin || h._origin !== 'calsuite').length;
+  const calsuiteHookCount = Object.values(mergedLocalHooks)
+    .flat()
+    .filter(h => h._origin === 'calsuite').length;
+  const mergedLocal = {
+    ...existingLocal,
+    hooks: mergedLocalHooks,
+  };
+  fs.writeFileSync(settingsLocalPath, JSON.stringify(mergedLocal, null, 2) + '\n');
+  console.log(`  ✓ Wrote ${calsuiteHookCount} calsuite hook(s) to ${settingsLocalPath}${projectHookCount > 0 ? ` (preserved ${projectHookCount} project-specific hook(s))` : ''}`);
+
+  // 8. Update target settings.json with plugins + guardian permissions only.
+  //    Migration: strip any legacy calsuite-origin hooks that earlier versions
+  //    of this installer wrote into settings.json; those now belong in
+  //    settings.local.json and would otherwise be duplicated.
   const existingSettings = readJsonSync(settingsPath) || {};
+  const legacyHooks = existingSettings.hooks || {};
+  const cleanedHooks = {};
+  let migratedCount = 0;
+  for (const [event, entries] of Object.entries(legacyHooks)) {
+    const kept = Array.isArray(entries)
+      ? entries.filter(e => e._origin !== 'calsuite')
+      : entries;
+    if (Array.isArray(entries)) {
+      migratedCount += entries.length - kept.length;
+    }
+    if (!Array.isArray(entries) || kept.length > 0) {
+      cleanedHooks[event] = kept;
+    }
+  }
+  if (migratedCount > 0) {
+    console.log(`  ✓ Removed ${migratedCount} legacy calsuite hook(s) from ${settingsPath} (now in settings.local.json)`);
+  }
+
   const pluginsToEnable = {};
   for (const plugin of resolvedProfile.plugins) {
     pluginsToEnable[plugin] = true;
   }
 
-  const mergedHooks = mergeHooks(existingSettings.hooks, resolvedHooks);
-  const projectHookCount = Object.values(mergedHooks)
-    .flat()
-    .filter(h => !h._origin || h._origin !== 'calsuite').length;
-
   const merged = {
     ...existingSettings,
     ...(hooksConfig.$schema ? { $schema: hooksConfig.$schema } : {}),
-    hooks: mergedHooks,
     enabledPlugins: { ...existingSettings.enabledPlugins, ...pluginsToEnable },
   };
+  if (Object.keys(cleanedHooks).length > 0) {
+    merged.hooks = cleanedHooks;
+  } else {
+    delete merged.hooks;
+  }
 
   // Derive permissions from guardian-rules.json (single source of truth).
   // On re-install, this replaces the entire allow list to prevent drift.
@@ -450,16 +702,7 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
-  console.log(`  ✓ Merged hooks into ${settingsPath}${projectHookCount > 0 ? ` (preserved ${projectHookCount} project-specific hook(s))` : ''}`);
-  console.log(`  ✓ Enabled ${resolvedProfile.plugins.length} plugin(s) in project settings`);
-
-  // Verify no unresolved placeholders remain
-  const written = fs.readFileSync(settingsPath, 'utf8');
-  if (written.includes('${CLAUDE_CONFIG_DIR}')) {
-    console.error('  ✗ WARNING: Unresolved ${CLAUDE_CONFIG_DIR} found in settings.json');
-  } else {
-    console.log('  ✓ All hook paths resolved (no ${CLAUDE_CONFIG_DIR} remaining)');
-  }
+  console.log(`  ✓ Updated ${settingsPath} (plugins + permissions; no hooks/paths)`);
 }
 
 function installCcstatuslineConfig(manifest) {
@@ -483,14 +726,19 @@ function installCcstatuslineConfig(manifest) {
  * Usage: node configure-claude.js <target> --only review,qa,ship
  *        node configure-claude.js <target> --only review,qa --agents code-reviewer
  */
-function installOnly(targetDir, onlySkills, onlyAgents) {
+function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null) {
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(claudeDir, { recursive: true });
+  const calsuiteDir = resolveCalsuiteDir();
+  const currentSha = originProtocol.currentCalsuiteSha(calsuiteDir);
   const missing = [];
+  const divergences = outerDivergences || [];
 
-  // Install specified skills
+  // Install specified skills (routed through the _origin safe-overwrite
+  // protocol so explicit --only installs never silently clobber local edits).
   if (onlySkills.length > 0) {
     const destSkills = path.join(claudeDir, 'skills');
+    const stats = makeInstallStats();
     let count = 0;
     for (const skillName of onlySkills) {
       if (INTERNAL_SKILLS.has(skillName)) {
@@ -499,34 +747,41 @@ function installOnly(targetDir, onlySkills, onlyAgents) {
       }
       const srcSkill = path.join(SKILLS_DIR, skillName);
       if (fs.existsSync(srcSkill) && fs.statSync(srcSkill).isDirectory()) {
-        copyDirSync(srcSkill, path.join(destSkills, skillName));
+        for (const srcFile of listFilesRecursive(srcSkill)) {
+          const relFromSkills = path.relative(SKILLS_DIR, srcFile);
+          const destFile = path.join(destSkills, relFromSkills);
+          installProtectedFile({ srcFile, destFile, calsuiteDir, currentSha, stats, divergences });
+        }
         count++;
-        console.log(`  ✓ Installed skill: ${skillName}`);
+        console.log(`  ✓ Processed skill: ${skillName}`);
       } else {
         console.log(`  ✗ Skill not found: ${skillName}`);
         missing.push(`skill:${skillName}`);
       }
     }
-    console.log(`  → ${count} skill(s) installed to ${destSkills}`);
+    const summary = summarizeInstallStats(stats);
+    console.log(`  → ${count} skill(s): ${summary.written} files written, ${summary.skipped} skipped, ${summary.preserved} preserved`);
   }
 
-  // Install specified agents
+  // Install specified agents through the same protocol.
   if (onlyAgents.length > 0) {
     const destAgents = path.join(claudeDir, 'agents');
-    fs.mkdirSync(destAgents, { recursive: true });
+    const stats = makeInstallStats();
     let count = 0;
     for (const agentName of onlyAgents) {
       const srcAgent = path.join(AGENTS_DIR, `${agentName}.md`);
       if (fs.existsSync(srcAgent)) {
-        fs.copyFileSync(srcAgent, path.join(destAgents, `${agentName}.md`));
+        const destAgent = path.join(destAgents, `${agentName}.md`);
+        installProtectedFile({ srcFile: srcAgent, destFile: destAgent, calsuiteDir, currentSha, stats, divergences });
         count++;
-        console.log(`  ✓ Installed agent: ${agentName}`);
+        console.log(`  ✓ Processed agent: ${agentName}`);
       } else {
         console.log(`  ✗ Agent not found: ${agentName}`);
         missing.push(`agent:${agentName}`);
       }
     }
-    console.log(`  → ${count} agent(s) installed to ${destAgents}`);
+    const summary = summarizeInstallStats(stats);
+    console.log(`  → ${count} agent(s): ${summary.written} written, ${summary.skipped} skipped`);
   }
 
   // Also install into workspaces if monorepo
@@ -535,45 +790,17 @@ function installOnly(targetDir, onlySkills, onlyAgents) {
     const workspaces = findWorkspaces(targetDir);
     for (const ws of workspaces) {
       console.log(`\n  Workspace: ${ws.name}`);
-      const wsMissing = installOnly(ws.path, onlySkills, onlyAgents);
+      const wsMissing = installOnly(ws.path, onlySkills, onlyAgents, divergences);
       missing.push(...wsMissing);
     }
   }
 
+  // Top-level callers print the divergence summary once; if invoked without an
+  // outer list we're the top-level — print here.
+  if (!outerDivergences) {
+    printDivergenceSummary(divergences);
+  }
   return missing;
-}
-
-function syncParentAssets() {
-  if (!fs.existsSync(PARENT_CLAUDE_DIR)) {
-    console.log(`  ⚠ Parent .claude dir not found at ${PARENT_CLAUDE_DIR} — skipping shared asset sync`);
-    return;
-  }
-
-  const parentSkillsDir = path.join(PARENT_CLAUDE_DIR, 'skills');
-  const parentAgentsDir = path.join(PARENT_CLAUDE_DIR, 'agents');
-
-  fs.mkdirSync(parentSkillsDir, { recursive: true });
-  fs.mkdirSync(parentAgentsDir, { recursive: true });
-
-  // Symlink shared skills
-  let skillCount = 0;
-  for (const entry of fs.readdirSync(SKILLS_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory() || INTERNAL_SKILLS.has(entry.name) || entry.name.startsWith('.')) continue;
-    if (symlinkOrSkip(path.join(SKILLS_DIR, entry.name), path.join(parentSkillsDir, entry.name))) {
-      skillCount++;
-    }
-  }
-  console.log(`  ✓ Symlinked ${skillCount} shared skill(s) → ${parentSkillsDir}`);
-
-  // Symlink shared agents
-  let agentCount = 0;
-  for (const entry of fs.readdirSync(AGENTS_DIR, { withFileTypes: true })) {
-    if (!entry.isFile()) continue;
-    if (symlinkOrSkip(path.join(AGENTS_DIR, entry.name), path.join(parentAgentsDir, entry.name))) {
-      agentCount++;
-    }
-  }
-  console.log(`  ✓ Symlinked ${agentCount} shared agent(s) → ${parentAgentsDir}`);
 }
 
 function installTarget(targetDir, profilesConfig, opts = {}) {
@@ -615,6 +842,105 @@ function installTarget(targetDir, profilesConfig, opts = {}) {
   return { detectedProfiles, isMonorepo };
 }
 
+/**
+ * Given a destination file inside a target's .claude/skills or .claude/agents,
+ * return the calsuite-relative path to the same file (skills/<name>/...
+ * or agents/<name>.md). Returns null if the path isn't under a recognized
+ * managed dir.
+ */
+function destToCalsuiteRel(destPath) {
+  const marker = path.sep + '.claude' + path.sep;
+  const idx = destPath.indexOf(marker);
+  if (idx === -1) return null;
+  const afterClaude = destPath.slice(idx + marker.length);
+  const first = afterClaude.split(path.sep)[0];
+  if (first === 'skills' || first === 'agents') {
+    // Normalize to forward-slashes so the path matches calsuite's git-tracked layout on Windows too.
+    return afterClaude.split(path.sep).join('/');
+  }
+  return null;
+}
+
+function deriveTargetName(destPath) {
+  const marker = path.sep + '.claude' + path.sep;
+  const idx = destPath.indexOf(marker);
+  if (idx === -1) return 'local';
+  const targetDir = destPath.slice(0, idx);
+  return path.basename(targetDir);
+}
+
+function promptYesNo(question) {
+  // Sync stdin read — no readline dep. Returns true iff the user typed y/yes.
+  // Non-TTY stdin (scripts, CI) returns false unless `--yes` already bypassed this.
+  if (!process.stdin.isTTY) return false;
+  process.stdout.write(`${question} [y/N] `);
+  const buf = Buffer.alloc(16);
+  let bytesRead = 0;
+  try {
+    bytesRead = fs.readSync(0, buf, 0, 16, null);
+  } catch {
+    return false;
+  }
+  const answer = buf.slice(0, bytesRead).toString('utf8').trim().toLowerCase();
+  return answer === 'y' || answer === 'yes';
+}
+
+function handleForceAdopt(targetPath, { assumeYes = false } = {}) {
+  const destPath = path.resolve(targetPath);
+  const calsuiteRel = destToCalsuiteRel(destPath);
+  if (!calsuiteRel) {
+    console.error(`  ✗ ${destPath} is not under a target's .claude/skills or .claude/agents`);
+    process.exit(1);
+  }
+  const calsuiteDir = resolveCalsuiteDir();
+  const srcFile = path.join(calsuiteDir, calsuiteRel);
+  if (!fs.existsSync(srcFile)) {
+    console.error(`  ✗ Calsuite has no matching source file: ${srcFile}`);
+    process.exit(1);
+  }
+
+  if (!assumeYes) {
+    const destExists = fs.existsSync(destPath);
+    const warning = destExists
+      ? `Overwrite ${destPath} with calsuite's current version? Any local edits will be lost.`
+      : `Write calsuite's current content to ${destPath}?`;
+    if (!promptYesNo(warning)) {
+      console.log('  ⊘ Aborted. Re-run with --yes to skip the prompt.');
+      process.exit(1);
+    }
+  }
+
+  const currentSha = originProtocol.currentCalsuiteSha(calsuiteDir);
+  const content = fs.readFileSync(srcFile, 'utf8');
+  const stamped = originProtocol.stampOrigin(content, `calsuite@${currentSha}`);
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  fs.writeFileSync(destPath, stamped);
+  console.log(`  ✓ Force-adopted ${destPath} ← calsuite@${currentSha}`);
+}
+
+function handleClaim(targetPath) {
+  const destPath = path.resolve(targetPath);
+  if (!fs.existsSync(destPath)) {
+    console.error(`  ✗ ${destPath} does not exist`);
+    process.exit(1);
+  }
+  // Guard: stampOrigin unconditionally prepends YAML frontmatter, which would
+  // corrupt JSON/non-markdown files. Match the scope handleForceAdopt enforces
+  // and the scope the --claim docblock advertises: skill/agent markdown only.
+  const calsuiteRel = destToCalsuiteRel(destPath);
+  if (!calsuiteRel || !destPath.endsWith('.md')) {
+    console.error(`  ✗ --claim only supports markdown files under a target's .claude/skills or .claude/agents`);
+    console.error(`    got: ${destPath}`);
+    process.exit(1);
+  }
+  const targetName = deriveTargetName(destPath);
+  const content = fs.readFileSync(destPath, 'utf8');
+  const stamped = originProtocol.stampOrigin(content, targetName);
+  fs.writeFileSync(destPath, stamped);
+  console.log(`  ✓ Claimed ${destPath} → _origin: ${targetName}`);
+  console.log(`    Subsequent --sync will leave this file alone.`);
+}
+
 function parseArgv() {
   const args = process.argv.slice(2);
   const flags = {};
@@ -639,8 +965,24 @@ function parseArgv() {
       flags.installCcstatusline = true;
     } else if (args[i] === '--sync') {
       flags.sync = true;
-    } else if (args[i] === '--copy') {
-      flags.copy = true;
+    } else if (args[i] === '--yes' || args[i] === '-y') {
+      flags.yes = true;
+    } else if (args[i] === '--force-adopt') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('  ✗ --force-adopt requires a path argument');
+        process.exit(1);
+      }
+      flags.forceAdopt = next;
+      i++;
+    } else if (args[i] === '--claim') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('--')) {
+        console.error('  ✗ --claim requires a path argument');
+        process.exit(1);
+      }
+      flags.claim = next;
+      i++;
     } else if (args[i].startsWith('--')) {
       console.error(`  ✗ Unknown flag: ${args[i]}`);
       process.exit(1);
@@ -659,6 +1001,17 @@ function parseArgv() {
 
 function main() {
   const { flags, positional } = parseArgv();
+
+  // Handle --force-adopt and --claim early — they touch a single file
+  // and shouldn't trigger a full install.
+  if (flags.forceAdopt) {
+    handleForceAdopt(flags.forceAdopt, { assumeYes: flags.yes });
+    return;
+  }
+  if (flags.claim) {
+    handleClaim(flags.claim);
+    return;
+  }
 
   // Handle --install-ccstatusline flag
   if (flags.installCcstatusline) {
@@ -687,19 +1040,18 @@ function main() {
       process.exit(1);
     }
 
-    // Also sync shared skills/agents to parent .claude/
-    syncParentAssets();
-
+    const divergences = [];
     for (const target of targets.targets) {
       const targetPath = path.resolve(target.path.replace(/^~/, HOME_DIR));
       if (!fs.existsSync(targetPath)) {
         console.log(`  ⚠ Skipping ${target.path} (not found)`);
         continue;
       }
-      installTarget(targetPath, profilesConfig, { copy: flags.copy });
+      installTarget(targetPath, profilesConfig, { divergences });
     }
 
     console.log('\nSync complete!\n');
+    printDivergenceSummary(divergences);
     return;
   }
 
@@ -726,11 +1078,12 @@ function main() {
   }
 
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
+  const divergences = [];
 
   const { isMonorepo } = installTarget(targetDir, profilesConfig, {
-    copy: flags.copy,
     logProfiles: true,
     copyWorkspaceDocs: true,
+    divergences,
   });
 
   // Global settings check
@@ -750,6 +1103,7 @@ function main() {
   }
 
   console.log('\nDone!\n');
+  printDivergenceSummary(divergences);
 }
 
 function checkGlobalSettings(manifest, projectSettingsPaths) {
@@ -878,4 +1232,11 @@ function checkGlobalSettings(manifest, projectSettingsPaths) {
   }
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  // Errors thrown by origin-protocol utilities carry user-facing messages
+  // already. Print cleanly, exit non-zero, skip the noisy Node stack trace.
+  console.error(`\n  ✗ ${err.message}`);
+  process.exit(1);
+}

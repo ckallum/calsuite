@@ -2,7 +2,91 @@
 
 All notable changes to this repository.
 
-Current version: **2.5**
+Current version: **2.6**
+
+## [2.6] — 2026-04-19
+
+### Breaking / migration notes
+
+Calsuite no longer writes per-machine paths into a target's committed
+`.claude/settings.json`, and no longer clobbers local skill/agent edits on
+re-sync. See [specs/personal-harness-refactor/design.md](./specs/personal-harness-refactor/design.md) for the full rationale.
+
+**First `--sync` after upgrading will behave differently:**
+
+- Calsuite hook wiring (previously merged into `.claude/settings.json`) now
+  lives in `.claude/settings.local.json` (gitignored). Any legacy
+  `_origin=calsuite` hook entries already in `settings.json` are stripped
+  on first sync. Project-specific hook entries (no `_origin` tag) are
+  preserved.
+- `.claude/scripts/hooks/` and `.claude/scripts/lib/` that previously held
+  symlinks into calsuite are auto-removed if every entry is still a
+  calsuite-pointing symlink. User-added scripts or foreign symlinks
+  short-circuit the cleanup.
+- `.gitignore` gets a `.claude/settings.local.json` line added (root and
+  every detected monorepo workspace) if not already present.
+- Every distributed skill/agent `.md` file gets an `_origin: calsuite@<sha>`
+  frontmatter marker. Existing pristine copies (byte-identical to calsuite's
+  current version) auto-migrate silently. Locally-edited copies are skipped
+  and flagged — resolve with `--force-adopt <path>` (take calsuite's),
+  `--claim <path>` (keep local, mark user-owned), or wait for
+  `--reconcile <path>` ([issue #42](https://github.com/ckallum/calsuite/issues/42)).
+
+Expected first-sync output for a target with local edits:
+
+```
+  ✓ Removed stale pre-refactor scripts/hooks, scripts/lib dir(s)
+  ✓ Added .claude/settings.local.json to .gitignore
+  ✓ Skills: 24 written, 2 skipped
+  ✓ Wrote 19 calsuite hook(s) to settings.local.json (preserved 3 project hook(s))
+  ✓ Removed 19 legacy calsuite hook(s) from settings.json
+
+  ─────────────────────────────────────────────────
+  2 file(s) skipped pending reconciliation:
+    • <target>/.claude/skills/ship/SKILL.md
+      skip-diverged: user-modified since a49a827
+    ...
+  Resolve with: --force-adopt / --claim / --reconcile
+  ─────────────────────────────────────────────────
+```
+
+### Added
+
+- `scripts/lib/origin-protocol.cjs` — safe-overwrite utilities: `parseFrontmatter`, `readOrigin`, `stampOrigin`, `normalizeForCompare`, `contentAtSha` (via `git show`), `currentCalsuiteSha`, `decideFileAction` (the full matrix from the design doc).
+- `--force-adopt <path>` flag — overwrite a target skill/agent file with calsuite's current version, stamping fresh `_origin`.
+- `--claim <path>` flag — mark a target skill/agent file as user-owned (`_origin: <target-name>`), preserved across future syncs.
+- End-of-sync divergence summary — lists every `skip-diverged` and `skip-unknown` file plus the three resolution commands.
+- `resolveCalsuiteDir()` — `$CALSUITE_DIR` env var → `~/Projects/calsuite` → installer-relative fallback.
+- `substituteCalsuiteDir()` — pre-resolves the `${CALSUITE_DIR}` placeholder in `hooks/hooks.json` to a literal absolute path before writing.
+- Auto `.gitignore` management — adds `.claude/settings.local.json` to target root and each detected monorepo workspace.
+- Auto-cleanup of pre-refactor `.claude/scripts/{hooks,lib}/` dirs when every entry is still a calsuite-pointing symlink.
+- Design spec at `specs/personal-harness-refactor/design.md` documenting the whole model, decisions, and risk matrix.
+
+### Changed
+
+- Hook wiring migrated from `.claude/settings.json` (team-shared, committed) to `.claude/settings.local.json` (per-user, gitignored). Calsuite writes literal absolute `$CALSUITE_DIR/...` paths there; the Claude Code hook runner doesn't shell-expand command strings, so paths have to be pre-resolved but not committed.
+- Skill/agent distribution moved from unconditional `copyDirSync` / `copyFileSync` to the `_origin` safe-overwrite protocol (see origin-protocol module).
+- `hooks/hooks.json` placeholder renamed from `${CLAUDE_CONFIG_DIR}` to `${CALSUITE_DIR}` to match the actual semantic (18 occurrences).
+- `settings.json` now only carries `enabledPlugins` and `permissions` — both portable across machines.
+
+### Fixed
+
+- `--only <skill>` mode (`installOnly`) now routes through the `_origin` safe-overwrite protocol. Previously it used `copyDirSync` / `copyFileSync` directly, bypassing the whole point of the refactor — an explicit `--only review` would silently clobber local edits.
+- `currentCalsuiteSha` throws on git failure instead of returning the sentinel string `'unknown'`. The old fallback would have stamped every file with `_origin: calsuite@unknown`, permanently breaking future `contentAtSha` lookups.
+- `contentAtSha` distinguishes benign "path not in git at that sha" from infra failures (git not installed, shallow-clone pruning, corrupt repo). Only the former returns null; anything else throws with a clear message.
+- `readJsonSync` throws on `SyntaxError` (malformed JSON) instead of silently returning null. The `|| {}` idiom at callsites would otherwise rebuild broken `settings.json` from scratch, wiping user hooks/plugins/permissions silently. ENOENT still returns null (benign).
+- `--force-adopt` prompts for confirmation before overwriting; `--yes` / `-y` flag skips the prompt for non-interactive use. Aligns with the design spec's explicit "one-line confirmation prompt; `--yes` to skip" requirement.
+- `stampOrigin` uses a function replacer instead of a string replacement — defends against `$` sequences in `originValue` (e.g. target basenames in unusual directories).
+- `skip-exists` counter separated from `skip-claimed` so log lines don't mislabel non-markdown-file no-overwrites as "user-claimed".
+- `guardian-rules.json` and `agent-rules.json` are now copy-no-overwrite (per design spec S4 row). Previously they were unconditionally overwritten on every install, clobbering any local tuning.
+- Top-level `try/catch` in `main()` prints clean error messages for thrown exceptions (no Node stack traces for user-facing failures).
+
+### Removed
+
+- `syncParentAssets()` and `PARENT_CLAUDE_DIR` — they created symlinks at `~/Projects/.claude/` under the assumption that Claude Code inherits skills from parent-directory `.claude/` dirs. Per the [official docs](https://code.claude.com/docs/en/skills), only enterprise/personal/project/plugin levels are discovered — parent-dir inheritance is not a supported feature.
+- `resolveHookPaths()` — pre-resolving `${CLAUDE_CONFIG_DIR}` into an absolute path inside `settings.json` was exactly the bug that broke collaborators' checkouts.
+- `symlinkDirSync` and `symlinkOrSkip` helpers — no longer referenced (scripts no longer symlinked into targets).
+- `--copy` flag — removed entirely. Its only effect was toggling script symlink-vs-copy, and scripts are no longer copied into targets at all. Now errors with "Unknown flag" instead of silently no-opping.
 
 ## [2.5] — 2026-04-19
 
