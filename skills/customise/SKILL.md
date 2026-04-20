@@ -32,6 +32,21 @@ Diverge a calsuite-managed skill for local project use. This skill fuses "edit t
 - **Three-way merge with calsuite's evolving version:** that's [#42 `--reconcile`](https://github.com/ckallum/calsuite/issues/42), not yet implemented. Once you claim, you're forked.
 - **Propagating your customisation to other targets:** that's [#40 `/reconcile-targets`](https://github.com/ckallum/calsuite/issues/40). Claim per target for now.
 
+## Step 0: Pre-flight — verify calsuite is reachable
+
+Both Step 2 (`configure-claude.js <target>` seed install, if needed) and Step 5 (`configure-claude.js --claim`) invoke calsuite's installer directly. Fail fast with an actionable message if it's not where we expect.
+
+```bash
+calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+if [ ! -f "$calsuite_dir/scripts/configure-claude.js" ]; then
+  echo "✗ Calsuite installer not found at $calsuite_dir/scripts/configure-claude.js"
+  echo "  Set \$CALSUITE_DIR to your calsuite checkout, or clone it to ~/Projects/calsuite"
+  exit 1
+fi
+```
+
+Hold onto `$calsuite_dir` (the resolved value) for use in Steps 2 and 5 — don't re-resolve each time. If the check fails, abort the whole skill — nothing downstream will work either.
+
 ## Step 1: Parse arguments
 
 `$ARGUMENTS` contains: `<skill-name> [optional free-form instructions]`.
@@ -60,8 +75,8 @@ skill_path=".claude/skills/<skill-name>/SKILL.md"
 If the file doesn't exist:
 
 1. Announce: "Skill not yet installed in this target. Running installer first."
-2. Run `node "${CALSUITE_DIR:-$HOME/Projects/calsuite}/scripts/configure-claude.js" "$(pwd)"`
-3. If the file still doesn't exist afterward, abort: the skill name doesn't match any calsuite skill. Suggest running `ls "${CALSUITE_DIR:-$HOME/Projects/calsuite}/skills/"` to see available names.
+2. Run `node "$calsuite_dir/scripts/configure-claude.js" "$(pwd)"` — reuses the `$calsuite_dir` resolved in Step 0.
+3. If the file still doesn't exist afterward, abort: the skill name doesn't match any calsuite skill. Suggest running `ls "$calsuite_dir/skills/"` to see available names.
 
 ## Step 3: Inspect current ownership
 
@@ -105,10 +120,9 @@ Wait for their next message. When they return:
 
 ## Step 5: Claim the file
 
-Invoke calsuite's `--claim` to stamp `_origin: <target-name>`:
+Invoke calsuite's `--claim` to stamp `_origin: <target-name>`. Reuses `$calsuite_dir` from Step 0 — the pre-flight guard has already confirmed it's reachable:
 
 ```bash
-calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
 abs_path="$(cd "$(dirname "$skill_path")" && pwd)/$(basename "$skill_path")"
 node "$calsuite_dir/scripts/configure-claude.js" --claim "$abs_path"
 ```
