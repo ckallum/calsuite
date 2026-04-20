@@ -4,8 +4,9 @@ version: 1.0.0
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
-  Up to 7 parallel review agents: conventions, security checklist, git blame history,
-  previous PR comments, code comment compliance, silent failure hunting, type design.
+  Up to 9 parallel review agents: conventions, security checklist, git blame history,
+  previous PR comments, code comment compliance, silent failure hunting, type design,
+  cross-module format consistency, spec-contract deviation.
   Confidence scoring, Greptile triage, TODO cross-reference, flow diagrams.
   Adversarial converse mode: /review pr 123 --converse codex runs Claude's review then debates findings with another model CLI.
 argument-hint: "[pr <number>] [--converse cli[:model]]"
@@ -307,7 +308,7 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 ## Step 3: Dispatch Parallel Review Agents
 
-Dispatch **up to 7 parallel agents** in a single message using the Agent tool. Agents F and G are conditional — only dispatch them if the diff contains relevant code.
+Dispatch **up to 9 parallel agents** in a single message using the Agent tool. Agents F, G, H, and I are conditional — only dispatch them if the diff contains relevant code or signals.
 
 **Agent A — Convention review (@code-reviewer):**
 ```text
@@ -336,6 +337,9 @@ Run `git diff origin/main` to get the full diff. Read the checklist at
 Pass 1 (CRITICAL): SQL & Data Safety, Race Conditions & Concurrency,
 LLM Output Trust Boundary, Auth & Security Boundaries.
 Pass 2 (INFORMATIONAL): All remaining categories.
+Signal-gated passes: read the 'Signal-Gated Passes' section of the checklist.
+Run the versioned-struct pass ONLY if the diff matches the signals listed there
+(const *_VERSION, struct field `version:`, or TS `version: number` on serialized types).
 
 Respect the Suppressions section — do NOT flag items listed there.
 Read the FULL diff before flagging anything.
@@ -472,13 +476,92 @@ improvement suggestions. Keep suggestions pragmatic — don't overcomplicate."
 description: "Type design review"
 ```
 
+**Agent H — Cross-module format consistency (conditional):**
+
+Dispatch this agent whenever the diff touches Rust, TypeScript/JavaScript, Python, Go, or SQL code. The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
+
+```text
+prompt: "Hunt for cross-module format-consistency drift in the target diff.
+
+Use the same diff source selected in Step 1:
+- local mode: git diff origin/main
+- PR mode: the gh pr diff <number> output already fetched
+
+1. Run `git diff origin/main --name-only` to get the changed files.
+2. For each changed file, determine its module — the nearest enclosing directory
+   that groups related files (e.g. `src-tauri/src/db/` for Rust, `src/features/foo/`
+   for TS, `app/models/` for Ruby). Read every file in that module, not just the
+   changed ones.
+3. For each module, scan for these consistency contracts and flag mismatches:
+
+   **Datetime writers (Rust / TS / JS / Python / Go / SQL).**
+     - Rust: `datetime\\('now'\\)` vs `Utc::now\\(\\)` vs `chrono::Utc::now\\(\\)\\.to_rfc3339\\(\\)` vs `SystemTime::now\\(\\)`
+     - TS/JS: `new Date\\(\\)\\.toISOString\\(\\)` vs `Date\\.now\\(\\)` vs `dayjs\\(\\)\\.format\\(` vs raw `Date\\(\\)`
+     - Python: `datetime\\.utcnow\\(\\)` vs `datetime\\.now\\(tz=` vs `time\\.time\\(\\)`
+     - SQL: `datetime\\('now'\\)` vs `CURRENT_TIMESTAMP` vs `NOW\\(\\)`
+     If a single module writes timestamps using 2+ different functions, flag as CRITICAL — the serialized formats will diverge.
+
+   **SQL ORDER BY directions.** Grep for the same column appearing in `ORDER BY <col> ASC` and `ORDER BY <col> DESC` within one module — if two handlers sort the same column differently, results will be inconsistent.
+
+   **Serialization drift.** Grep for the same identifier written both snake_case and camelCase within one module (e.g. `created_at` and `createdAt` appearing on the same struct's serde attributes). Flag as CRITICAL — this causes silent deserialize failures.
+
+4. Return findings with file:line, the inconsistent values found, and which
+   module boundary they fall within. Only flag genuine mismatches — skip cases
+   where different formats are intentional (e.g. a TS/serde boundary where
+   snake↔camel is expected)."
+description: "Cross-module format consistency"
+```
+
+**Agent I — Spec-contract deviation (conditional):**
+
+Only dispatch if `.claude/specs/` exists and contains a spec matching the current branch. Detect the active spec:
+```bash
+SPEC_DIR=""
+# Try branch name → spec slug
+branch=$(git branch --show-current)
+slug=$(echo "$branch" | sed -E 's#^(feat|fix|chore|refactor|feature)/##')
+[ -d ".claude/specs/$slug" ] && SPEC_DIR=".claude/specs/$slug"
+# Fallback: most-recently-modified spec with both design.md and tasks.md
+[ -z "$SPEC_DIR" ] && SPEC_DIR=$(find .claude/specs -mindepth 1 -maxdepth 2 -name design.md -exec dirname {} \; 2>/dev/null | head -1)
+```
+If `$SPEC_DIR` is empty, skip this agent.
+
+```text
+prompt: "Check the diff for deviations from the spec contract.
+
+1. Read $SPEC_DIR/design.md and $SPEC_DIR/tasks.md — these are the contract.
+2. Run `git diff origin/main` (or the PR diff) to see what was built.
+3. For each top-level item in design.md (new components, APIs, data flows, event names,
+   field names) and each task in tasks.md:
+   - Is it delivered in the diff? If a design.md bullet names a specific symbol,
+     field, or event, grep the diff for it.
+   - Is there extra work in the diff not covered by any spec item?
+
+Flag two classes of deviation:
+  - MISSING: spec promises it, diff doesn't deliver it.
+  - EXTRA: diff builds it, spec doesn't describe it.
+
+For each deviation, return:
+  [file:line or spec-section] <deviation description>
+  Recommendation: either (A) remediate — bring the diff back to the spec, or
+                         (B) update spec — strikethrough the old bullet in
+                             design.md/tasks.md and add an addendum describing
+                             the current implementation path.
+  Include the one-sentence reasoning for which option fits better.
+
+Skip deviations that are obviously trivial (renaming a helper, moving a file).
+Focus on behavioral contract: commands the system accepts, events it emits,
+data shape it persists, failure modes it handles."
+description: "Spec-contract deviation"
+```
+
 Wait for all agents to return.
 
 ---
 
 ## Step 4: Merge, Score, and Filter Findings
 
-1. Collect findings from all agents (5-7 depending on which conditional agents ran).
+1. Collect findings from all agents (5-9 depending on which conditional agents ran).
 2. Deduplicate: if multiple agents flag the same file:line for the same issue, keep the one with most detail.
 3. **Confidence score each finding** on a 0-100 scale:
    - **0-25:** Likely false positive — doesn't stand up to scrutiny, or is a pre-existing issue.
@@ -502,7 +585,7 @@ Output all findings:
 ### CRITICAL (blocking) — confidence ≥ 80
 1. [file:line] Problem description (score: 85)
    Fix: suggested fix
-   Source: convention | checklist | blame | prev-PR | comments | silent-failure | type-design | greptile
+   Source: convention | checklist | blame | prev-PR | comments | silent-failure | type-design | format-consistency | spec-contract | greptile
 
 ### INFORMATIONAL (advisory) — confidence 60-79
 1. [file:line] Problem description (score: 65)

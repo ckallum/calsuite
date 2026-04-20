@@ -109,6 +109,34 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 
 ---
 
+## Signal-Gated Passes
+
+These passes only run when a cheap grep against the diff detects the corresponding signal. Skip silently if no signal fires.
+
+### Versioned-struct pass
+
+**Signal (run this pass only if the diff matches any of these):**
+- Rust: `const\s+\w*_VERSION\b`, or a struct field declared `\s+version\s*:\s*(u\d+|i\d+)\b`
+- TypeScript: `\bversion\s*:\s*number\b` on a type used in serialize/deserialize paths
+
+**When the signal fires, check every versioned struct in the diff for:**
+
+- **Version check on deserialize/hydrate:** does the deserialize path read `version` and branch? A missing check means a future-version payload silently loads with today's code.
+- **Degraded fallback for version mismatch:** on mismatch, does the code emit a degraded event, fall back to a safe default, or refuse to hydrate? Crashing is acceptable; silently ignoring is not.
+- **Serialize/deserialize symmetry:** every field on the struct must be populated in *both* directions. If a field is written but never read (or vice versa), flag it — this was the PR #173 `hydrated_from_storage` class of bug.
+- **Capped arrays truncated post-deserialize:** if the struct has a `Vec<T>` or `Array` with a declared cap (e.g. `const MAX_X: usize = 100`), the deserialize path must `.truncate(cap)` after reading — stored payloads from earlier versions may exceed the cap.
+
+**Output format:**
+```
+Versioned-Struct Pass: N issues
+- [file:line] <StructName>.version — <specific gap>
+  Fix: <concrete fix referencing the four checks>
+```
+
+If no issues, emit `Versioned-Struct Pass: clean`.
+
+---
+
 ## Gate Classification
 
 ```text
