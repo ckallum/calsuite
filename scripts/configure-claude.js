@@ -27,6 +27,16 @@
  *                                at install sha, and target-current side-by-side, then
  *                                offers keep / adopt / merge-in-$EDITOR / skip. Requires
  *                                a TTY.
+ *   --prune-stale [path]         Clean orphaned calsuite state from prior distribution
+ *                                models: (A) parent-level orphan symlinks under
+ *                                ~/Projects/.claude/{skills,agents}, (B) mixed
+ *                                .claude/scripts/{hooks,lib} dirs containing calsuite
+ *                                symlinks alongside user files, and (C) stale
+ *                                skill/agent .md files without `_origin` that diverge
+ *                                from calsuite's current. Without `<path>`, iterates
+ *                                every target in config/targets.json. Dry-run by
+ *                                default; pass --yes to apply. Category C always
+ *                                prompts per-file (no bulk delete).
  *   --yes, -y                    Skip confirmation prompts for destructive operations.
  */
 
@@ -1104,6 +1114,368 @@ function handleReconcile(targetPath) {
   console.log(`  ✓ Merged. ${destPath} ← calsuite@${currentSha} (user-resolved)`);
 }
 
+/**
+ * True if `entryPath` is a symlink whose resolved target lives inside
+ * `calsuiteDir` (or equals it). Used to distinguish calsuite-placed
+ * symlinks — safe to remove — from user-placed files/symlinks.
+ */
+function isCalsuiteSymlink(entryPath, calsuiteDir) {
+  let stat;
+  try {
+    stat = fs.lstatSync(entryPath);
+  } catch {
+    return false;
+  }
+  if (!stat.isSymbolicLink()) return false;
+  const linkTarget = fs.readlinkSync(entryPath);
+  const resolved = path.resolve(path.dirname(entryPath), linkTarget);
+  return resolved === calsuiteDir || resolved.startsWith(calsuiteDir + path.sep);
+}
+
+/**
+ * Walk a directory recursively and yield every file path. Symlinks are
+ * reported as files (no follow). Missing dirs yield nothing.
+ */
+function walkFilesRecursive(dir) {
+  const out = [];
+  if (!fs.existsSync(dir)) return out;
+  const stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(cur, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
+        out.push(full);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Opt-in cleanup of orphaned calsuite state left behind by prior
+ * distribution models. Three categories:
+ *   [A] Parent-level symlinks under ~/Projects/.claude/{skills,agents}
+ *       pointing into calsuite. Nothing reads these since the refactor
+ *       (Claude Code doesn't discover parent .claude/ skill dirs).
+ *   [B] Mixed `<target>/.claude/scripts/{hooks,lib}` dirs — calsuite
+ *       symlinks alongside user files. The `--sync` pure-symlink-dir
+ *       auto-cleanup can't handle the mixed case; this prompts per-file.
+ *   [C] Skill/agent .md files without `_origin` that diverge from calsuite
+ *       current (decideFileAction → 'skip-unknown'). Only those whose
+ *       filename matches a calsuite source — foreign files are treated
+ *       as user-added and left alone (stand-in for honoring .gitignore).
+ *
+ * Dry-run by default. `--yes` applies A & B automatically; C always
+ * prompts per-file, since deleting a potentially-edited file is
+ * irreversible. Non-TTY + apply mode + category C candidates errors out.
+ *
+ * Without `<path>`, iterates every target in config/targets.json and
+ * treats category A as a global one-shot before the per-target loop.
+ */
+function handlePruneStale(targetPath, { assumeYes = false } = {}) {
+  const calsuiteDir = resolveCalsuiteDir();
+
+  // Resolve which targets to walk.
+  let targets;
+  if (targetPath) {
+    const resolved = path.resolve(targetPath);
+    if (!fs.existsSync(resolved)) {
+      console.error(`  ✗ ${resolved} does not exist`);
+      process.exit(1);
+    }
+    targets = [{ path: resolved, label: path.basename(resolved) }];
+  } else {
+    const targetsJson = readJsonSync(TARGETS_JSON);
+    if (!targetsJson?.targets?.length) {
+      console.error('  ✗ No targets found in config/targets.json');
+      process.exit(1);
+    }
+    targets = [];
+    for (const t of targetsJson.targets) {
+      const resolved = path.resolve(t.path.replace(/^~/, HOME_DIR));
+      if (!fs.existsSync(resolved)) {
+        console.log(`  ⚠ Skipping ${t.path} (not found)`);
+        continue;
+      }
+      targets.push({ path: resolved, label: path.basename(resolved) });
+    }
+    if (!targets.length) {
+      console.error('  ✗ No reachable targets to prune.');
+      process.exit(1);
+    }
+  }
+
+  const mode = assumeYes ? 'apply' : 'dry-run';
+  console.log(`\n--- prune-stale (${mode}) ---`);
+  if (!assumeYes) {
+    console.log('  Dry-run only. Re-run with --yes to actually remove items.');
+  }
+
+  let totalRemoved = 0;
+  let totalKeptByUser = 0;
+
+  // --- Category A (global; run once when no per-target path was given) ---
+  if (!targetPath) {
+    console.log('\n  [A] Parent-level orphan symlinks');
+    const parentClaude = path.join(HOME_DIR, 'Projects', '.claude');
+    const parentDirs = [
+      path.join(parentClaude, 'skills'),
+      path.join(parentClaude, 'agents'),
+    ];
+
+    let anyA = false;
+    for (const dir of parentDirs) {
+      if (!fs.existsSync(dir)) continue;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const name of entries) {
+        const full = path.join(dir, name);
+        if (!isCalsuiteSymlink(full, calsuiteDir)) continue;
+        anyA = true;
+        const linkTarget = path.resolve(dir, fs.readlinkSync(full));
+        if (assumeYes) {
+          try {
+            fs.unlinkSync(full);
+            console.log(`  ✓ Removed ${full} (→ ${linkTarget})`);
+            totalRemoved++;
+          } catch (err) {
+            console.log(`  ✗ Failed to remove ${full}: ${err.message}`);
+          }
+        } else {
+          console.log(`  · would remove: ${full}  (→ ${linkTarget})`);
+        }
+      }
+      // In apply mode, if the dir is now empty, remove it too.
+      if (assumeYes && fs.existsSync(dir)) {
+        let remaining;
+        try {
+          remaining = fs.readdirSync(dir);
+        } catch {
+          remaining = ['?'];
+        }
+        if (remaining.length === 0) {
+          try {
+            fs.rmdirSync(dir);
+            console.log(`  ✓ Removed empty dir ${dir}`);
+          } catch (err) {
+            console.log(`  ✗ Failed to remove dir ${dir}: ${err.message}`);
+          }
+        }
+      }
+    }
+    // Also remove the parent ~/Projects/.claude/ dir if both children are gone
+    // and it has no other content.
+    if (assumeYes && fs.existsSync(parentClaude)) {
+      let parentEntries;
+      try {
+        parentEntries = fs.readdirSync(parentClaude);
+      } catch {
+        parentEntries = ['?'];
+      }
+      if (parentEntries.length === 0) {
+        try {
+          fs.rmdirSync(parentClaude);
+          console.log(`  ✓ Removed empty dir ${parentClaude}`);
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
+    if (!anyA) console.log('  (none)');
+  }
+
+  // --- Per-target categories B and C ---
+  for (const target of targets) {
+    console.log(`\n--- Pruning: ${target.label} (${target.path}) ---`);
+
+    // Category B: mixed scripts/hooks, scripts/lib dirs.
+    console.log('\n  [B] Stale scripts/hooks, scripts/lib dirs');
+    const scriptsDirs = [
+      path.join(target.path, '.claude', 'scripts', 'hooks'),
+      path.join(target.path, '.claude', 'scripts', 'lib'),
+    ];
+    let anyB = false;
+    for (const dir of scriptsDirs) {
+      if (!fs.existsSync(dir)) continue;
+      let stat;
+      try {
+        stat = fs.lstatSync(dir);
+      } catch {
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
+
+      let entries;
+      try {
+        entries = fs.readdirSync(dir);
+      } catch {
+        continue;
+      }
+
+      const calsuiteLinks = [];
+      const preserved = [];
+      for (const name of entries) {
+        const full = path.join(dir, name);
+        if (isCalsuiteSymlink(full, calsuiteDir)) {
+          calsuiteLinks.push(full);
+        } else {
+          preserved.push(full);
+        }
+      }
+
+      if (calsuiteLinks.length === 0 && preserved.length === 0) {
+        // Empty dir — remove it in apply mode.
+        if (assumeYes) {
+          try {
+            fs.rmdirSync(dir);
+            console.log(`  ✓ Removed empty dir ${dir}`);
+            totalRemoved++;
+            anyB = true;
+          } catch {
+            /* non-fatal */
+          }
+        } else {
+          console.log(`  · would remove empty dir: ${dir}`);
+          anyB = true;
+        }
+        continue;
+      }
+
+      if (calsuiteLinks.length === 0) {
+        // Purely user content — leave alone.
+        continue;
+      }
+
+      anyB = true;
+      if (preserved.length === 0) {
+        // All calsuite symlinks — noted that --sync auto-cleanup handles
+        // this case too, but we can act directly here.
+        for (const link of calsuiteLinks) {
+          const linkTarget = path.resolve(dir, fs.readlinkSync(link));
+          if (assumeYes) {
+            try {
+              fs.unlinkSync(link);
+              console.log(`  ✓ Removed ${link} (→ ${linkTarget})`);
+              totalRemoved++;
+            } catch (err) {
+              console.log(`  ✗ Failed to remove ${link}: ${err.message}`);
+            }
+          } else {
+            console.log(`  · would remove: ${link}  (→ ${linkTarget})`);
+          }
+        }
+        if (assumeYes) {
+          try {
+            fs.rmdirSync(dir);
+            console.log(`  ✓ Removed empty dir ${dir}`);
+          } catch {
+            /* non-fatal */
+          }
+        } else {
+          console.log(`  · would remove empty dir: ${dir} (after symlinks)`);
+        }
+      } else {
+        // Mixed dir: prune calsuite symlinks only, leave user files.
+        for (const link of calsuiteLinks) {
+          const linkTarget = path.resolve(dir, fs.readlinkSync(link));
+          if (assumeYes) {
+            try {
+              fs.unlinkSync(link);
+              console.log(`  ✓ Removed ${link} (→ ${linkTarget})`);
+              totalRemoved++;
+            } catch (err) {
+              console.log(`  ✗ Failed to remove ${link}: ${err.message}`);
+            }
+          } else {
+            console.log(`  · would remove: ${link}  (→ ${linkTarget})  (mixed dir: ${preserved.length} user file(s) preserved)`);
+          }
+        }
+      }
+    }
+    if (!anyB) console.log('  (none)');
+
+    // Category C: stale skill/agent files without _origin that diverge.
+    console.log('\n  [C] Stale skill/agent files without _origin');
+    const skillDir = path.join(target.path, '.claude', 'skills');
+    const agentDir = path.join(target.path, '.claude', 'agents');
+    const candidates = [
+      ...walkFilesRecursive(skillDir),
+      ...walkFilesRecursive(agentDir),
+    ].filter(p => p.endsWith('.md'));
+
+    const stale = [];
+    for (const destFile of candidates) {
+      const calsuiteRel = destToCalsuiteRel(destFile);
+      if (!calsuiteRel) continue;
+      const srcFile = path.join(calsuiteDir, calsuiteRel);
+      // User-added file with no calsuite counterpart → not ours to prune.
+      if (!fs.existsSync(srcFile)) continue;
+
+      let decision;
+      try {
+        decision = originProtocol.decideFileAction(destFile, calsuiteRel, calsuiteDir);
+      } catch (err) {
+        console.log(`  ⚠ Unable to inspect ${destFile}: ${err.message}`);
+        continue;
+      }
+      if (decision.action === 'skip-unknown') {
+        stale.push({ destFile, reason: decision.reason });
+      }
+    }
+
+    if (stale.length === 0) {
+      console.log('  (none)');
+    } else if (!assumeYes) {
+      for (const { destFile, reason } of stale) {
+        console.log(`  · would remove: ${destFile}  (${reason})`);
+      }
+    } else {
+      // Apply mode requires a TTY for the per-file prompts.
+      if (!process.stdin.isTTY) {
+        console.error(`  ✗ --prune-stale --yes found category C candidate(s) but stdin is not a TTY.`);
+        console.error(`    Category C deletions require per-file confirmation — re-run interactively.`);
+        process.exit(1);
+      }
+      for (const { destFile, reason } of stale) {
+        const confirmed = promptYesNo(`Remove ${destFile}? (${reason})`);
+        if (confirmed) {
+          try {
+            fs.unlinkSync(destFile);
+            console.log(`  ✓ Removed ${destFile}`);
+            totalRemoved++;
+          } catch (err) {
+            console.log(`  ✗ Failed to remove ${destFile}: ${err.message}`);
+          }
+        } else {
+          console.log(`  ⊘ Kept ${destFile}`);
+          totalKeptByUser++;
+        }
+      }
+    }
+  }
+
+  console.log('');
+  if (assumeYes) {
+    const keptSuffix = totalKeptByUser > 0 ? ` ${totalKeptByUser} candidate(s) skipped.` : '';
+    console.log(`Pruned ${totalRemoved} item(s) across ${targets.length} target(s).${keptSuffix}`);
+  } else {
+    console.log(`Dry-run complete across ${targets.length} target(s). Re-run with --yes to apply.`);
+  }
+}
+
 function parseArgv() {
   const args = process.argv.slice(2);
   const flags = {};
@@ -1154,6 +1526,12 @@ function parseArgv() {
       }
       flags.reconcile = next;
       i++;
+    } else if (args[i] === '--prune-stale') {
+      flags.pruneStale = true;
+      // Optional path: only consume next arg if it's not another flag.
+      if (args[i + 1] && !args[i + 1].startsWith('--')) {
+        flags.pruneStalePath = args[++i];
+      }
     } else if (args[i].startsWith('--')) {
       console.error(`  ✗ Unknown flag: ${args[i]}`);
       process.exit(1);
@@ -1185,6 +1563,10 @@ function main() {
   }
   if (flags.reconcile) {
     handleReconcile(flags.reconcile);
+    return;
+  }
+  if (flags.pruneStale) {
+    handlePruneStale(flags.pruneStalePath || null, { assumeYes: flags.yes });
     return;
   }
 
