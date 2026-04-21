@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.12**
+**Version: 2.13**
 
 ## Getting started
 
@@ -18,7 +18,7 @@ Repo layout:
 hooks/       # Shell commands triggered by Claude Code events
 commands/    # Custom slash commands
 scripts/     # configure-claude installer, scripts/hooks/*.cjs, scripts/lib/*.cjs
-config/      # global-settings.json (manifest), profiles.json, targets.json
+config/      # global-settings.json (manifest), profiles.json, targets.example.json (copy to targets.json; gitignored)
 plugins/     # Claude Code plugins
 skills/      # Markdown skills (invoked as /skill-name)
 agents/      # Agent definitions (invoked as @agent-name)
