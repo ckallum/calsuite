@@ -4,7 +4,7 @@ Shared template for PR creation across skills (`/ship`, `/execute`, `/receiving-
 
 ## Usage
 
-This is the canonical PR body structure. Both `/ship` (Step 8) and `/receiving-pr-feedback` (Step 4.5) follow this format.
+This is the canonical PR body structure. Both `/ship` (Steps 8 draft + 8.6 create) and `/receiving-pr-feedback` (Step 4.5) follow this format.
 
 - **On initial PR creation** (`/ship`): all sections are generated fresh from the current branch state.
 - **After feedback rounds** (`/receiving-pr-feedback`): dynamic sections (Summary, Important Files, Test Results, Development Flow) are regenerated to reflect fixes. Static sections (How It Works, Pre-Landing Review, Doc Completeness) are preserved as-is. A Revision History section is appended with per-round summaries.
@@ -26,6 +26,11 @@ Parser utility: `.claude/scripts/lib/pr-body-parser.cjs` provides `parsePrBody` 
 ```markdown
 ## Summary
 <1-5 bullet points describing what shipped — derived from CHANGELOG or commit history>
+
+## Pre-PR Gates
+<Findings from Step 7.4 pre-PR gates: size warning, test-presence, spec-contract.
+Omit this section entirely when all gates pass cleanly. Only include when there
+is at least one non-silent finding.>
 
 ## How It Works
 <Mermaid diagram showing the key flow introduced or changed>

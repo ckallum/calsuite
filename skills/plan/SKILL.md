@@ -8,7 +8,7 @@ description: |
   Four modes: INTERVIEW (surface edge cases, write spec), BRAINSTORM (explore design),
   REVIEW (lock in architecture, data flow, edge cases, tests),
   VISUALIZE (diagram-based design validation, bug shakeout).
-argument-hint: [mode] [spec-path]
+argument-hint: "[mode] [spec-path] [--lifecycle]"
 allowed-tools:
   - Read
   - Write
@@ -24,6 +24,61 @@ allowed-tools:
 # Engineering Plan
 
 Consolidated planning skill. Start here before writing code.
+
+## Arguments
+
+- `/plan` — ask for mode via AskUserQuestion
+- `/plan [mode]` — where mode is `interview`, `brainstorm`, `review`, or `visualize`
+- `/plan [mode] [spec-path]` — e.g. `/plan review auth-flow`
+- `--lifecycle` — force state × event matrix emission even when auto-detection signals don't fire
+
+## Lifecycle Detection (shared — runs before mode dispatch)
+
+Detect whether the planned work touches a state machine. This determines whether plan outputs (INTERVIEW, BRAINSTORM, REVIEW) must include a **state × event matrix**. Signal detection is cheap — grep/glob only, no LLM calls.
+
+**Explicit override:** if `$ARGUMENTS` contains `--lifecycle`, treat as state-machine work unconditionally.
+
+**Path signals** (match any target or recently-changed file path):
+```
+**/session/**
+**/actor/**
+**/state_machine/**
+**/lifecycle/**
+**/fsm/**
+```
+
+**Content signals** (grep changed or referenced files):
+```
+enum\s+\w*(State|Lifecycle|Status)\b
+impl\s+\w*Manager\b
+```
+
+**Detection command:**
+```bash
+# Path signals — check both in-flight and spec-referenced files
+git diff origin/main --name-only 2>/dev/null | grep -E '(session|actor|state_machine|lifecycle|fsm)/' && LIFECYCLE=1
+# Content signals — check changed files
+git diff origin/main 2>/dev/null | grep -E '(enum\s+\w*(State|Lifecycle|Status)\b|impl\s+\w*Manager\b)' && LIFECYCLE=1
+# Explicit flag
+echo "$ARGUMENTS" | grep -q -- '--lifecycle' && LIFECYCLE=1
+```
+
+**When `LIFECYCLE=1`**, the plan's output MUST include a state × event matrix. When `LIFECYCLE=0` (typical CRUD/stateless work), skip the matrix — it's dead weight.
+
+### State × event matrix format
+
+Rows = events/commands the system accepts. Columns = current states. Cells = expected behavior (`OK`, `error`, `skip`, `stop-first`, `reject`, etc.). Example shape:
+
+```
+                 StateA    StateB    StateC    StateD
+event_1          OK        error     error     error
+event_2          skip      full      full      error
+event_3          clear     clear     reject    clear
+```
+
+Every cell is a review target — missing or fuzzy cells are the bugs. Derive states from the system's actual state enum (or the enum you are designing) and events from command entry points.
+
+---
 
 ## Mode Selection
 
@@ -74,6 +129,7 @@ Rewrite the spec file incorporating all decisions from the interview:
 - Add new sections for topics that emerged
 - Follow the spec format: `requirements.md`, `design.md`, `tasks.md`
 - Flag any remaining open questions
+- **If `LIFECYCLE=1`** (see Lifecycle Detection above): include a state × event matrix in `design.md` under a `## State Transitions` section. Every cell must be filled — fuzzy cells get called out as open questions.
 
 ---
 
@@ -104,7 +160,7 @@ After exploring options, synthesize into a concrete proposal:
 ### Step 4: Write the spec
 Create spec files in `.claude/specs/<feature-name>/`:
 - `requirements.md` — User stories, functional/non-functional requirements
-- `design.md` — Architecture, data model, API design, key decisions
+- `design.md` — Architecture, data model, API design, key decisions. **If `LIFECYCLE=1`** (see Lifecycle Detection): include a state × event matrix under `## State Transitions`.
 - `tasks.md` — Phased implementation tasks with checkboxes
 
 Update SPECLOG.md with the new spec entry.
@@ -244,6 +300,9 @@ Each potential TODO as its own AskUserQuestion. For each: What, Why, Pros, Cons,
 ### Diagrams
 ASCII diagrams for any non-trivial data flow, state machine, or pipeline.
 
+### State × event matrix (conditional)
+**If `LIFECYCLE=1`** (see Lifecycle Detection at top of file): emit a state × event matrix listing every event/command across every state. Every cell must specify expected behavior (OK, error, skip, reject, stop-first, etc.). Empty or fuzzy cells are flagged as CRITICAL gaps. If the spec's `design.md` already contains a matrix, validate it — every cell reachable, no stuck states. If missing, emit one and recommend adding to `design.md`. Skip this section entirely when `LIFECYCLE=0`.
+
 ### Failure modes
 For each new codepath: one realistic failure, whether a test covers it, whether error handling exists, whether the user would see a clear error or silent failure. Any failure with no test AND no error handling AND silent -> **critical gap**.
 
@@ -258,6 +317,7 @@ For each new codepath: one realistic failure, whether a test covers it, whether 
   What already exists:  written
   TODO.md updates:      ___ items proposed
   Failure modes:        ___ critical gaps
+  State × event matrix: ___ cells (or "skipped — not a state machine")
 ```
 
 ## VISUALIZE Mode

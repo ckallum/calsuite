@@ -2,7 +2,34 @@
 
 All notable changes to this repository.
 
-Current version: **2.9**
+Current version: **2.10**
+
+## [2.10] — 2026-04-21
+
+### Added
+
+- **Rust silent-failure lint pack** in `config/lint-configs/agent-rules.json` — 5 patterns (`let _ = .await`, `if let Ok(Some(...`, `.ok()` on a non-chained/non-`?` result, `debug_assert!`, `.contains("...not active")`) scoped to `**/*.rs` via the `files` glob. Fires through the existing `lint-gate.cjs` hook — no runtime changes. Adding a pack for another language is just more rule entries with a different `files` glob.
+- **`/plan` — signal-gated state × event matrix.** Path signals (`session/`, `actor/`, `state_machine/`, `lifecycle/`, `fsm/`) + content signals (`enum *State|Lifecycle|Status`, `impl *Manager`) + explicit `--lifecycle` flag trigger matrix emission in INTERVIEW, BRAINSTORM, and REVIEW outputs. Skipped for CRUD/stateless work.
+- **`/review` — format-consistency agent (H).** Parallel agent that greps the full module around each changed file for mixed datetime writers, mixed `ORDER BY` directions, and snake/camel serialization drift. Rust-first; TS/JS/Python/Go/SQL patterns included.
+- **`/review` — spec-contract deviation agent (I).** Reads the active `.claude/specs/<slug>/design.md` + `tasks.md`, flags MISSING (spec promises / diff drops) and EXTRA (diff builds / spec silent) deviations.
+- **`/review` — versioned-struct checklist pass** (signal-gated on `const *_VERSION` / `version:` fields). Checks deserialize-path version check, degraded fallback, serialize/deserialize symmetry, and `.truncate(cap)` on capped arrays.
+- **`/ship` — Step 7.2 Sweep and Fix Inline** — ported from the pre-existing `.claude/skills/ship/SKILL.md` divergence (commit `4454110`) back to canonical source. Triages deferred items into "fix now" (coherent with this PR) vs "defer" before PR creation; Step 9 now consumes the `DEFERRED_ITEMS` handoff instead of rescanning.
+- **`/ship` — Pre-PR Gates (Step 7.4):**
+  1. PR-size warning when `> 400` lines added — cites dominant files, does not block.
+  2. Test-presence gate — universal multi-language heuristic (Rust/TS/JS/Py/Go/Ruby test function counting) warning when `code_additions > 50 && new_tests == 0`. Optional strict mode via `.claude/ship-config.json` `criticalPaths` glob list; `strict: true` upgrades warning to block.
+  3. Spec-contract deviation — same detection as `/review` Agent I, with AskUserQuestion remediate-or-addendum flow. Option B mutates `design.md`/`tasks.md` with strikethrough + dated addendum.
+- **`/ship` — PR-claim-vs-diff grep (Step 8.5).** Extracts backticked symbol claims from the drafted PR body; flags any that `grep -F` can't find in the diff.
+
+### Why
+
+PR `ckallum/museli#173` needed 3 review rounds and ~29 findings before landing. The retrospective bucketed those findings into 6 root causes: silent failures (6 bugs), cross-file invariant drift (4), lifecycle/restart gaps (5), promised-but-not-persisted state (3), defensive-programming gaps (3), and missing tests (systemic). This release encodes deterministic catches for each: lint rules for silent failures, format-consistency agent for drift, state matrix for lifecycle, PR-claim grep for promised-state, versioned-struct pass for defensive gaps, test-presence gate for coverage. Signal-gated passes only fire when the codebase matches — zero overhead on unrelated work.
+
+### How to apply
+
+- Rust lint rules auto-fire on `git commit` in any repo with the shared config (target repos inherit via calsuite installer).
+- `/plan` matrix triggers on the signals automatically; use `/plan review <slug> --lifecycle` to force it.
+- `/review` runs H + I + versioned-struct whenever signals match; all conditional — no overhead otherwise.
+- `/ship` gates always run, but only surface findings when they fire. Add `.claude/ship-config.json` per-repo for strict test-presence on critical paths.
 
 ## [2.9] — 2026-04-20
 

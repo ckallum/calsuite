@@ -1,3 +1,6 @@
 # Local project config (installed by configure-claude.js)
 .claude/
 .worktrees/
+
+# calsuite (personal harness) — never commit
+.claude/settings.local.json
