@@ -1195,8 +1195,14 @@ function handlePruneStale(targetPath, { assumeYes = false } = {}) {
     targets = [{ path: resolved, label: path.basename(resolved) }];
   } else {
     const targetsJson = readJsonSync(TARGETS_JSON);
+    if (!targetsJson) {
+      console.error('  ✗ config/targets.json not found.');
+      console.error('    Copy config/targets.example.json to config/targets.json and add your target repo paths.');
+      console.error('    (targets.json is gitignored so each user maintains their own list.)');
+      process.exit(1);
+    }
     if (!targetsJson?.targets?.length) {
-      console.error('  ✗ No targets found in config/targets.json');
+      console.error('  ✗ config/targets.json has no targets. Add at least one entry under "targets".');
       process.exit(1);
     }
     targets = [];
@@ -1584,8 +1590,14 @@ function main() {
   // Handle --sync mode: re-run install against all targets in config/targets.json
   if (flags.sync) {
     const targets = readJsonSync(TARGETS_JSON);
+    if (!targets) {
+      console.error('  ✗ config/targets.json not found.');
+      console.error('    Copy config/targets.example.json to config/targets.json and add your target repo paths.');
+      console.error('    (targets.json is gitignored so each user maintains their own list.)');
+      process.exit(1);
+    }
     if (!targets?.targets?.length) {
-      console.error('  ✗ No targets found in config/targets.json');
+      console.error('  ✗ config/targets.json has no targets. Add at least one entry under "targets".');
       process.exit(1);
     }
 

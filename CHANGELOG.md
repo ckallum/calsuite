@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.12**
+Current version: **2.13**
+
+## [2.13] — 2026-04-21
+
+### Changed
+
+- `config/targets.json` is now **gitignored and untracked**. Each user maintains their own local target list. A committed `config/targets.example.json` ships as the template — copy it to `config/targets.json` to populate. Removes the personal-info leak where target repo names (previously checked in) were visible in the public repo. Existing forks keep their in-history copies; to scrub history, rewrite with `git filter-repo` separately.
+- Installer error messages for `--sync` and `--prune-stale` now distinguish "file missing" from "file empty" and point users to the example file.
+
+### Why
+
+`targets.json` was the only personally-identifying thing in the tracked tree — a list of the user's side projects. Nothing secret, but nothing anyone else needs either. Moving to an example-plus-local split mirrors how every other user-specific file in the repo works (`~/.mcp.json`, `settings.local.json`, etc.) and removes a small ongoing leak with each new entry.
 
 ## [2.12] — 2026-04-21
 

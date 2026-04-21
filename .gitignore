@@ -4,3 +4,7 @@
 
 # calsuite (personal harness) — never commit
 .claude/settings.local.json
+
+# Local target repo list — each user maintains their own.
+# Copy config/targets.example.json to config/targets.json to populate.
+/config/targets.json

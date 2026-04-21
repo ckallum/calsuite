@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this file to config/targets.json and replace the paths with your own target repos. targets.json is gitignored — it stays local and is never committed. Paths may use '~' for your home directory; the installer expands it.",
+  "targets": [
+    { "path": "~/Projects/my-first-repo" },
+    { "path": "~/Projects/my-second-repo" }
+  ]
+}
