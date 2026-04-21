@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.8**
+Current version: **2.9**
+
+## [2.9] — 2026-04-20
+
+### Fixed
+
+- `configure-claude.js --force-adopt` and `--claim` no longer reject paths inside nested `.claude/` directories (e.g. calsuite's own git worktrees at `calsuite/.claude/worktrees/<id>/.claude/skills/…`). `destToCalsuiteRel()` and `deriveTargetName()` now anchor on the innermost `.claude/` via `lastIndexOf` instead of the outermost via `indexOf`. Both helpers moved to a new `scripts/lib/path-helpers.cjs` with inline unit tests covering the flat and nested-worktree cases.
+
+### Why
+
+Running `/customise` or `--force-adopt <path>` from inside a calsuite worktree resolved the `.claude/` boundary against the outer `calsuite/.claude/`, so the first path segment became `worktrees` instead of `skills` or `agents` — the installer rejected every path as "not under a target's .claude/skills or .claude/agents". With the innermost-boundary fix, worktree-authored edits can be adopted/claimed through the normal divergence-resolution flow.
 
 ## [2.8] — 2026-04-20
 
