@@ -2,7 +2,20 @@
 
 All notable changes to this repository.
 
-Current version: **2.13**
+Current version: **2.14**
+
+## [2.14] — 2026-04-21
+
+### Added
+
+- `scripts/sync-preview.cjs` — read-only preview of what `configure-claude.js --sync` would do across every target in `config/targets.json`. Walks each target's installed `.claude/skills` + `.claude/agents` markdown, calls `decideFileAction` per file, aggregates into `write-new` / `write-update` / `migrate` / `skip-diverged` / `skip-unknown` / `skip-claimed` buckets with per-target and grand-total counts. Supports `--target <name>` to scope and `--json` for machine-readable output. Writes nothing — safe any time.
+- `/sync-preview` calsuite-internal skill — wraps the script, interprets the output (e.g. 28 skip-unknowns → suggest `/reconcile-targets`; 3 skip-diverged on one target → suggest per-file `--reconcile` commands). Never distributed to targets.
+- `/sync` calsuite-internal skill — wraps `configure-claude.js --sync` with pre-flight, interpretation of the divergence summary, and proactive suggestions (picks the smallest-viable follow-up: direct commands for 1–3 files, `/reconcile-targets` for 4+). Supports `/sync preview` which delegates to `/sync-preview` for dry-run.
+- `sync` and `sync-preview` added to `INTERNAL_SKILLS` in `configure-claude.js` so they're listed in the `base`/`monorepo-root` profiles for completeness but filtered out at install time — the skills only make sense inside the calsuite repo itself.
+
+### Why
+
+Previously, the manual-sync workflow required remembering to type `node scripts/configure-claude.js --sync` and interpreting raw output. The two new skills collapse that into a command-palette interaction plus inline interpretation of what's next. `/sync-preview` in particular turns the "what's the current divergence state" question into a one-line command that produces a readable report — useful before kicking off the heavier `/reconcile-targets` agentic pass.
 
 ## [2.13] — 2026-04-21
 
