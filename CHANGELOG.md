@@ -2,9 +2,9 @@
 
 All notable changes to this repository.
 
-Current version: **2.8**
+Current version: **2.10**
 
-## [2.8] — 2026-04-20
+## [2.10] — 2026-04-21
 
 ### Added
 
@@ -13,6 +13,7 @@ Current version: **2.8**
 - **`/review` — format-consistency agent (H).** Parallel agent that greps the full module around each changed file for mixed datetime writers, mixed `ORDER BY` directions, and snake/camel serialization drift. Rust-first; TS/JS/Python/Go/SQL patterns included.
 - **`/review` — spec-contract deviation agent (I).** Reads the active `.claude/specs/<slug>/design.md` + `tasks.md`, flags MISSING (spec promises / diff drops) and EXTRA (diff builds / spec silent) deviations.
 - **`/review` — versioned-struct checklist pass** (signal-gated on `const *_VERSION` / `version:` fields). Checks deserialize-path version check, degraded fallback, serialize/deserialize symmetry, and `.truncate(cap)` on capped arrays.
+- **`/ship` — Step 7.2 Sweep and Fix Inline** — ported from the pre-existing `.claude/skills/ship/SKILL.md` divergence (commit `4454110`) back to canonical source. Triages deferred items into "fix now" (coherent with this PR) vs "defer" before PR creation; Step 9 now consumes the `DEFERRED_ITEMS` handoff instead of rescanning.
 - **`/ship` — Pre-PR Gates (Step 7.4):**
   1. PR-size warning when `> 400` lines added — cites dominant files, does not block.
   2. Test-presence gate — universal multi-language heuristic (Rust/TS/JS/Py/Go/Ruby test function counting) warning when `code_additions > 50 && new_tests == 0`. Optional strict mode via `.claude/ship-config.json` `criticalPaths` glob list; `strict: true` upgrades warning to block.
@@ -29,6 +30,26 @@ PR `ckallum/museli#173` needed 3 review rounds and ~29 findings before landing. 
 - `/plan` matrix triggers on the signals automatically; use `/plan review <slug> --lifecycle` to force it.
 - `/review` runs H + I + versioned-struct whenever signals match; all conditional — no overhead otherwise.
 - `/ship` gates always run, but only surface findings when they fire. Add `.claude/ship-config.json` per-repo for strict test-presence on critical paths.
+
+## [2.9] — 2026-04-20
+
+### Fixed
+
+- `configure-claude.js --force-adopt` and `--claim` no longer reject paths inside nested `.claude/` directories (e.g. calsuite's own git worktrees at `calsuite/.claude/worktrees/<id>/.claude/skills/…`). `destToCalsuiteRel()` and `deriveTargetName()` now anchor on the innermost `.claude/` via `lastIndexOf` instead of the outermost via `indexOf`. Both helpers moved to a new `scripts/lib/path-helpers.cjs` with inline unit tests covering the flat and nested-worktree cases.
+
+### Why
+
+Running `/customise` or `--force-adopt <path>` from inside a calsuite worktree resolved the `.claude/` boundary against the outer `calsuite/.claude/`, so the first path segment became `worktrees` instead of `skills` or `agents` — the installer rejected every path as "not under a target's .claude/skills or .claude/agents". With the innermost-boundary fix, worktree-authored edits can be adopted/claimed through the normal divergence-resolution flow.
+
+## [2.8] — 2026-04-20
+
+### Added
+
+- `configure-claude.js --reconcile <path>` — interactive three-way merge helper for divergent skill/agent files. Shows three panes (calsuite current, calsuite at install sha, target current), then offers: [k] keep target's version (stamps `_origin: <target-name>`, same effect as `--claim`), [a] adopt calsuite's current (same as `--force-adopt`), [m] three-way merge in `$EDITOR` with git-style conflict markers (including `|||||||` ancestor block when the install sha is available), or [s] skip. On [m], the resolved file is stamped with a fresh `_origin: calsuite@<current-sha>`; leftover conflict markers or a non-zero editor exit abort the operation with the original file untouched. Requires a TTY. Closes [#42](https://github.com/ckallum/calsuite/issues/42).
+
+### Why
+
+The v2.6 refactor made `--force-adopt` and `--claim` the two escape hatches for the mechanical sync protocol — they cover the "take calsuite's" and "keep mine" ends of the spectrum. `--reconcile` closes the middle case: the user wants _both_ sides — calsuite's upstream changes merged on top of their local edits — which the blunt flags can't express without data loss. Feeds the planned `/reconcile-targets` agentic layer ([#40](https://github.com/ckallum/calsuite/issues/40)).
 
 ## [2.7] — 2026-04-19
 
