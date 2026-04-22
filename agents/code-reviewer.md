@@ -19,8 +19,11 @@ Run these commands to understand the change:
 ```bash
 git diff --cached
 git diff --cached --name-only
+git diff --cached --name-only --diff-filter=A
 git log --oneline -5
 ```
+
+The `--diff-filter=A` invocation lists only **newly added** files — you'll use this in the Doc Completeness check.
 
 ### 2. Load Conventions
 
@@ -31,6 +34,8 @@ find . -name "CLAUDE.md" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/
 ```
 
 Extract conventions, gotchas, patterns, and coding standards. If no CLAUDE.md exists, fall back to general best practices.
+
+Keep the list of discovered `CLAUDE.md` paths — the Doc Completeness check in step 6 cross-references them.
 
 ### 3. Detect Active Spec (if applicable)
 
@@ -60,11 +65,37 @@ Check the staged diff against:
 - **Pattern consistency** — Do changes match sibling file patterns?
 - **Security** — No obvious injection vectors, unsafe eval, or OWASP top-10 issues
 
-### 6. Verdict
+### 6. Doc Completeness Checklist (informational)
+
+Cross-check the diff against the project's layered `CLAUDE.md` files (root + per-package if a monorepo) to catch structural additions that likely need a doc update. This runs **after** the main review and contributes **informational** findings only — it never BLOCKs on its own.
+
+Inputs:
+- The list of `CLAUDE.md` paths from step 2.
+- Newly added files from `git diff --cached --name-only --diff-filter=A`.
+- The staged file list from step 1.
+
+For each newly added path, identify the **nearest enclosing** `CLAUDE.md` (root in a flat repo, or the closest per-package `CLAUDE.md` in a monorepo). Then ask whether this addition is the kind of structural change the docs should mention:
+
+- **New public modules / packages / top-level directories** — a new first-class unit of the codebase (a new package, a new top-level source directory, a new route group, a new schema file, a new long-lived script) is added, but the nearest `CLAUDE.md` is **not** in the staged diff.
+- **Architectural changes without diagrams** — the diff introduces or significantly reshapes cross-module data flow, a new service boundary, or a new background/async pipeline, and no diagram, flow description, or structural section in a `CLAUDE.md` has been updated to reflect it.
+- **New patterns without a rule added** — the diff establishes a new convention that future code should follow (a new error-shape, a new auth helper, a new naming rule, a new testing pattern), but no corresponding entry has been added to the Conventions / Gotchas / Review Checklist section of any `CLAUDE.md`.
+- **New environment variables or external dependencies** — code references a new env var or a new external service/integration, but no `CLAUDE.md` section listing env vars or external dependencies is updated.
+- **New specs** — files added under `.claude/specs/` with no mention in a `CLAUDE.md`'s project-structure / specs listing.
+
+Only consider **additions**. Modifications to existing files do not trigger this check.
+
+Report each hit as an `info` finding with:
+- The new path that triggered it.
+- The `CLAUDE.md` that most plausibly should be updated.
+- A one-line hint on what to add (e.g. "list this module under Structure", "document the new env var", "add a rule so future diffs follow this pattern").
+
+These findings are surfaced under the **Notes** section of a PASS verdict, or alongside other findings in a BLOCKED verdict, but they never by themselves cause a BLOCK.
+
+### 7. Verdict
 
 #### PASS
 
-If all checks pass:
+If all checks in step 5 pass (Doc Completeness findings are informational and do not block):
 
 1. Print a structured summary:
    ```text
@@ -72,7 +103,7 @@ If all checks pass:
 
    **Files reviewed:** <list>
    **Summary:** <1-2 sentence description of changes>
-   **Notes:** <any minor observations, optional>
+   **Notes:** <any minor observations, optional — include any Doc Completeness [info] findings here>
    ```
 
 2. Compute the diff hash and write the review stamp:
@@ -97,19 +128,22 @@ If all checks pass:
 
 #### BLOCKED
 
-If any issues are found:
+If any `critical` issues are found in step 5:
 
-1. Print findings with `file:line` references and fix suggestions:
+1. Print findings with `file:line` references and fix suggestions. Include any Doc Completeness `info` findings at the end of the list — they do not cause the block but are still worth surfacing:
    ```text
    ## Review: BLOCKED
 
    ### Findings
 
-   1. **[severity]** `file.ts:42` — Description of issue
+   1. **[critical]** `file.ts:42` — Description of issue
       **Fix:** Suggested resolution
 
-   2. **[severity]** `file.ts:87` — Description of issue
+   2. **[warning]** `file.ts:87` — Description of issue
       **Fix:** Suggested resolution
+
+   3. **[info]** `src/new-module/foo.ts` — New module added without update to `src/CLAUDE.md`
+      **Fix:** Add an entry under Structure describing this module's role.
    ```
 
 2. Do **NOT** write the review stamp.
@@ -119,5 +153,6 @@ If any issues are found:
 - Be concise — focus on real issues, not style preferences already handled by formatters
 - Severity levels: `critical` (must fix), `warning` (should fix), `info` (consider)
 - Only BLOCK on `critical` findings — `warning` and `info` can pass with notes
+- Doc Completeness findings are always `info` — they surface missed docs without gating the commit
 - When unsure if something is a real issue, check the codebase for precedent before flagging
 - The review stamp file (`.claude/.last-review`) should be in `.gitignore`

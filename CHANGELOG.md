@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.21**
+Current version: **2.22**
+
+## [2.22] — 2026-04-25
+
+### Added
+
+- `agents/code-reviewer.md` — **Doc Completeness Checklist** (informational) ported from verity's fork. New Step 6 cross-checks newly added files and architectural changes against project CLAUDE.md files at relevant layers (root + per-package in monorepos). Flags new public modules without CLAUDE.md updates, architectural changes without diagrams, new patterns without review-checklist rules, new env vars without doc updates, new specs under `.claude/specs/`. Step 1 adds `git diff --cached --name-only --diff-filter=A` to surface newly added files; Step 2 retains discovered CLAUDE.md paths for cross-reference. Findings are always `info` severity — surface in PASS Notes or as trailing `[info]` entries under BLOCKED, never block on their own. All existing PASS/BLOCKED verdict machinery, review-stamp write, severity tiers, and generic checklist preserved.
+
+### Why
+
+The Doc Completeness pattern is a generic insight from verity: layered CLAUDE.mds (root + workspace-specific) drift out of sync with code changes without a deliberate prompt during review. Surfacing this as a non-blocking check nudges the reviewer to notice missed doc updates without gating the commit on stylistic judgment. Fully generic — verity's specific CLAUDE.md paths, helper names, and ID formats excluded.
 
 ## [2.21] — 2026-04-24
 
