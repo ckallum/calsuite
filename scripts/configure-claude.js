@@ -14,7 +14,11 @@
  *   --only skill1,skill2,...     Install only specific skills (skips hooks/plugins/settings)
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
- *   --sync                       Re-run install against all targets in config/targets.json
+ *   --sync                       Re-run install against all targets in config/targets.json.
+ *                                Each target may set `workspaces: "skip"` to install the
+ *                                harness only at the repo root — workspace subdirs
+ *                                (backend/, frontend/) are left alone. Default is "full"
+ *                                (every workspace gets a mirrored .claude/).
  *   --force-adopt <path>         Overwrite a target skill/agent file with calsuite's
  *                                current version. Discards local edits. Stamps fresh
  *                                `_origin: calsuite@<sha>`. Prompts for confirmation;
@@ -842,6 +846,17 @@ function installTarget(targetDir, profilesConfig, opts = {}) {
     const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
     installForProfile(targetDir, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, opts);
 
+    // `workspaces: "skip"` in targets.json means this target treats only the
+    // monorepo root as the harness — workspace subdirs (backend/, frontend/)
+    // don't get their own `.claude/` skills, agents, config, or permissions.
+    // Default is `"full"` for backward compat: every workspace gets a mirror.
+    if (opts.skipWorkspaces) {
+      if (opts.logProfiles) {
+        console.log(`\n  Skipping workspace harness install (targets.json: workspaces = "skip")`);
+      }
+      return { detectedProfiles, isMonorepo, rootProfileNames };
+    }
+
     const workspaces = findWorkspaces(targetDir);
     for (const ws of workspaces) {
       const wsProfiles = detectProfiles(ws.path);
@@ -1626,7 +1641,8 @@ function main() {
         console.log(`  ⚠ Skipping ${target.path} (not found)`);
         continue;
       }
-      installTarget(targetPath, profilesConfig, { divergences });
+      const skipWorkspaces = target.workspaces === 'skip';
+      installTarget(targetPath, profilesConfig, { divergences, skipWorkspaces });
     }
 
     console.log('\nSync complete!\n');
@@ -1659,10 +1675,21 @@ function main() {
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
   const divergences = [];
 
+  // Look up per-target config in targets.json so single-target invocations
+  // honor the same `workspaces: "skip"` setting that --sync respects. Without
+  // this, `node configure-claude.js ~/Projects/verity` would reinstall the
+  // workspace harness even though the user configured the target otherwise.
+  const targetsConfig = readJsonSync(TARGETS_JSON);
+  const matchingTarget = targetsConfig?.targets?.find(
+    t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
+  );
+  const skipWorkspaces = matchingTarget?.workspaces === 'skip';
+
   const { isMonorepo } = installTarget(targetDir, profilesConfig, {
     logProfiles: true,
     copyWorkspaceDocs: true,
     divergences,
+    skipWorkspaces,
   });
 
   // Global settings check
@@ -1672,7 +1699,7 @@ function main() {
     console.log('  ⚠ Could not read global manifest, skipping global check');
   } else {
     const settingsPaths = [path.join(targetDir, '.claude', 'settings.json')];
-    if (isMonorepo) {
+    if (isMonorepo && !skipWorkspaces) {
       const workspaces = findWorkspaces(targetDir);
       for (const ws of workspaces) {
         settingsPaths.push(path.join(ws.path, '.claude', 'settings.json'));
