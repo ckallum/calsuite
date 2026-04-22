@@ -60,7 +60,7 @@ const HOME_SETTINGS_LOCAL = path.join(HOME_DIR, '.claude', 'settings.local.json'
 const HOME_MCP_JSON = path.join(HOME_DIR, '.mcp.json');
 const KNOWN_MARKETPLACES = path.join(HOME_DIR, '.claude', 'plugins', 'known_marketplaces.json');
 // Skills that only make sense in the config repo itself — never export to target repos
-const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder', 'sync', 'sync-preview']);
+const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder', 'sync', 'sync-preview', 'reconcile']);
 
 /**
  * Resolve the absolute path to the calsuite checkout on this machine.
