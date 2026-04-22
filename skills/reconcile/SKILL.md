@@ -58,12 +58,19 @@ fi
 
 **Path provided:**
 
+Resolve the parent dir to an absolute path, checking existence explicitly. A plain `cd … 2>/dev/null && pwd` would silently yield an empty string on failure, producing a bogus `/<basename>` abs_path that only blows up two steps later — error up front instead.
+
 ```bash
 raw_path="$ARGUMENTS"
-abs_path="$(cd "$(dirname "$raw_path")" 2>/dev/null && pwd)/$(basename "$raw_path")"
+parent_dir="$(dirname "$raw_path")"
+if [ ! -d "$parent_dir" ]; then
+  echo "✗ $raw_path — parent directory not found ($parent_dir)"
+  exit 1
+fi
+abs_path="$(cd "$parent_dir" && pwd)/$(basename "$raw_path")"
 ```
 
-If the `cd` fails (parent dir doesn't exist), error with `✗ <path> — parent directory not found.`
+The `-d` guard means the `cd` inside the command substitution cannot fail, so no `&&` fallback gymnastics needed.
 
 **No arguments — interactive mode:**
 
