@@ -2,7 +2,26 @@
 
 All notable changes to this repository.
 
-Current version: **2.15**
+Current version: **2.16**
+
+## [2.16] — 2026-04-22
+
+### Changed
+
+- Added `reconcile-targets` to the `INTERNAL_SKILLS` allowlist in `scripts/configure-claude.js`. v2.11 shipped the skill but forgot to mark it internal, so the last syncs distributed a broken skill to every target (a target invoking `/reconcile-targets` would fail at phase 0 — no `config/targets.json` to walk).
+- Removed all six internal skills (`configure-claude`, `skill-builder`, `sync`, `sync-preview`, `reconcile`, `reconcile-targets`) from `config/profiles.json` `base.skills` and `monorepo-root.skills`. They were dead data there — filtered via `INTERNAL_SKILLS` at install time — but v2.14 described that as "listed for completeness". The completeness framing invited the exact confusion that made this PR necessary: "is this skill getting distributed or not?" was answerable only by reading the installer. Now the two lists are disjoint: `profiles.json` is the opt-in distribution roster, `INTERNAL_SKILLS` is the calsuite-only marker.
+
+### Why
+
+Every hub-level skill added to calsuite (installer wrappers, cross-target orchestrators) needs the same two edits: append to `INTERNAL_SKILLS`, append to `profiles.json`. Forgetting either one is invisible at commit time and surfaces as either (a) a broken skill in every downstream repo or (b) dead data in the config. Making the lists non-overlapping removes half the footgun and makes the remaining rule — "if internal, add ONLY to `INTERNAL_SKILLS`" — trivially enforceable.
+
+### Manual target cleanup
+
+Existing target repos still carry `<target>/.claude/skills/reconcile-targets/` on disk from the v2.11 sync. The installer no longer touches it — remove manually when convenient:
+
+```bash
+rm -rf ~/Projects/{verity,timeline,museli}/.claude/skills/reconcile-targets
+```
 
 ## [2.15] — 2026-04-22
 
