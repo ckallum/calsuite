@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.16**
+Current version: **2.17**
+
+## [2.17] — 2026-04-22
+
+### Changed
+
+- `README.md` refreshed to document the full sync/reconcile toolchain in one place. Adds `targets.json` setup to **Getting started**; replaces the thin "when a sync flags divergence" block with a proper **Syncing and reconciling** section covering `/sync`, `/sync-preview`, `/reconcile`, `/reconcile-targets`, `/customise`, `--force-adopt`, `--claim`, and `--prune-stale` with intent-based routing tables; new **Internal vs distributed skills** subsection explains the `INTERNAL_SKILLS` / `profiles.json` split from v2.16. Removes the stale `(issue #42, planned)` marker on `--reconcile` — it shipped in v2.8.
+
+### Why
+
+The reconcile/sync toolchain shipped across v2.8–v2.16 (8 versions, 6 PRs) without a cross-cutting narrative in the top-level README. The README was both outdated (`--reconcile planned`) and underdocumented — any skill shipped after v2.7 was invisible to a new reader. This refresh makes the README the single landing point for both *what* exists and *when to use what*.
 
 ## [2.16] — 2026-04-22
 
