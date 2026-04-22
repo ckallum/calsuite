@@ -59,8 +59,18 @@ const HOME_SETTINGS = path.join(HOME_DIR, '.claude', 'settings.json');
 const HOME_SETTINGS_LOCAL = path.join(HOME_DIR, '.claude', 'settings.local.json');
 const HOME_MCP_JSON = path.join(HOME_DIR, '.mcp.json');
 const KNOWN_MARKETPLACES = path.join(HOME_DIR, '.claude', 'plugins', 'known_marketplaces.json');
-// Skills that only make sense in the config repo itself — never export to target repos
-const INTERNAL_SKILLS = new Set(['configure-claude', 'skill-builder', 'sync', 'sync-preview', 'reconcile']);
+// Skills that only make sense in the config repo itself — never export to target repos.
+// These orchestrate calsuite's own workflow (installer, sync, cross-target reconciliation)
+// and read files that only exist here (config/targets.json, scripts/configure-claude.js).
+// Distributing them to targets is a no-op at best, misleading at worst.
+const INTERNAL_SKILLS = new Set([
+  'configure-claude',
+  'skill-builder',
+  'sync',
+  'sync-preview',
+  'reconcile',
+  'reconcile-targets',
+]);
 
 /**
  * Resolve the absolute path to the calsuite checkout on this machine.
