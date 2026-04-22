@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.14**
+Current version: **2.15**
+
+## [2.15] — 2026-04-22
+
+### Added
+
+- `/reconcile [<path>]` calsuite-internal skill — thin wrapper around `configure-claude.js --reconcile <path>` for single-file three-way merges. Adds pre-flight (calsuite reachable, `$EDITOR` set, path validity), peeks at `_origin` to warn about 2-way-fallback / already-pristine / claimed-elsewhere cases before invoking the installer, and interprets the installer's exit state (merged / kept / adopted / skipped / editor-aborted / markers-left) in plain English. Interactive picker mode when invoked without a path: runs `sync-preview --json`, lists every skip-diverged + skip-unknown file across targets, and prompts the user to pick one via `AskUserQuestion`. Added to `INTERNAL_SKILLS` so it's filtered at install time — calsuite-only, like `/sync` and `/sync-preview`.
+
+### Why
+
+The single-file reconciliation path was the last gap in the skill palette. `/sync` surfaces divergence but points at raw installer commands; `/reconcile-targets` covers bulk agentic handling; `/customise` covers edit-and-claim; `--force-adopt` and `--claim` are one-liners worth keeping direct. `/reconcile` fills the remaining "one specific file, want to merge not discard" slot — where the 3-way merge UI actually matters and the pre-flight / post-run interpretation earn their keep.
 
 ## [2.14] — 2026-04-21
 
