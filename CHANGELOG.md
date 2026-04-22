@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.20**
+Current version: **2.21**
+
+## [2.21] — 2026-04-24
+
+### Added
+
+- `skills/execute/SKILL.md` — **`--multi` tmux mode** ported from verity. `/execute --multi issue:1,2,3` or `/execute --multi spec:foo,bar` spawns one Claude Code instance per task in separate tmux panes via `tmux split-window` + `tiled` layout. Each pane runs its own task independently, allowing parallel execution across multiple issues or specs. Pre-flights tmux availability before spawning; rejects raw prompts (no identifier to split on). Frontmatter `argument-hint` + description updated; invocation block adds two new examples. Existing SPEC/RAW/ISSUE mode structure preserved byte-identical. Version bump `2.0.0 → 2.1.0`.
+
+### Why
+
+Verity derived this pattern from day-to-day "work 3 independent issues in parallel" needs. It's fully generic — no verity-specific content in the multi-mode mechanics — and adds a natural parallel-execution path to calsuite's existing single-task flow. User explicitly invokes `--multi`, so this is a directed parallel pattern, not an autonomous loop.
 
 ## [2.20] — 2026-04-24
 
