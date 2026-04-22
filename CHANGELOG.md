@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.16**
+Current version: **2.17**
+
+## [2.17] — 2026-04-22
+
+### Added
+
+- `skills/review/checklist.md` — 10 generic defensive rules ported from verity's review gate, genericized (no project-specific helpers, table lists, or file paths). New CRITICAL bullets in SQL & Data Safety (LIKE metacharacter injection), Race Conditions & Concurrency (stale in-memory state after DB write), Auth & Security Boundaries (querySelector/querySelectorAll DOM injection). New CRITICAL category **React Lifecycle & Cleanup** (setTimeout/setInterval cleanup, polling `document.hidden` check, `useSearchParams()` + `<Suspense>`). New INFORMATIONAL categories: **React 19 State Patterns** (derive-during-render-must-sync, `useEffect(() => setX(...), [prop])` forbidden), **React Async Patterns** (async polling, error vs empty state, feature-flag inference from API failure, external-URL host whitelist, server-component self-fetch), **Aggregation Source Consistency** (totals from different sources, sentinel values treated as data), **Sibling Helper Drift** (two wrappers around the same upstream library must agree on error handling), **Test Mock Staleness** (`vi.mock()`/`jest.mock()` drift when imports change). Two new Error Handling bullets (empty `catch {}` blocks, redirect-on-error without logging). Gate Classification tree updated.
+
+### Why
+
+Verity's review checklist has accumulated 10+ hard-won defensive patterns from real PR incidents that are fully generic — they apply to any React/Next.js project, any ORM with raw predicates, any codebase with DB mutations and in-memory derivation. Upstreaming them to calsuite makes them available to every target without each project having to re-derive them from its own incidents. Verity-specific content (orgId filters, helper names, specific file paths, PR numbers) intentionally excluded.
 
 ## [2.16] — 2026-04-22
 
