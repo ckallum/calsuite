@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.19**
+Current version: **2.20**
+
+## [2.20] — 2026-04-24
+
+### Added
+
+- `skills/review/SKILL.md` — bundled generic feature upgrades ported from verity's fork. **Step 0: `--multi` tmux mode** — `/review pr 123,124,125 --multi` spawns one Claude Code instance per PR in separate tmux panes (`tmux split-window` + `tiled` layout) for parallel review without context pollution. **Step 7: PR comment posting** — in PR mode, consolidate all findings plus the Step 5.5 flow diagram into a single `gh pr comment <num> --body` call instead of iterating with AskUserQuestion. Local mode keeps the interactive loop. **Explicit signal-gating** — replace prose "only dispatch Agent X if..." with a scripted block that computes `F_COUNT`/`G_COUNT`/`H_COUNT`/`SPEC_DIR`/`VERSIONED_STRUCT` from a cached `$DIFF_FILE` via `grep -c`; each conditional agent explicitly checks its counter and skips when 0. **Step 6: hash-both-diffs review stamp** — sha256 now covers `git diff origin/main` + `git diff` concatenated, catching unstaged drift that previously masked stale stamps. **Node snippet safety** — review stamp uses `execFileSync('git', [...], ...)` with explicit argv instead of shell-interpolated `execSync`. Version bump `3.0.x → 3.1.0`.
+
+### Why
+
+These five upgrades are generic infrastructure improvements that verity derived from live usage. Without them, calsuite's review skill runs conditional agents based on prose heuristics (hard to debug when something doesn't fire), loses review-stamp fidelity when unstaged edits drift, and can't parallel-review multiple PRs without the user manually spawning instances. All five are fully generic — verity-specific agent prompts and critical-check lists were intentionally stripped.
 
 ## [2.19] — 2026-04-23
 
