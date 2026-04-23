@@ -1,7 +1,8 @@
 {
   "_comment": "Copy this file to config/targets.json and replace the paths with your own target repos. targets.json is gitignored — it stays local and is never committed. Paths may use '~' for your home directory; the installer expands it.",
+  "_workspaces_comment": "For monorepo targets (backend/ + frontend/ subdirs), set `workspaces: \"skip\"` to install the harness only at the repo root. Default is `\"full\"` — every workspace gets its own mirrored .claude/ skills/agents/config/permissions. Use `\"skip\"` when only the root should be the Claude Code harness (recommended for most monorepos — avoids duplicated skill definitions and drift).",
   "targets": [
     { "path": "~/Projects/my-first-repo" },
-    { "path": "~/Projects/my-second-repo" }
+    { "path": "~/Projects/my-monorepo", "workspaces": "skip" }
   ]
 }

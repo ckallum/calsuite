@@ -14,7 +14,11 @@
  *   --only skill1,skill2,...     Install only specific skills (skips hooks/plugins/settings)
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
- *   --sync                       Re-run install against all targets in config/targets.json
+ *   --sync                       Re-run install against all targets in config/targets.json.
+ *                                Each target may set `workspaces: "skip"` to install the
+ *                                harness only at the repo root — workspace subdirs
+ *                                (backend/, frontend/) are left alone. Default is "full"
+ *                                (every workspace gets a mirrored .claude/).
  *   --force-adopt <path>         Overwrite a target skill/agent file with calsuite's
  *                                current version. Discards local edits. Stamps fresh
  *                                `_origin: calsuite@<sha>`. Prompts for confirmation;
@@ -810,14 +814,24 @@ function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null)
     console.log(`  → ${count} agent(s): ${summary.written} written, ${summary.skipped} skipped`);
   }
 
-  // Also install into workspaces if monorepo
+  // Also install into workspaces if monorepo, unless the target opted out
+  // via `workspaces: "skip"` in targets.json. Mirrors the same lookup used
+  // by installTarget so --only stays consistent with --sync and the
+  // single-target direct-invocation path.
   const detectedProfiles = detectProfiles(targetDir);
   if (detectedProfiles.includes('monorepo')) {
-    const workspaces = findWorkspaces(targetDir);
-    for (const ws of workspaces) {
-      console.log(`\n  Workspace: ${ws.name}`);
-      const wsMissing = installOnly(ws.path, onlySkills, onlyAgents, divergences);
-      missing.push(...wsMissing);
+    const targetsConfig = readJsonSync(TARGETS_JSON);
+    const matchingTarget = targetsConfig?.targets?.find(
+      t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
+    );
+    const skipWorkspaces = matchingTarget?.workspaces === 'skip';
+    if (!skipWorkspaces) {
+      const workspaces = findWorkspaces(targetDir);
+      for (const ws of workspaces) {
+        console.log(`\n  Workspace: ${ws.name}`);
+        const wsMissing = installOnly(ws.path, onlySkills, onlyAgents, divergences);
+        missing.push(...wsMissing);
+      }
     }
   }
 
@@ -841,6 +855,17 @@ function installTarget(targetDir, profilesConfig, opts = {}) {
     const rootProfileNames = detectedProfiles.filter(p => p !== 'monorepo').concat('monorepo-root');
     const rootResolved = resolveProfile(rootProfileNames, profilesConfig);
     installForProfile(targetDir, rootResolved, `monorepo root [${rootProfileNames.join(', ')}]`, opts);
+
+    // `workspaces: "skip"` in targets.json means this target treats only the
+    // monorepo root as the harness — workspace subdirs (backend/, frontend/)
+    // don't get their own `.claude/` skills, agents, config, or permissions.
+    // Default is `"full"` for backward compat: every workspace gets a mirror.
+    if (opts.skipWorkspaces) {
+      if (opts.logProfiles) {
+        console.log(`\n  Skipping workspace harness install (targets.json: workspaces = "skip")`);
+      }
+      return { detectedProfiles, isMonorepo, rootProfileNames };
+    }
 
     const workspaces = findWorkspaces(targetDir);
     for (const ws of workspaces) {
@@ -1172,7 +1197,7 @@ function walkFilesRecursive(dir) {
 
 /**
  * Opt-in cleanup of orphaned calsuite state left behind by prior
- * distribution models. Three categories:
+ * distribution models. Four categories:
  *   [A] Parent-level symlinks under ~/Projects/.claude/{skills,agents}
  *       pointing into calsuite. Nothing reads these since the refactor
  *       (Claude Code doesn't discover parent .claude/ skill dirs).
@@ -1183,10 +1208,15 @@ function walkFilesRecursive(dir) {
  *       current (decideFileAction → 'skip-unknown'). Only those whose
  *       filename matches a calsuite source — foreign files are treated
  *       as user-added and left alone (stand-in for honoring .gitignore).
+ *   [D] Workspace `.claude/` dirs on targets opted into `workspaces: "skip"`
+ *       (monorepos where only the root is a harness). The installer no
+ *       longer writes to these dirs, so any content is orphan. Only runs
+ *       for targets with an explicit `workspaces: "skip"` entry in
+ *       targets.json — a missing or `"full"` config leaves the dirs alone.
  *
- * Dry-run by default. `--yes` applies A & B automatically; C always
- * prompts per-file, since deleting a potentially-edited file is
- * irreversible. Non-TTY + apply mode + category C candidates errors out.
+ * Dry-run by default. `--yes` applies A & B automatically; C & D always
+ * prompt per-file/per-dir, since deletions are irreversible. Non-TTY +
+ * apply mode + C/D candidates errors out.
  *
  * Without `<path>`, iterates every target in config/targets.json and
  * treats category A as a global one-shot before the per-target loop.
@@ -1194,7 +1224,10 @@ function walkFilesRecursive(dir) {
 function handlePruneStale(targetPath, { assumeYes = false } = {}) {
   const calsuiteDir = resolveCalsuiteDir();
 
-  // Resolve which targets to walk.
+  // Resolve which targets to walk. Always read targets.json (when it exists)
+  // so single-target invocations can still pick up the `workspaces` config —
+  // Category D gates on that field.
+  const targetsJson = readJsonSync(TARGETS_JSON);
   let targets;
   if (targetPath) {
     const resolved = path.resolve(targetPath);
@@ -1202,9 +1235,11 @@ function handlePruneStale(targetPath, { assumeYes = false } = {}) {
       console.error(`  ✗ ${resolved} does not exist`);
       process.exit(1);
     }
-    targets = [{ path: resolved, label: path.basename(resolved) }];
+    const matching = targetsJson?.targets?.find(
+      t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === resolved
+    );
+    targets = [{ path: resolved, label: path.basename(resolved), workspaces: matching?.workspaces }];
   } else {
-    const targetsJson = readJsonSync(TARGETS_JSON);
     if (!targetsJson) {
       console.error('  ✗ config/targets.json not found.');
       console.error('    Copy config/targets.example.json to config/targets.json and add your target repo paths.');
@@ -1222,7 +1257,7 @@ function handlePruneStale(targetPath, { assumeYes = false } = {}) {
         console.log(`  ⚠ Skipping ${t.path} (not found)`);
         continue;
       }
-      targets.push({ path: resolved, label: path.basename(resolved) });
+      targets.push({ path: resolved, label: path.basename(resolved), workspaces: t.workspaces });
     }
     if (!targets.length) {
       console.error('  ✗ No reachable targets to prune.');
@@ -1481,6 +1516,48 @@ function handlePruneStale(targetPath, { assumeYes = false } = {}) {
         }
       }
     }
+
+    // Category D: workspace .claude/ dirs on targets opted into
+    // `workspaces: "skip"`. Only fires when the target's targets.json entry
+    // explicitly sets the flag — unflagged (or "full") targets skip this
+    // category so the pre-existing "workspaces are harnesses" behavior
+    // remains untouched.
+    if (target.workspaces === 'skip') {
+      console.log('\n  [D] Orphan workspace .claude/ dirs (workspaces: "skip")');
+      const workspaces = findWorkspaces(target.path);
+      const orphanDirs = workspaces
+        .map(ws => path.join(ws.path, '.claude'))
+        .filter(dir => fs.existsSync(dir));
+
+      if (orphanDirs.length === 0) {
+        console.log('  (none)');
+      } else if (!assumeYes) {
+        for (const dir of orphanDirs) {
+          console.log(`  · would remove: ${dir}`);
+        }
+      } else {
+        if (!process.stdin.isTTY) {
+          console.error(`  ✗ --prune-stale --yes found category D candidate(s) but stdin is not a TTY.`);
+          console.error(`    Category D deletions require per-dir confirmation — re-run interactively.`);
+          process.exit(1);
+        }
+        for (const dir of orphanDirs) {
+          const confirmed = promptYesNo(`Remove ${dir} (recursive)?`);
+          if (confirmed) {
+            try {
+              fs.rmSync(dir, { recursive: true, force: true });
+              console.log(`  ✓ Removed ${dir}`);
+              totalRemoved++;
+            } catch (err) {
+              console.log(`  ✗ Failed to remove ${dir}: ${err.message}`);
+            }
+          } else {
+            console.log(`  ⊘ Kept ${dir}`);
+            totalKeptByUser++;
+          }
+        }
+      }
+    }
   }
 
   console.log('');
@@ -1626,7 +1703,8 @@ function main() {
         console.log(`  ⚠ Skipping ${target.path} (not found)`);
         continue;
       }
-      installTarget(targetPath, profilesConfig, { divergences });
+      const skipWorkspaces = target.workspaces === 'skip';
+      installTarget(targetPath, profilesConfig, { divergences, skipWorkspaces });
     }
 
     console.log('\nSync complete!\n');
@@ -1659,10 +1737,21 @@ function main() {
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
   const divergences = [];
 
+  // Look up per-target config in targets.json so single-target invocations
+  // honor the same `workspaces: "skip"` setting that --sync respects. Without
+  // this, `node configure-claude.js ~/Projects/verity` would reinstall the
+  // workspace harness even though the user configured the target otherwise.
+  const targetsConfig = readJsonSync(TARGETS_JSON);
+  const matchingTarget = targetsConfig?.targets?.find(
+    t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
+  );
+  const skipWorkspaces = matchingTarget?.workspaces === 'skip';
+
   const { isMonorepo } = installTarget(targetDir, profilesConfig, {
     logProfiles: true,
     copyWorkspaceDocs: true,
     divergences,
+    skipWorkspaces,
   });
 
   // Global settings check
@@ -1672,7 +1761,7 @@ function main() {
     console.log('  ⚠ Could not read global manifest, skipping global check');
   } else {
     const settingsPaths = [path.join(targetDir, '.claude', 'settings.json')];
-    if (isMonorepo) {
+    if (isMonorepo && !skipWorkspaces) {
       const workspaces = findWorkspaces(targetDir);
       for (const ws of workspaces) {
         settingsPaths.push(path.join(ws.path, '.claude', 'settings.json'));
