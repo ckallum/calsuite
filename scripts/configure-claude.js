@@ -814,14 +814,24 @@ function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null)
     console.log(`  → ${count} agent(s): ${summary.written} written, ${summary.skipped} skipped`);
   }
 
-  // Also install into workspaces if monorepo
+  // Also install into workspaces if monorepo, unless the target opted out
+  // via `workspaces: "skip"` in targets.json. Mirrors the same lookup used
+  // by installTarget so --only stays consistent with --sync and the
+  // single-target direct-invocation path.
   const detectedProfiles = detectProfiles(targetDir);
   if (detectedProfiles.includes('monorepo')) {
-    const workspaces = findWorkspaces(targetDir);
-    for (const ws of workspaces) {
-      console.log(`\n  Workspace: ${ws.name}`);
-      const wsMissing = installOnly(ws.path, onlySkills, onlyAgents, divergences);
-      missing.push(...wsMissing);
+    const targetsConfig = readJsonSync(TARGETS_JSON);
+    const matchingTarget = targetsConfig?.targets?.find(
+      t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
+    );
+    const skipWorkspaces = matchingTarget?.workspaces === 'skip';
+    if (!skipWorkspaces) {
+      const workspaces = findWorkspaces(targetDir);
+      for (const ws of workspaces) {
+        console.log(`\n  Workspace: ${ws.name}`);
+        const wsMissing = installOnly(ws.path, onlySkills, onlyAgents, divergences);
+        missing.push(...wsMissing);
+      }
     }
   }
 
