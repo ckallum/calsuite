@@ -37,12 +37,14 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - TOCTOU races: check-then-write patterns that should be atomic (use conditional updates, upserts, or transactions)
 - Bulk operations bypassing validation layers (ORM `.update_all`, raw SQL updates, etc.)
 - N+1 queries: missing eager loading for associations used in loops
+- **LIKE metacharacter injection**: User-supplied strings used in `LIKE` predicates must escape `%` and `_` (typically as `\%` and `\_`) before interpolation. Folder paths, search terms, and any user input are common sources of unescaped wildcards.
 
 #### Race Conditions & Concurrency
 - Read-check-write without uniqueness constraint or conflict handling (`ON CONFLICT`, `rescue`/`catch` duplicate key)
 - Find-or-create on columns without unique DB index — concurrent calls can create duplicates
 - Status transitions without atomic conditional updates — concurrent updates can skip or double-apply
 - User-controlled data rendered as raw HTML without sanitization (XSS)
+- **Stale in-memory state after DB write**: After any `UPDATE` that modifies a field used later in the same function, verify the local variable is updated or re-read from the DB. Common with counters, status fields, and any mutable value whose post-write value is consumed downstream.
 
 #### LLM Output Trust Boundary
 - LLM-generated values (emails, URLs, names) written to DB or passed to external services without format validation. Add lightweight guards (regex, `URL.parse`, `.trim()`) before persisting.
@@ -52,15 +54,40 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - Missing authentication checks on new endpoints or routes
 - Missing authorization / tenant scope enforcement on data access
 - Secrets, API keys, tokens, or credentials committed in code or config (not in .env / secrets manager)
-- Unsafe deserialization, `eval()`, or code injection vectors
+- Unsafe deserialization, dynamic code evaluation (`eval`-family), or code injection vectors
 - Path traversal in file operations using user-supplied input
+- User-supplied values passed to `querySelector` / `querySelectorAll` without regex validation — selector-based DOM injection risk. Validate against an allowlist or escape CSS syntax before interpolation.
+
+#### React Lifecycle & Cleanup
+- `setTimeout` / `setInterval` inside `useEffect` without a cleanup function in the return — causes state updates on unmounted components and leaked timers
+- Polling `useEffect` that starts unconditionally without checking `document.hidden` — wastes resources on background tabs and can hammer APIs from hidden windows
+- `useSearchParams()` used without a surrounding `<Suspense>` boundary — required by Next.js App Router; build will fail or hydration will mismatch
 
 ### Pass 2 — INFORMATIONAL
+
+#### React 19 State Patterns
+- **Derive-during-render must also sync state**: When a component computes an `effectiveX` during render to mask a stale `x` state (e.g., "filter falls back to a default if the selected option disappears from the props"), the derivation alone hides the bug — it doesn't fix it. The underlying `x` state stays stale and can snap back to the displayed-but-not-stored value when that value reappears in the props. Look for the pattern `const effectiveX = condition ? fallback : x` and check whether `setX(effectiveX)` is also called (via prev-prop tracking) so the stored state matches what the user sees.
+- **`useEffect(() => setX(...), [prop])` is forbidden**: The `react-hooks/set-state-in-effect` rule catches this, but new instances can slip through. When state needs to reset because a prop changed, use prev-prop tracking with `useState` and adjust during render — not an effect.
+
+#### React Async Patterns
+- **`setInterval` with an async callback**: Causes overlapping fetches when responses are slow. Use a recursive `setTimeout` that schedules the next poll only after the current fetch completes.
+- **Polling `useEffect` dependency array**: If the dep array includes state updated by the polling callback, the effect re-runs every poll cycle (tearing down and recreating the polling timer). Use refs for data accessed inside the callback; derive a stable boolean for the dep.
+- **Error state vs empty state**: Catch blocks that return `null` / `[]` make API failures indistinguishable from "no data". Use a separate error state with a user-visible banner and retry action.
+- **Feature flags inferred from API failure**: `res.ok` treats every network error as "feature disabled". Check for a specific status (e.g., 403) to mean disabled; surface other errors.
+- **External URLs rendered as `<a href>`**: Validate both the protocol AND the host domain before rendering. `startsWith("https://")` is insufficient — whitelist expected hosts for any URL that came from user or third-party data.
+- **Server component self-fetch**: Server components fetching their own API routes over HTTP is an anti-pattern. Use direct DB / service-layer calls instead.
 
 #### Conditional Side Effects
 - Code paths that branch on a condition but forget to apply a side effect on one branch (e.g., status updated but related field only set in one branch — creating inconsistent state)
 - Log messages that claim an action happened but the action was conditionally skipped
 - State variables (counters, flags, accumulators) added for a feature lifecycle — verify they reset on deactivation/reactivation, not just on success
+
+#### Aggregation Source Consistency
+- Related totals (e.g., `sufficientCount`, `partialCount`, `missingCount`) computed from different sources — some via `array.reduce` over a child collection, others via `parent.filter`. If the child collection is filtered (e.g., excluding orphans) but `parent.filter` includes everything, the totals won't sum to `parent.length` and any derived score will drift on the filtered-out rows. When reviewing a diff, identify variables that should sum to a total and verify they all derive from the same source with the same filtering.
+- Sentinel values returned from extraction/parse helpers that callers treat as data — e.g., `return "[FAILED]"` from a function whose return is then embedded into a vector index or passed to an LLM. Always return `""` or `null` on failure so callers can route to a fallback.
+
+#### Sibling Helper Drift
+- When two helpers in different modules wrap the same upstream library, they must agree on error handling (try/catch + null/empty return), output cap, and edge cases. Drift means the same malformed input fails differently in two pipelines and is hard to diagnose. When a PR adds a new branch or error path to one, audit the other.
 
 #### Magic Numbers & String Coupling
 - Bare numeric literals used in multiple files — should be named constants
@@ -89,6 +116,12 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - Missing error handling at system boundaries (API routes, background jobs, external service calls)
 - Generic catch-all without logging or re-raising with context
 - Swallowed errors that fail silently with no user-visible feedback
+- Empty `catch {}` blocks that hide failures — at minimum log the error with enough context to diagnose
+- **Redirect-on-error routes without logging**: Any route that redirects with a query-param error code (e.g., `?error=exchange_failed`) must log at every error exit with the step name, HTTP status, and upstream error body (redacted). Common offenders: OAuth callbacks, webhook handlers, and payment-return routes. Without logging, failures are undiagnosable without redeploying.
+
+#### Test Mock Staleness
+- Imports in the module under test changed, but the test's `vi.mock()` / `jest.mock()` targets still reference the old module path — causes "Cannot find package" errors at test time
+- New table / module / export imported by the subject but not added to the test's mock factory — causes "No export defined on mock" at runtime
 
 #### Debug Artifacts
 - `console.log`, `print()`, `debugger`, `binding.pry`, `breakpoint()`, `pp`, `dump()` left in production code
@@ -141,12 +174,17 @@ If no issues, emit `Versioned-Struct Pass: clean`.
 
 ```text
 CRITICAL (blocks shipping):           INFORMATIONAL (in PR body):
-├─ SQL & Data Safety                  ├─ Conditional Side Effects
-├─ Race Conditions & Concurrency      ├─ Magic Numbers & String Coupling
-├─ LLM Output Trust Boundary          ├─ Dead Code & Consistency
-└─ Auth & Security Boundaries         ├─ LLM Prompt Issues
+├─ SQL & Data Safety                  ├─ React 19 State Patterns
+├─ Race Conditions & Concurrency      ├─ React Async Patterns
+├─ LLM Output Trust Boundary          ├─ Conditional Side Effects
+├─ Auth & Security Boundaries         ├─ Aggregation Source Consistency
+└─ React Lifecycle & Cleanup          ├─ Sibling Helper Drift
+                                      ├─ Magic Numbers & String Coupling
+                                      ├─ Dead Code & Consistency
+                                      ├─ LLM Prompt Issues
                                       ├─ Test Gaps
                                       ├─ Error Handling
+                                      ├─ Test Mock Staleness
                                       ├─ Debug Artifacts
                                       ├─ Crypto & Entropy
                                       ├─ Time Window Safety

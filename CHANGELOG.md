@@ -2,9 +2,9 @@
 
 All notable changes to this repository.
 
-Current version: **2.17**
+Current version: **2.18**
 
-## [2.17] — 2026-04-23
+## [2.18] — 2026-04-23
 
 ### Added
 
@@ -16,6 +16,22 @@ Current version: **2.17**
 Claude Code uses the nearest `.claude/` walking up from cwd, so a monorepo root `.claude/` already covers commands run from `backend/` or `frontend/`. The workspace mirror was distributing a second copy of every skill, agent, and permissions block — drift was guaranteed and the duplicates added nothing. Before this flag, removing workspace harness content in a target repo (e.g., [verity#463](https://github.com/verityaml/verity/pull/463)) didn't stick — the next calsuite commit's post-commit `--sync` regenerated the files via `write-new` (skills with no destination file are always written fresh; the `_origin` safe-overwrite protocol can't short-circuit a missing file). `workspaces: "skip"` stops the installer iterating workspaces at all, so deletions stay deleted.
 
 Category D closes the loop: opting a target into `workspaces: "skip"` doesn't delete the pre-existing workspace dirs, but `--prune-stale` now surfaces them as orphan calsuite state and prompts to remove them interactively. No `--yes` bulk delete — recursive directory removal always prompts.
+
+## [2.17] — 2026-04-22
+
+### Added
+
+- `skills/review/checklist.md` — 10 generic defensive rules ported from verity's review gate, genericized (no project-specific helpers, table lists, or file paths). New CRITICAL bullets in SQL & Data Safety (LIKE metacharacter injection), Race Conditions & Concurrency (stale in-memory state after DB write), Auth & Security Boundaries (querySelector/querySelectorAll DOM injection). New CRITICAL category **React Lifecycle & Cleanup** (setTimeout/setInterval cleanup, polling `document.hidden` check, `useSearchParams()` + `<Suspense>`). New INFORMATIONAL categories: **React 19 State Patterns** (derive-during-render-must-sync, `useEffect(() => setX(...), [prop])` forbidden), **React Async Patterns** (async polling, error vs empty state, feature-flag inference from API failure, external-URL host whitelist, server-component self-fetch), **Aggregation Source Consistency** (totals from different sources, sentinel values treated as data), **Sibling Helper Drift** (two wrappers around the same upstream library must agree on error handling), **Test Mock Staleness** (`vi.mock()`/`jest.mock()` drift when imports change). Two new Error Handling bullets (empty `catch {}` blocks, redirect-on-error without logging). Gate Classification tree updated.
+
+### Changed
+
+- `README.md` refreshed to document the full sync/reconcile toolchain in one place. Adds `targets.json` setup to **Getting started**; replaces the thin "when a sync flags divergence" block with a proper **Syncing and reconciling** section covering `/sync`, `/sync-preview`, `/reconcile`, `/reconcile-targets`, `/customise`, `--force-adopt`, `--claim`, and `--prune-stale` with intent-based routing tables; new **Internal vs distributed skills** subsection explains the `INTERNAL_SKILLS` / `profiles.json` split from v2.16. Removes the stale `(issue #42, planned)` marker on `--reconcile` — it shipped in v2.8.
+
+### Why
+
+The reconcile/sync toolchain shipped across v2.8–v2.16 (8 versions, 6 PRs) without a cross-cutting narrative in the top-level README. The README was both outdated (`--reconcile planned`) and underdocumented — any skill shipped after v2.7 was invisible to a new reader. This refresh makes the README the single landing point for both *what* exists and *when to use what*.
+
+Verity's review checklist has accumulated 10+ hard-won defensive patterns from real PR incidents that are fully generic — they apply to any React/Next.js project, any ORM with raw predicates, any codebase with DB mutations and in-memory derivation. Upstreaming them to calsuite makes them available to every target without each project having to re-derive them from its own incidents. Verity-specific content (orgId filters, helper names, specific file paths, PR numbers) intentionally excluded.
 
 ## [2.16] — 2026-04-22
 
