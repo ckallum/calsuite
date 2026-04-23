@@ -4,23 +4,18 @@ All notable changes to this repository.
 
 Current version: **2.17**
 
-## [2.17] — 2026-04-22
+## [2.17] — 2026-04-23
 
 ### Added
 
-- Per-target `workspaces: "skip"` option in `config/targets.json`. When set, `--sync` (and direct `node configure-claude.js <target>` invocations) install the harness only at the monorepo root — workspace subdirs (`backend/`, `frontend/`) are left alone. Default remains `"full"` (every workspace gets a mirrored `.claude/`), so existing target configs are unaffected. Documented in `config/targets.example.json`.
+- Per-target `workspaces: "skip"` option in `config/targets.json`. When set, `--sync`, `--only`, and direct `node configure-claude.js <target>` invocations install the harness only at the monorepo root — workspace subdirs (`backend/`, `frontend/`) are left alone. Default remains `"full"` (every workspace gets a mirrored `.claude/`), so existing target configs are unaffected. Documented in `config/targets.example.json`.
+- `--prune-stale` Category D — sweeps orphan workspace `.claude/` dirs on targets opted into `workspaces: "skip"`. Single-target and all-targets modes both consult `targets.json` for the `workspaces` field. Dry-run by default; `--yes` prompts per-dir like Category C (irreversible recursive delete, TTY required).
 
 ### Why
 
 Claude Code uses the nearest `.claude/` walking up from cwd, so a monorepo root `.claude/` already covers commands run from `backend/` or `frontend/`. The workspace mirror was distributing a second copy of every skill, agent, and permissions block — drift was guaranteed and the duplicates added nothing. Before this flag, removing workspace harness content in a target repo (e.g., [verity#463](https://github.com/verityaml/verity/pull/463)) didn't stick — the next calsuite commit's post-commit `--sync` regenerated the files via `write-new` (skills with no destination file are always written fresh; the `_origin` safe-overwrite protocol can't short-circuit a missing file). `workspaces: "skip"` stops the installer iterating workspaces at all, so deletions stay deleted.
 
-### Manual target cleanup
-
-After opting a target into `workspaces: "skip"`, existing workspace harness content is left on disk (the installer never deletes). Remove manually when convenient:
-
-```bash
-rm -rf ~/Projects/<target>/{backend,frontend}/.claude
-```
+Category D closes the loop: opting a target into `workspaces: "skip"` doesn't delete the pre-existing workspace dirs, but `--prune-stale` now surfaces them as orphan calsuite state and prompts to remove them interactively. No `--yes` bulk delete — recursive directory removal always prompts.
 
 ## [2.16] — 2026-04-22
 
