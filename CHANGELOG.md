@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.18**
+Current version: **2.19**
+
+## [2.19] — 2026-04-23
+
+### Changed
+
+- `skills/retro/SKILL.md` — telemetry framing upgrades ported from verity. Step 13 now explicitly labels skill-usage telemetry as "an additive signal, not a dependency" (clarifies that missing telemetry is not a bug). Step 14 "Learning Loop" header renamed to "Learning Loop (opt-in)" so the opt-in nature is discoverable from the outline. Step 1 fetch+RETRO_AUTHOR resolution collapsed into one block with an added note about `config.json` overriding `git config user.email`. Version bump `1.0.0 → 1.1.0`.
+
+### Why
+
+Verity's retro fork made the optional telemetry framing explicit after users repeatedly treated missing telemetry as a broken-skill signal. Same clarifications make sense upstream: telemetry is best-effort observability, not a hard dependency, and that should be readable from the skill source without having to trace through the code paths.
 
 ## [2.18] — 2026-04-23
 

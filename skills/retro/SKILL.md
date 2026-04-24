@@ -1,6 +1,6 @@
 ---
 name: retro
-version: 1.0.0
+version: 1.1.0
 description: |
   retro, retrospective, what did I ship, weekly summary, how was my week,
   shipping velocity, commit stats, engineering metrics.
@@ -67,16 +67,14 @@ Usage: /retro [window]
 
 ### Step 1: Gather Raw Data — PARALLEL AGENTS
 
-First, fetch origin:
+First, fetch origin and resolve the retrospective subject. For a personal retro (default), scope all queries to the current user:
+
 ```bash
 git fetch origin main --quiet
-```
-
-Resolve the retrospective subject first. For a personal retro (default), scope all queries to the current user:
-
-```bash
 RETRO_AUTHOR="$(git config user.email)"
 ```
+
+If `.claude/skills/retro/config.json` exists and sets `author_email`, it overrides `git config user.email` — load the config value into `RETRO_AUTHOR` instead.
 
 Then dispatch **3 parallel agents** in a single message to gather data concurrently. Pass the author email to each agent.
 
@@ -274,7 +272,7 @@ Save JSON snapshot with this schema:
 
 ### Step 13: Skill Usage Telemetry
 
-Read `~/.claude/analytics/skill-usage.jsonl` (written by `skill-usage-tracker.cjs`). Filter entries by timestamp within the retro window. Skip this step silently if the file doesn't exist.
+Read `~/.claude/analytics/skill-usage.jsonl` (written by `skill-usage-tracker.cjs`). Filter entries by timestamp within the retro window. Skip this step silently if the file doesn't exist — skill-usage telemetry is an additive signal, not a dependency.
 
 Compute:
 - **Top skills by invocation count** (top 5)
@@ -290,7 +288,7 @@ Heavy use → consider automating: /babysit-pr (7× — run via /loop?)
 Never used in window: /plan-ceo, /retro — keep or drop from profile?
 ```
 
-### Step 14: Learning Loop
+### Step 14: Learning Loop (opt-in)
 
 For each item in **3 Things to Improve** (Step 13's narrative), propose one concrete rule update to the most likely-responsible skill file. Format:
 
@@ -354,7 +352,7 @@ Small, practical, realistic. Each takes <5 minutes to adopt.
 (if applicable, from Step 9)
 
 ### Skill Usage
-(from Step 13)
+(from Step 13 — omit if telemetry file missing)
 
 ### Proposed Skill Updates
 (from Step 14 — opt-in)
