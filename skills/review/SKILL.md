@@ -44,11 +44,17 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 `--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance for unbiased review.
 
 1. Parse PR numbers from arguments (single number like `123` or comma-separated like `123,124,125`).
-2. Get the current tmux window: `tmux display-message -p '#S:#I'`
-3. For each PR number, create a new tmux pane and launch a Claude Code instance:
+2. **Validate each parsed value matches `^[0-9]+$`.** Reject anything else before touching tmux — a value containing `$(...)`, backticks, or other shell metacharacters would fire command substitution inside the double-quoted tmux command in step 4.
+   ```bash
+   for pr in "${PRS[@]}"; do
+     [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $pr"; exit 1; }
+   done
+   ```
+3. Get the current tmux window: `tmux display-message -p '#S:#I'`
+4. For each validated PR number, create a new tmux pane and launch a Claude Code instance:
 
 ```bash
-# For each PR number in the list:
+# For each validated PR number in the list:
 tmux split-window -t "$SESSION:$WINDOW" -h "claude --dangerously-skip-permissions --print 'Run /review pr <NUMBER>. Post your full findings as a PR comment. Do not make any code changes.' 2>&1; echo '--- Review of PR #<NUMBER> complete. Press Enter to close. ---'; read"
 tmux select-layout -t "$SESSION:$WINDOW" tiled
 ```
@@ -106,13 +112,15 @@ command -v "$ADVERSARY_CLI" >/dev/null 2>&1 || {
   exit 1
 }
 
-# Build model flag
-MODEL_FLAG=""
+# Build model flag as an array — prevents glob expansion and preserves spaces in model names.
+# A scalar like MODEL_FLAG="-m $ADVERSARY_MODEL" used unquoted would word-split and glob-expand,
+# and quoted would collapse "-m foo" into a single argument the CLI rejects.
+MODEL_FLAG=()
 if [ -n "$ADVERSARY_MODEL" ]; then
   case "$ADVERSARY_CLI" in
-    codex)  MODEL_FLAG="-m $ADVERSARY_MODEL" ;;
-    gemini) MODEL_FLAG="-m $ADVERSARY_MODEL" ;;
-    claude) MODEL_FLAG="--model $ADVERSARY_MODEL" ;;
+    codex)  MODEL_FLAG=(-m "$ADVERSARY_MODEL") ;;
+    gemini) MODEL_FLAG=(-m "$ADVERSARY_MODEL") ;;
+    claude) MODEL_FLAG=(--model "$ADVERSARY_MODEL") ;;
   esac
 fi
 ```
@@ -126,9 +134,9 @@ Use the appropriate invocation per CLI. All three execution phases use this patt
 run_adversary() {
   local outfile="$1"
   case "$ADVERSARY_CLI" in
-    codex)  codex exec $MODEL_FLAG -o "$outfile" - ;;
-    gemini) gemini $MODEL_FLAG -p "$(cat -)" > "$outfile" ;;
-    claude) claude $MODEL_FLAG --print "$(cat -)" > "$outfile" ;;
+    codex)  codex exec "${MODEL_FLAG[@]}" -o "$outfile" - ;;
+    gemini) gemini "${MODEL_FLAG[@]}" -p "$(cat -)" > "$outfile" ;;
+    claude) claude "${MODEL_FLAG[@]}" --print "$(cat -)" > "$outfile" ;;
   esac
 }
 ```
@@ -351,16 +359,26 @@ Use the same diff source selected in Step 1:
 - PR mode: pipe the cached `gh pr diff <number>` output
 
 ```bash
-# Cache the diff once so gating greps are cheap
-DIFF_FILE="$CONVERSE_TMPDIR/diff.txt"  # reuse if converse mode already created it
-[ -s "$DIFF_FILE" ] || { DIFF_FILE=$(mktemp); git diff origin/main > "$DIFF_FILE"; }  # or gh pr diff
+# Cache the diff once so gating greps are cheap. Reuse the converse-mode diff when present;
+# otherwise populate from the same source used in Step 1 (gh pr diff in PR mode, git diff
+# origin/main in local mode). All gates read from $DIFF_FILE — do NOT re-shell out per gate.
+DIFF_FILE="$CONVERSE_TMPDIR/diff.txt"
+if [ ! -s "$DIFF_FILE" ]; then
+  DIFF_FILE=$(mktemp)
+  if [ -n "$PR_NUMBER" ]; then
+    gh pr diff "$PR_NUMBER" > "$DIFF_FILE"
+  else
+    git diff origin/main > "$DIFF_FILE"
+  fi
+fi
 
 # Agent F — silent failure hunter
 F_COUNT=$(grep -cE 'catch|\.catch|fallback|onError|Result<' "$DIFF_FILE" || echo 0)
 # Agent G — type design review
 G_COUNT=$(grep -cE 'interface |type |enum |class |struct ' "$DIFF_FILE" || echo 0)
-# Agent H — cross-module format consistency (any touched source file qualifies)
-H_COUNT=$(git diff origin/main --name-only | grep -cE '\.(rs|ts|tsx|js|jsx|py|go|sql)$' || echo 0)
+# Agent H — cross-module format consistency (any touched source file qualifies).
+# Diff headers have the form "+++ b/path/to/file.ext" — grep those to count touched source files.
+H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|py|go|sql)$' "$DIFF_FILE" || echo 0)
 # Agent I — spec-contract deviation (branch has a matching spec)
 branch=$(git branch --show-current)
 slug=$(echo "$branch" | sed -E 's#^(feat|fix|chore|refactor|feature)/##')
