@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.0.0
+version: 1.1.0
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -8,8 +8,9 @@ description: |
   previous PR comments, code comment compliance, silent failure hunting, type design,
   cross-module format consistency, spec-contract deviation.
   Confidence scoring, Greptile triage, TODO cross-reference, flow diagrams.
+  Multi-PR mode: /review pr 123,124,125 --multi spawns separate Claude Code instances per PR.
   Adversarial converse mode: /review pr 123 --converse codex runs Claude's review then debates findings with another model CLI.
-argument-hint: "[pr <number>] [--converse cli[:model]]"
+argument-hint: "[pr <number>[,number,...]] [greptile] [--multi] [--converse cli[:model]]"
 allowed-tools:
   - Bash
   - Read
@@ -26,11 +27,50 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 ## Arguments
 
 - `/review` — full review of current branch vs main (default)
-- `/review greptile` — include Greptile bot comment triage
-- `/review pr <number>` — review an existing PR by number (fetches diff from GitHub)
+- `/review greptile` — include Greptile bot comment triage (auto-detected for repos with prior triage history)
+- `/review pr <number>` — review an existing PR by number (fetches diff from GitHub, posts findings as PR comment)
+- `/review pr 123 --multi` — spawn a separate Claude Code instance in a new tmux pane (context-free, unbiased)
+- `/review pr 123,124,125 --multi` — one new pane per PR
 - `/review --converse codex` — adversarial review: Claude reviews, then debates findings with Codex CLI until consensus
 - `/review pr 123 --converse codex` — same but for a PR (posts consensus findings as PR comment)
 - `/review pr 123 --converse codex:o3` — specify adversary model (format: `cli:model`)
+
+---
+
+## Step 0: Multi Mode
+
+**If `$ARGUMENTS` contains `--multi`:**
+
+`--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance for unbiased review.
+
+1. Parse PR numbers from arguments (single number like `123` or comma-separated like `123,124,125`).
+2. **Validate each parsed value matches `^[0-9]+$`.** Reject anything else before touching tmux — a value containing `$(...)`, backticks, or other shell metacharacters would fire command substitution inside the double-quoted tmux command in step 4.
+   ```bash
+   for pr in "${PRS[@]}"; do
+     [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $pr"; exit 1; }
+   done
+   ```
+3. Get the current tmux window: `tmux display-message -p '#S:#I'`
+4. For each validated PR number, create a new tmux pane and launch a Claude Code instance:
+
+```bash
+# For each validated PR number in the list:
+tmux split-window -t "$SESSION:$WINDOW" -h "claude --dangerously-skip-permissions --print 'Run /review pr <NUMBER>. Post your full findings as a PR comment. Do not make any code changes.' 2>&1; echo '--- Review of PR #<NUMBER> complete. Press Enter to close. ---'; read"
+tmux select-layout -t "$SESSION:$WINDOW" tiled
+```
+
+4. Output:
+```text
+Multi-PR review launched:
+  PRs: #123, #124, #125
+  Panes: 3 new tmux panes created
+  Mode: context-free — each instance reviews independently
+
+Each instance will post its findings as a comment on the respective PR.
+Watch progress in the tmux panes. This instance is done.
+```
+
+5. **STOP.** Do not proceed to Step 1 — the tmux instances handle the reviews.
 
 ---
 
@@ -60,10 +100,10 @@ IFS=':' read -r ADVERSARY_CLI ADVERSARY_MODEL <<< "<converse-value>"
 
 Validate the CLI is supported and installed:
 ```bash
-# Allowlist check — reject unknown CLIs immediately
+# Allowlist check — reject unknown CLIs immediately (prevents arbitrary command injection from $ARGUMENTS)
 case "$ADVERSARY_CLI" in
   codex|gemini|claude) ;;
-  *) echo "Unsupported CLI: $ADVERSARY_CLI"; exit 1 ;;
+  *) echo "Unsupported CLI: $ADVERSARY_CLI (allowed: codex, gemini, claude)"; exit 1 ;;
 esac
 
 # Existence check — stop if not installed
@@ -72,13 +112,15 @@ command -v "$ADVERSARY_CLI" >/dev/null 2>&1 || {
   exit 1
 }
 
-# Build model flag
-MODEL_FLAG=""
+# Build model flag as an array — prevents glob expansion and preserves spaces in model names.
+# A scalar like MODEL_FLAG="-m $ADVERSARY_MODEL" used unquoted would word-split and glob-expand,
+# and quoted would collapse "-m foo" into a single argument the CLI rejects.
+MODEL_FLAG=()
 if [ -n "$ADVERSARY_MODEL" ]; then
   case "$ADVERSARY_CLI" in
-    codex)  MODEL_FLAG="-m $ADVERSARY_MODEL" ;;
-    gemini) MODEL_FLAG="-m $ADVERSARY_MODEL" ;;
-    claude) MODEL_FLAG="--model $ADVERSARY_MODEL" ;;
+    codex)  MODEL_FLAG=(-m "$ADVERSARY_MODEL") ;;
+    gemini) MODEL_FLAG=(-m "$ADVERSARY_MODEL") ;;
+    claude) MODEL_FLAG=(--model "$ADVERSARY_MODEL") ;;
   esac
 fi
 ```
@@ -92,9 +134,9 @@ Use the appropriate invocation per CLI. All three execution phases use this patt
 run_adversary() {
   local outfile="$1"
   case "$ADVERSARY_CLI" in
-    codex)  codex exec $MODEL_FLAG -o "$outfile" - ;;
-    gemini) gemini $MODEL_FLAG -p "$(cat -)" > "$outfile" ;;
-    claude) claude $MODEL_FLAG --print "$(cat -)" > "$outfile" ;;
+    codex)  codex exec "${MODEL_FLAG[@]}" -o "$outfile" - ;;
+    gemini) gemini "${MODEL_FLAG[@]}" -p "$(cat -)" > "$outfile" ;;
+    claude) claude "${MODEL_FLAG[@]}" --print "$(cat -)" > "$outfile" ;;
   esac
 }
 ```
@@ -308,7 +350,47 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 ## Step 3: Dispatch Parallel Review Agents
 
-Dispatch **up to 9 parallel agents** in a single message using the Agent tool. Agents F, G, H, and I are conditional — only dispatch them if the diff contains relevant code or signals.
+Dispatch **up to 9 parallel agents** in a single message using the Agent tool. Agents A–E always run. Agents F, G, H, and I are signal-gated — only dispatch them if the diff matches the gate.
+
+### Signal gating (run these greps first)
+
+Use the same diff source selected in Step 1:
+- local mode: `git diff origin/main`
+- PR mode: pipe the cached `gh pr diff <number>` output
+
+```bash
+# Cache the diff once so gating greps are cheap. Reuse the converse-mode diff when present;
+# otherwise populate from the same source used in Step 1 (gh pr diff in PR mode, git diff
+# origin/main in local mode). All gates read from $DIFF_FILE — do NOT re-shell out per gate.
+DIFF_FILE="$CONVERSE_TMPDIR/diff.txt"
+if [ ! -s "$DIFF_FILE" ]; then
+  DIFF_FILE=$(mktemp)
+  if [ -n "$PR_NUMBER" ]; then
+    gh pr diff "$PR_NUMBER" > "$DIFF_FILE"
+  else
+    git diff origin/main > "$DIFF_FILE"
+  fi
+fi
+
+# Agent F — silent failure hunter
+F_COUNT=$(grep -cE 'catch|\.catch|fallback|onError|Result<' "$DIFF_FILE" || echo 0)
+# Agent G — type design review
+G_COUNT=$(grep -cE 'interface |type |enum |class |struct ' "$DIFF_FILE" || echo 0)
+# Agent H — cross-module format consistency (any touched source file qualifies).
+# Diff headers have the form "+++ b/path/to/file.ext" — grep those to count touched source files.
+H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|py|go|sql)$' "$DIFF_FILE" || echo 0)
+# Agent I — spec-contract deviation (branch has a matching spec)
+branch=$(git branch --show-current)
+slug=$(echo "$branch" | sed -E 's#^(feat|fix|chore|refactor|feature)/##')
+SPEC_DIR=""
+[ -d ".claude/specs/$slug" ] && SPEC_DIR=".claude/specs/$slug"
+[ -z "$SPEC_DIR" ] && SPEC_DIR=$(find .claude/specs -mindepth 1 -maxdepth 2 -name design.md -exec dirname {} \; 2>/dev/null | head -1)
+
+# Also gate the versioned-struct pass inside Agent B:
+VERSIONED_STRUCT=$(grep -cE '(_VERSION|version:\s*(number|u?[0-9]+))' "$DIFF_FILE" || echo 0)
+```
+
+If the respective count is 0 (or `$SPEC_DIR` empty for Agent I), skip that agent.
 
 **Agent A — Convention review (@code-reviewer):**
 ```text
@@ -404,9 +486,9 @@ not stale comments about unrelated code."
 description: "Code comment compliance"
 ```
 
-**Agent F — Silent failure hunter (conditional):**
+**Agent F — Silent failure hunter (signal-gated: `$F_COUNT > 0`):**
 
-Only dispatch if the diff contains error-handling code (try/catch, .catch, error callbacks, Result types, fallback logic).
+Only dispatch if `$F_COUNT > 0` from the gate grep above (diff contains `catch`, `.catch`, `fallback`, `onError`, or `Result<`).
 
 ```text
 prompt: "Hunt for silent failures in the target diff for this review.
@@ -414,8 +496,7 @@ prompt: "Hunt for silent failures in the target diff for this review.
 Use the same diff source selected in Step 1:
 - local mode: `git diff origin/main`
 - PR mode: the `gh pr diff <number>` output already fetched
-For every error-handling
-location in the changed code, scrutinize:
+For every error-handling location in the changed code, scrutinize:
 
 1. **Catch block specificity:** Does it catch only expected errors, or could
    it accidentally suppress unrelated errors? List every unexpected error type
@@ -440,9 +521,9 @@ issue description, hidden error types, and recommended fix."
 description: "Silent failure hunter"
 ```
 
-**Agent G — Type design review (conditional):**
+**Agent G — Type design review (signal-gated: `$G_COUNT > 0`):**
 
-Only dispatch if the diff introduces or significantly modifies type definitions (types, interfaces, enums, classes, structs in TypeScript/Python/Go/Rust).
+Only dispatch if `$G_COUNT > 0` from the gate grep above (diff introduces or modifies `interface`, `type`, `enum`, `class`, or `struct`).
 
 ```text
 prompt: "Review type design in the target diff for this review.
@@ -476,9 +557,9 @@ improvement suggestions. Keep suggestions pragmatic — don't overcomplicate."
 description: "Type design review"
 ```
 
-**Agent H — Cross-module format consistency (conditional):**
+**Agent H — Cross-module format consistency (signal-gated: `$H_COUNT > 0`):**
 
-Dispatch this agent whenever the diff touches Rust, TypeScript/JavaScript, Python, Go, or SQL code. The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
+Only dispatch if `$H_COUNT > 0` — the diff touches Rust, TypeScript/JavaScript, Python, Go, or SQL. The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
 
 ```text
 prompt: "Hunt for cross-module format-consistency drift in the target diff.
@@ -512,19 +593,9 @@ Use the same diff source selected in Step 1:
 description: "Cross-module format consistency"
 ```
 
-**Agent I — Spec-contract deviation (conditional):**
+**Agent I — Spec-contract deviation (signal-gated: `$SPEC_DIR` non-empty):**
 
-Only dispatch if `.claude/specs/` exists and contains a spec matching the current branch. Detect the active spec:
-```bash
-SPEC_DIR=""
-# Try branch name → spec slug
-branch=$(git branch --show-current)
-slug=$(echo "$branch" | sed -E 's#^(feat|fix|chore|refactor|feature)/##')
-[ -d ".claude/specs/$slug" ] && SPEC_DIR=".claude/specs/$slug"
-# Fallback: most-recently-modified spec with both design.md and tasks.md
-[ -z "$SPEC_DIR" ] && SPEC_DIR=$(find .claude/specs -mindepth 1 -maxdepth 2 -name design.md -exec dirname {} \; 2>/dev/null | head -1)
-```
-If `$SPEC_DIR` is empty, skip this agent.
+Only dispatch if `$SPEC_DIR` is non-empty (branch slug matches a directory under `.claude/specs/` OR a spec with both `design.md` and `tasks.md` is found). If `$SPEC_DIR` is empty, skip this agent.
 
 ```text
 prompt: "Check the diff for deviations from the spec contract.
@@ -555,7 +626,7 @@ data shape it persists, failure modes it handles."
 description: "Spec-contract deviation"
 ```
 
-Wait for all agents to return.
+Wait for all agents to return (5 core + up to 4 signal-gated).
 
 ---
 
@@ -592,7 +663,7 @@ Output all findings:
    Fix: suggested fix
 ```
 
-**For each CRITICAL finding**, use AskUserQuestion individually (one issue per call, not batched):
+**For each CRITICAL finding (local mode only)**, use AskUserQuestion individually (one issue per call, not batched):
 - A) Fix it now (recommended)
 - B) Acknowledge and ship anyway
 - C) False positive — skip
@@ -600,6 +671,8 @@ Output all findings:
 Lead with your recommendation and explain WHY.
 
 **If user chose A (fix):** Describe the exact fix needed. Do NOT apply it — the skill is read-only. Tell the user to apply the fix and re-run `/review`.
+
+**In PR mode:** skip the AskUserQuestion loop — findings are posted as a single consolidated comment in Step 7 for the PR author to address.
 
 ### Greptile Comment Resolution
 
@@ -635,7 +708,7 @@ Generate a **Mermaid diagram** showing the key flow introduced or changed in thi
 - Include error paths where the diff introduces error handling.
 
 **If a PR exists** (check with `gh pr view --json number --jq '.number'`):
-Post the diagram as a PR comment using `gh`:
+In **local mode**, post the diagram as a standalone PR comment using `gh`:
 
 ```bash
 gh pr comment <number> --body "$(cat <<'EOF'
@@ -651,6 +724,8 @@ EOF
 ```
 
 **If no PR exists** (reviewing before push): Include the diagram in the Step 5 output instead.
+
+**In PR mode:** Do NOT post the diagram as a separate comment here — Step 7 embeds it in the single consolidated review comment to avoid double-posting.
 
 ---
 
@@ -670,16 +745,17 @@ If no TODO file exists, skip silently.
 
 **If no unresolved CRITICAL findings** (all resolved as B/C, or none existed):
 
-Compute the diff hash and write the review stamp:
+Compute the diff hash and write the review stamp. The hash covers BOTH `git diff origin/main` (committed-vs-main) AND `git diff` (unstaged drift) so staging/unstaging after the stamp can't mask a stale review. The node snippet below uses `execFileSync` with an explicit argv array — git arguments are passed as array elements, not interpolated into a shell string — which is safer and passes repo security hooks:
 
 ```bash
 node -e "
   const crypto = require('crypto');
-  const { execSync } = require('child_process');
+  const { execFileSync } = require('node:child_process');
   const fs = require('fs');
   const path = require('path');
-  const diff = execSync('git diff --cached', { encoding: 'utf8' });
-  const hash = crypto.createHash('sha256').update(diff).digest('hex');
+  const diff = execFileSync('git', ['diff', 'origin/main'], { encoding: 'utf8' });
+  const unstaged = execFileSync('git', ['diff'], { encoding: 'utf8' });
+  const hash = crypto.createHash('sha256').update(diff + unstaged).digest('hex');
   const reviewDir = path.join(process.cwd(), '.claude');
   if (!fs.existsSync(reviewDir)) fs.mkdirSync(reviewDir, { recursive: true });
   fs.writeFileSync(path.join(reviewDir, '.last-review'), JSON.stringify({
@@ -693,9 +769,42 @@ node -e "
 
 **If any CRITICAL finding was resolved with "Fix it now":** Do NOT write the stamp. The user needs to apply fixes and re-run `/review`.
 
+**If in PR mode (`/review pr <number>`):** Do NOT write the stamp — there's no local staged diff to hash.
+
 ---
 
-## Step 7: Summary
+## Step 7: Post PR Comment (PR mode only)
+
+**If in PR mode (`/review pr <number>`):** Always post all findings as a **single consolidated comment** on the PR — do not post multiple comments, and do not run the interactive AskUserQuestion loop (that's local-mode only).
+
+Format the full review output (from Step 5, plus the Step 5.5 flow diagram if generated) as one PR comment:
+
+```bash
+gh pr comment <number> --body "$(cat <<'EOF'
+## Pre-Landing Review
+
+<full review findings from Step 5, formatted as markdown>
+
+<flow diagram from Step 5.5, if generated — embed it here rather than posting separately>
+
+### Summary
+Review complete: PASS | N informational notes
+— or —
+Review complete: BLOCKED | N critical issues need resolution
+
+---
+*Automated review by `/review pr <number>`*
+EOF
+)"
+```
+
+**Do NOT make code changes in PR mode.** The review is read-only — findings are posted as a comment for the PR author to address. Only make changes if the user explicitly asks you to fix something.
+
+**If in local mode:** Skip this step (no PR to comment on; the interactive AskUserQuestion loop in Step 5 handled it).
+
+---
+
+## Step 8: Summary
 
 ```text
 Review complete: PASS | N informational notes
@@ -705,27 +814,37 @@ or
 Review complete: BLOCKED | N critical issues need resolution
 ```
 
+If in PR mode, confirm the comment was posted:
+```text
+Review findings posted as comment on PR #<number>.
+```
+
 ---
 
 ## Important Rules
 
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Read-only by default.** Only write the review stamp file. Never modify code, commit, push, or create PRs.
+- **Read-only by default.** Only write the review stamp file (local mode) or post a PR comment (PR mode). Never modify code, commit, push, or create PRs.
+- **PR mode is comment-only.** Post findings as a single PR comment. Do not make code changes unless the user explicitly asks.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine. Respect the suppressions list.
-- **One issue per AskUserQuestion.** Never batch multiple issues into one question.
+- **One issue per AskUserQuestion.** Never batch multiple issues into one question (local mode only — in PR mode, post all findings in a single comment).
 
 ## Gotchas
 
 - **REMOTE_SLUG uses `tr '/' '__'`** to preserve the owner in the path (e.g., `owner__repo`). Don't use just the repo name.
-- **Greptile auto-detect is repo-scoped, not wildcard.** The history file path includes the full `REMOTE_SLUG`, so it only activates for repos that have been triaged before.
-- **The review stamp hashes `git diff --cached`** (staged changes only). If you stage/unstage files after the stamp, the review gate will see a mismatch. Stage everything before running `/review`.
+- **Greptile auto-detect is repo-scoped, not wildcard.** The history file path includes the full `REMOTE_SLUG`, so it only activates for repos that have been triaged before. First run for a repo needs the explicit `/review greptile`.
+- **The review stamp hashes `git diff origin/main` + `git diff`** (both committed-vs-main and unstaged drift). If you stage/unstage files after the stamp, the review gate will see a mismatch — by design, so unstaged changes can't mask a stale stamp. Stage everything before running `/review`.
 - **If the checklist file is missing**, the skill stops early. Run `/configure-claude` to install it.
-- **Flow diagram is posted as a PR comment**, not in the review output. If no PR exists yet, include it inline instead. Skip for trivial diffs (< 50 lines, config-only, docs-only).
+- **Flow diagram posts to PR as a separate comment in local mode** (when a PR exists), or is embedded inline in Step 5 if no PR. In PR mode, Step 7 folds the diagram into the single consolidated review comment to avoid double-posting. Skip for trivial diffs (< 50 lines, config-only, docs-only).
 - **Confidence scoring filters noise.** Findings below 60 are dropped entirely. Don't lower the threshold to include more — the cutoff exists to prevent false positive fatigue.
-- **Git blame agent may be slow on large files.** It runs `git blame` per changed file — on files with thousands of lines, this takes time. The 5 agents run in parallel so it doesn't block the others.
-- **PR mode (`/review pr <number>`)** fetches the diff from GitHub, not the local branch. The review stamp is NOT written in PR mode (there's no local staged diff to hash).
-- **Converse mode requires the adversary CLI installed.** `codex` needs `npm i -g @openai/codex`, `gemini` needs the Google CLI. The skill checks `which <cli>` and stops early if missing.
+- **Git blame agent may be slow on large files.** It runs `git blame` per changed file — on files with thousands of lines, this takes time. The parallel agents run simultaneously so it doesn't block the others.
+- **PR mode (`/review pr <number>`)** fetches the diff from GitHub, not the local branch. The review stamp is NOT written in PR mode (there's no local staged diff to hash). Findings are posted as a single consolidated PR comment, not an interactive question loop.
+- **Multi mode spawns independent Claude instances.** Each `--multi` pane runs `/review pr <n>` in a fresh context — they cannot coordinate findings. Use when you want unbiased parallel reviews; use single-instance mode when you want one consolidated summary.
+- **Signal gating uses grep counts, not heuristics.** If `$F_COUNT` / `$G_COUNT` / `$H_COUNT` is 0, the agent does not run. This prevents wasted agent budget on irrelevant diffs. Spec-contract gating uses directory existence rather than a count.
+- **Stamp script uses `execFileSync` with argv, not a shell-string runner.** Git arguments go in as an array so nothing gets shell-interpolated — no injection surface, and security hooks that block shell-interpolated child-process calls still allow the argv form.
+- **Converse mode requires the adversary CLI installed.** `codex` needs `npm i -g @openai/codex`, `gemini` needs the Google CLI. The skill checks `command -v <cli>` and stops early if missing.
 - **Converse mode uses unquoted heredocs** (`<<PROMPT_EOF`, not `<<'PROMPT_EOF'`) so `$(cat ...)` and `${VAR}` expand. The diff content is read from a temp file via `$(cat "$CONVERSE_TMPDIR/diff.txt")` — never passed as a shell argument.
 - **Large diffs may exceed adversary context limits.** If the diff is >5000 lines, consider using `--stat` summary + key files instead of the full diff. The skill doesn't auto-truncate — watch for CLI errors.
-- **Adversary model selection:** Use `cli:model` syntax (e.g., `codex:o3`, `claude:sonnet`). If omitted, the CLI's default model is used.
+- **Adversary model selection:** Use `cli:model` syntax (e.g., `codex:o3`, `claude:sonnet`). If omitted, the CLI's default model is used. Some models may not be available on all accounts — if the adversary fails with a model error, retry without the model suffix or try a different model.
+- **Adversary CLI allowlist:** Only `codex`, `gemini`, and `claude` are accepted. Passing any other CLI via `--converse` is rejected to prevent arbitrary command injection from `$ARGUMENTS`.
