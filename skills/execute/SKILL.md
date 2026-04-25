@@ -1,13 +1,14 @@
 ---
 name: execute
-version: 2.0.0
+version: 2.1.0
 description: |
   execute this, build this, implement this, start coding, run the plan,
   implement tasks, work through the plan, execute tasks, build from spec,
   execute issue, work on issue, implement issue, just do it.
   Three modes: RAW (execute from conversation context), SPEC (task-by-task
   from spec with full compliance review), ISSUE (fetch GitHub issue and implement).
-argument-hint: [spec <slug> | issue <number>]
+  Multi mode: /execute --multi issue:1,2,3 or /execute --multi spec:a,b spawns parallel tmux panes.
+argument-hint: "[spec <slug> | issue <number>] | --multi issue:<n>,<n>,... | --multi spec:<slug>,<slug>,..."
 allowed-tools:
   - Bash
   - Read
@@ -22,15 +23,74 @@ allowed-tools:
 
 # Execute
 
-Flexible execution skill with three modes. All modes share the same execution engine — the only difference is how tasks are sourced and what the compliance reviewer checks against.
+Flexible execution skill with three modes plus a parallel multi-pane launcher. All modes share the same execution engine — the only difference is how tasks are sourced and what the compliance reviewer checks against.
+
+```
+/execute                              → RAW mode   (execute from conversation context)
+/execute spec <slug>                  → SPEC mode  (execute from .claude/specs/<slug>/)
+/execute issue <number>               → ISSUE mode (execute from GitHub issue)
+/execute --multi issue:1,2,3          → MULTI mode (one tmux pane per issue)
+/execute --multi spec:foo,bar         → MULTI mode (one tmux pane per spec)
+```
+
+---
 
 ## Step 0: Mode Selection
 
-Parse `$ARGUMENTS`:
+**If `$ARGUMENTS` contains `--multi`:** Jump to **Step 0M** (Multi Mode).
+
+Otherwise, parse `$ARGUMENTS`:
 - Empty → **RAW** mode
 - Starts with `spec` → **SPEC** mode (extract slug from remaining args, e.g., `/execute spec auth-flow` → slug = `auth-flow`)
 - Starts with `issue` → **ISSUE** mode (extract number from remaining args, e.g., `/execute issue 42` → number = `42`)
-- Any other non-empty value → **STOP** and tell the user: "Unknown mode. Use `/execute`, `/execute spec <slug>`, or `/execute issue <number>`."
+- Any other non-empty value → **STOP** and tell the user: "Unknown mode. Use `/execute`, `/execute spec <slug>`, `/execute issue <number>`, or `/execute --multi issue:<n>,<n>,...`."
+
+---
+
+## Step 0M: Multi Mode
+
+`--multi` means "new tmux pane, clean context" — each issue or spec gets its own Claude Code instance executing independently.
+
+1. Parse the argument after `--multi`. It must be one of:
+   - `issue:<n>,<n>,...` — comma-separated issue numbers
+   - `spec:<slug>,<slug>,...` — comma-separated spec slugs
+
+   If neither form matches (or no identifiers follow), STOP and tell the user: "`--multi` requires `issue:<numbers>` or `spec:<slugs>`. Raw prompts are not supported."
+
+2. Verify tmux is available and we're inside a tmux session:
+   ```bash
+   tmux display-message -p '#S:#I' 2>/dev/null
+   ```
+   If this fails, STOP and tell the user: "`--multi` requires an active tmux session. Start tmux first, then re-run."
+
+3. Capture the current session and window (e.g. `mysession:0`).
+
+4. For each identifier in the comma-separated list, create a new tmux pane and launch a Claude Code instance:
+
+   ```bash
+   # For ISSUE mode — each issue gets its own pane:
+   tmux split-window -t "$SESSION:$WINDOW" -h \
+     "claude --dangerously-skip-permissions --print 'Run /execute issue <NUMBER>. Implement the issue fully — derive tasks, execute, commit, and report when done.' 2>&1; echo '--- Execution of issue #<NUMBER> complete. Press Enter to close. ---'; read"
+   tmux select-layout -t "$SESSION:$WINDOW" tiled
+
+   # For SPEC mode — each spec gets its own pane:
+   tmux split-window -t "$SESSION:$WINDOW" -h \
+     "claude --dangerously-skip-permissions --print 'Run /execute spec <SLUG>. Execute the spec fully — work through all tasks, commit, and report when done.' 2>&1; echo '--- Execution of spec <SLUG> complete. Press Enter to close. ---'; read"
+   tmux select-layout -t "$SESSION:$WINDOW" tiled
+   ```
+
+5. Output:
+   ```text
+   Multi execution launched:
+     Mode: [issue | spec]
+     Items: #1, #2, #3  (or foo, bar, baz)
+     Panes: N new tmux panes created
+     Each instance executes independently with full review cycles.
+
+   Watch progress in the tmux panes. This instance is done.
+   ```
+
+6. **STOP.** Do not proceed to Step 1 — the tmux instances handle the execution.
 
 ---
 
@@ -256,8 +316,10 @@ If creating a PR directly (instead of handing off to `/ship`):
 - **Compliance review BEFORE quality review.** No point polishing code that doesn't match the requirements.
 - **Include full task text in agent prompts.** Never tell the agent to "read tasks.md" — fresh agents don't have your context.
 - **Max 2 fix cycles per review stage.** If it's still failing after 2 rounds, the task spec is probably unclear — escalate to the user.
-- **Tasks must execute sequentially.** Unlike parallel review agents, implementation tasks often have dependencies. Never dispatch multiple implementers in parallel.
+- **Tasks must execute sequentially within a single pane.** Unlike parallel review agents, implementation tasks often have dependencies. Never dispatch multiple implementers in parallel inside one execution. (For independent issues/specs, use `--multi` to split across panes instead.)
 - **Issue mode requires `gh` CLI.** If `gh` is not installed or not authenticated, abort with instructions.
 - **Never auto-close issues.** Always ask the user first.
 - **RAW mode depends on conversation context.** If the conversation has no clear task, ask the user to describe what they want.
 - **Issue checklist parsing:** If the issue body has `- [ ]` items, use them as tasks directly. If prose only, derive tasks like RAW mode.
+- **`--multi` only works with `issue:` and `spec:`** — raw prompts have no identifier to split on. If the user passes `--multi` without an `issue:` or `spec:` list, abort and ask them to specify identifiers.
+- **`--multi` requires an active tmux session.** It uses `tmux split-window` to spawn panes — outside tmux there's nowhere to put them. Check `tmux display-message` before spawning.
