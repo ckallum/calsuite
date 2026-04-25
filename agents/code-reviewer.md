@@ -82,7 +82,7 @@ For each newly added path, identify the **nearest enclosing** `CLAUDE.md` (root 
 - **New environment variables or external dependencies** — code references a new env var or a new external service/integration, but no `CLAUDE.md` section listing env vars or external dependencies is updated.
 - **New specs** — files added under `.claude/specs/` with no mention in a `CLAUDE.md`'s project-structure / specs listing.
 
-Only consider **additions**. Modifications to existing files do not trigger this check.
+Bullets 1 (new modules/dirs) and 5 (new specs) only fire on file **additions** (`--diff-filter=A`). Bullets 2–4 (architectural changes, new patterns, new env vars / external deps) can fire on **modifications** too — adding `process.env.NEW_VAR` to an existing file or introducing a new helper inside an existing module both warrant a doc update without creating any new file. Use the staged file list from step 1 for those bullets, and the `--diff-filter=A` list for the structural-addition ones.
 
 Report each hit as an `info` finding with:
 - The new path that triggered it.
