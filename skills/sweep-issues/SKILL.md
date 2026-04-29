@@ -51,9 +51,10 @@ Review the conversation history and identify candidate items. For each, note:
 - **Why**: context from the conversation
 - **Source**: what triggered it (review finding, user comment, edge case discovered, etc.)
 - **Category**: `enhancement` | `bug` | `tech-debt` | `infrastructure`
-- **Mode**: `AFK` | `HITL`
-  - **AFK** — clearly-specified implementation, no design decisions or external access required. An agent could pick this up and run end-to-end through `/execute` autonomously.
-  - **HITL** — needs human-in-the-loop: a design decision the user must own, manual verification, external access, or domain knowledge an agent can't get from the code. Prefer AFK whenever possible — only mark HITL when there's a real reason an agent can't finish unattended.
+- **Mode**: `AFK` | `HITL` — see `/guardian`'s "How AFK/HITL composes across skills" section for authoritative definitions and how this label cascades into `/execute` runtime behavior and `/guardian` permission modes. For classification at this layer:
+  - **AFK** — clearly-specified implementation, no design decisions or external access required.
+  - **HITL** — needs a design decision, manual verification, external access, or domain knowledge an agent can't get from the code.
+  - Prefer AFK whenever possible — only mark HITL when there's a real reason an agent can't finish unattended.
 
 ### Step 2: Deduplicate Against Existing Issues and Prior Rejections
 

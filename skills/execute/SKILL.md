@@ -27,7 +27,11 @@ Flexible execution skill with three modes plus a parallel multi-pane launcher. A
 
 ## AFK vs HITL handling (shared)
 
-If the source task is labeled **AFK** (e.g. issue carries the `afk` label, or the spec/conversation marks it AFK), proceed end-to-end through the execution loop without pausing for confirmation between phases — that's what AFK means. If labeled **HITL**, the implementer pauses at each decision point and asks via AskUserQuestion before proceeding. Default when unlabeled: behave as HITL — only escalate to AFK behavior when explicitly marked or when the user is running under `/guardian mode autonomous`.
+See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). At this layer:
+
+- **AFK-labelled task** (issue carries `afk`, or spec/conversation marks it AFK): proceed end-to-end through the execution loop without pausing for confirmation between phases.
+- **HITL-labelled task**: pause at each decision point and ask via AskUserQuestion before proceeding.
+- **Unlabelled**: behave as HITL — only escalate to AFK when explicitly marked or when the user is running under `/guardian mode autonomous`.
 
 ## Domain awareness (shared, runs before any mode)
 

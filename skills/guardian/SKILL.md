@@ -31,6 +31,20 @@ Switch Guardian's operating mode:
 
 **AFK vs HITL is the same axis as autonomous vs supervised.** The aliases exist because `/sweep-issues` (labelling) and `/execute` (running labelled work) use AFK/HITL — those labels map directly onto these modes when an agent picks up the work.
 
+## How AFK / HITL composes across skills
+
+AFK and HITL appear in three skills at three different layers. They compose; they don't contradict.
+
+| Layer | Skill | Question it answers |
+|---|---|---|
+| **Classification** | `/sweep-issues` | "Does this piece of work need a human in the loop?" Tags issue with `afk` or `hitl` label. |
+| **Execution** | `/execute` | "Given a labelled task, how do I run it?" AFK = end-to-end without pausing; HITL = pause at decision points and ask. |
+| **Permissions** | `/guardian` | "Which tools are even allowed in the current session?" AFK mode broadens permissions; HITL mode narrows them. |
+
+A typical flow: `/sweep-issues` files an `afk`-labelled issue → `/execute issue <n>` reads the label and runs end-to-end → `/guardian mode autonomous` is the matching permission posture for that run.
+
+**Authoritative definitions live here.** `/sweep-issues` and `/execute` reference this section rather than redefining the terms — when in doubt about how AFK/HITL behaves at a layer not visible from your current skill, read this table.
+
 ### `log [N]`
 
 View the Guardian audit log:
