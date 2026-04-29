@@ -25,6 +25,18 @@ allowed-tools:
 
 Flexible execution skill with three modes plus a parallel multi-pane launcher. All modes share the same execution engine — the only difference is how tasks are sourced and what the compliance reviewer checks against.
 
+## AFK vs HITL handling (shared)
+
+If the source task is labeled **AFK** (e.g. issue carries the `afk` label, or the spec/conversation marks it AFK), proceed end-to-end through the execution loop without pausing for confirmation between phases — that's what AFK means. If labeled **HITL**, the implementer pauses at each decision point and asks via AskUserQuestion before proceeding. Default when unlabeled: behave as HITL — only escalate to AFK behavior when explicitly marked or when the user is running under `/guardian mode autonomous`.
+
+## Domain awareness (shared, runs before any mode)
+
+If the repo has a `CONTEXT.md` (or a `CONTEXT-MAP.md` at the root pointing to per-module `CONTEXT.md` files), read it. **Use its vocabulary verbatim** in commit messages, test names, function/variable names, PR descriptions, and any user-facing text. The glossary is the project's source of truth for naming — drift defeats the point.
+
+If `docs/adr/` (or `<context>/docs/adr/`) exists and contains ADRs touching the area you're modifying, read them. Do not implement changes that contradict an accepted ADR without first surfacing the conflict to the user.
+
+Pass any relevant `CONTEXT.md` excerpts and ADR references into the implementer-agent prompt as part of `COMPLIANCE_REFERENCE` so the agent uses the same vocabulary.
+
 ```
 /execute                              → RAW mode   (execute from conversation context)
 /execute spec <slug>                  → SPEC mode  (execute from .claude/specs/<slug>/)

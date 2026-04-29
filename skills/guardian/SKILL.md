@@ -25,9 +25,11 @@ Switch Guardian's operating mode:
 5. Report what changed
 
 **Modes:**
-- **autonomous** — Broad permissions, guardian blocks only dangerous ops. Best for unattended work.
-- **supervised** — Read-only tools + safe git. Good for review/exploration sessions.
+- **autonomous** (alias: **AFK**) — Broad permissions, guardian blocks only dangerous ops. Best for unattended work — work that can run end-to-end without human input.
+- **supervised** (alias: **HITL**) — Read-only tools + safe git. Human-in-the-loop work where the user wants to approve each meaningful action.
 - **lockdown** — Minimal read-only access. For auditing or untrusted environments.
+
+**AFK vs HITL is the same axis as autonomous vs supervised.** The aliases exist because `/sweep-issues` (labelling) and `/execute` (running labelled work) use AFK/HITL — those labels map directly onto these modes when an agent picks up the work.
 
 ### `log [N]`
 

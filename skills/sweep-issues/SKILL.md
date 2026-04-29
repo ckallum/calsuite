@@ -51,15 +51,27 @@ Review the conversation history and identify candidate items. For each, note:
 - **Why**: context from the conversation
 - **Source**: what triggered it (review finding, user comment, edge case discovered, etc.)
 - **Category**: `enhancement` | `bug` | `tech-debt` | `infrastructure`
+- **Mode**: `AFK` | `HITL`
+  - **AFK** — clearly-specified implementation, no design decisions or external access required. An agent could pick this up and run end-to-end through `/execute` autonomously.
+  - **HITL** — needs human-in-the-loop: a design decision the user must own, manual verification, external access, or domain knowledge an agent can't get from the code. Prefer AFK whenever possible — only mark HITL when there's a real reason an agent can't finish unattended.
 
-### Step 2: Deduplicate Against Existing Issues
+### Step 2: Deduplicate Against Existing Issues and Prior Rejections
 
-For each candidate, search existing issues:
+For each candidate:
+
+**2a. Search existing GitHub issues:**
 ```bash
 gh issue list --search "<keywords>" --limit 5
 ```
-
 Skip anything that's already tracked. If an existing issue is related but doesn't cover the new scope, note it as a cross-reference.
+
+**2b. Check `.out-of-scope/` for prior rejections.** If `.out-of-scope/` exists at the repo root, grep it for keyword matches against the candidate:
+```bash
+[ -d .out-of-scope ] && grep -rli "<keyword>" .out-of-scope/ 2>/dev/null
+```
+If a prior rejection covers the same idea, **skip the candidate silently** and note it in the report as `Skipped (out-of-scope: <slug>.md)`. Don't re-litigate decisions that were already made — that's the whole point of the knowledge base.
+
+If a prior rejection is *related but not the same scope*, surface it to the user: *"This is similar to a previous rejection (`.out-of-scope/<slug>.md`) but the new scope differs because X — proceed?"* The user decides whether the new scope warrants a new issue or whether to update the rejection record.
 
 ### Step 3: Present Candidates
 
@@ -101,6 +113,19 @@ EOF
 - `tech-debt` → `tech-debt`
 - `infrastructure` → `infrastructure`
 
+**Mode label** (additional, applied alongside category):
+- `AFK` → `afk` label
+- `HITL` → `hitl` label
+
+If the labels don't already exist on the repo, create them once. **Gate the create call** — `gh label create` errors on existing labels without `--force`, and `--force` would overwrite color/description on every run. Use:
+
+```bash
+gh label list --json name -q '.[].name' | grep -qx afk \
+  || gh label create afk --color 0E8A16 --description "Agent can complete unattended"
+gh label list --json name -q '.[].name' | grep -qx hitl \
+  || gh label create hitl --color FBCA04 --description "Needs human in the loop"
+``` The labels let `/execute --multi issue:...` filter for AFK-only work safe to fan out across panes, and let `/babysit-pr` flag HITL items that need user attention.
+
 ### Step 5: Report
 
 Output a summary:
@@ -113,11 +138,37 @@ Created N issues:
 Skipped M items (already tracked or too small).
 ```
 
+## Recording rejections to `.out-of-scope/`
+
+When the user says *"don't create that"*, *"we considered this and rejected it"*, or closes an enhancement as `wontfix`, **write a rejection record** to `.out-of-scope/<kebab-slug>.md`. Future `/sweep-issues` runs (and `/plan --grill`, `/improve-architecture`) read this directory to avoid re-suggesting the same thing.
+
+Format:
+
+```markdown
+---
+slug: <kebab-slug>
+rejected: YYYY-MM-DD
+related-issues: [#NN, #MM]   # optional — issues that triggered the rejection
+---
+
+# <Short title>
+
+**The proposal:** {1-2 sentences describing what was suggested.}
+
+**Why we rejected it:** {The load-bearing reason. This is the most important field — it must be specific enough that a future explorer reading this 6 months later understands why and doesn't re-suggest.}
+
+**What would change our minds:** {A concrete trigger that should reopen this. Examples: "if we ever add multi-tenancy", "if a customer asks for it more than 3 times", "if we hit N% error rate on the alternative". If nothing would change our minds, write "nothing — this is a permanent no" and explain why.}
+```
+
+Skip ephemeral reasons ("not worth it right now") — those become stale fast. Only record rejections with **durable** reasons, the kind that would still apply in 6 months.
+
 ## Important Rules
 
-- **Never create duplicate issues.** Always search first.
+- **Never create duplicate issues.** Always search GitHub *and* `.out-of-scope/` first.
 - **Never include secrets, credentials, API keys, or tokens in issue bodies.** Redact any sensitive data from conversation context before creating issues.
 - **Keep issues small and focused.** One issue per concern. Don't bundle unrelated items.
 - **Include enough context** that someone reading the issue 3 months from now understands what and why.
 - **Don't over-specify requirements.** 3-5 checklist items is ideal. The implementer will spec the details.
 - **Link related issues** when they exist (use `Related: #NNN` in the body).
+- **Tag mode (AFK / HITL).** Every created issue must carry exactly one of the `afk` or `hitl` labels.
+- **Record rejections, don't lose them.** When the user vetoes a candidate or closes an enhancement as `wontfix`, write `.out-of-scope/<slug>.md` so the rejection survives across sessions.
