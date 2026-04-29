@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.22**
+**Version: 2.23**
 
 ## Getting started
 
@@ -130,6 +130,47 @@ The installer auto-detects project type via `config/profiles.json`:
 # Install into a mono-repo with backend/ and frontend/
 node scripts/configure-claude.js /path/to/monorepo
 ```
+
+## Skills overview
+
+Skills are invoked as `/<name>`. Bucketed by how often you'll reach for them.
+
+### Daily — code work
+- **`/plan`** — interview / brainstorm / review / visualize before implementing. Use `--grill` for relentless one-question-at-a-time decision-tree walking.
+- **`/execute`** — implement from conversation context, a spec, or a GitHub issue. Multi-pane variant for parallel work.
+- **`/debug`** — systematic debugging built around a fast, deterministic feedback loop.
+- **`/review`** — pre-landing review with up to 9 parallel agents, confidence scoring, optional adversarial converse mode.
+- **`/ship`** — merge main, test, review, push, open PR. Docs-only / config-only PR-only mode for lightweight changes.
+- **`/zoom-out`** — map an unfamiliar area: callers, collaborators, peers, entry points. One layer up.
+- **`/improve-architecture`** — find shallow modules and propose deepening opportunities. Run every few days.
+
+### Daily — workflow
+- **`/session-start`** — load full project context: CLAUDE.md, specs, changelog, git history.
+- **`/strategic-compact`** — hook-driven compaction suggestions at logical session breakpoints.
+- **`/learn`** — durable per-project learnings that compound across sessions.
+- **`/babysit-pr`**, **`/receiving-pr-feedback`** — PR lifecycle helpers.
+
+### Occasional
+- **`/qa`** — systematic QA testing.
+- **`/simplify`** — review changed code for reuse, quality, efficiency.
+- **`/sweep-issues`** — auto-create GitHub issues from session context (deferred items, fast-follows, tech debt). Records `wontfix` enhancements to `.out-of-scope/`.
+- **`/retro`** — weekly engineering retrospective.
+- **`/new-spec`** — scaffold a spec directory with requirements / design / tasks templates.
+- **`/worktrees`** — isolated git worktrees with auto-detected setup.
+- **`/loop`** — run a prompt or skill on a recurring interval.
+- **`/schedule`** — create scheduled remote agents (cron or one-shot).
+- **`/guardian`** — autonomous-mode rules, audit log, mode switching.
+- **`/lint-rule-gen`** — generate lint rules from review feedback patterns.
+- **`/prevent`** — analyse a mistake and add the most deterministic guardrail.
+- **`/plan-ceo`** — founder-mode plan review: scope expansion / hold / reduction.
+
+### Calsuite-internal
+Live in this repo, never distributed to targets:
+**`/sync`**, **`/sync-preview`**, **`/reconcile`**, **`/reconcile-targets`**, **`/skill-builder`**.
+
+`/customise` is calsuite-aware but *is* distributed — it ships to every target so users can claim divergent skills atomically without coming back to calsuite.
+
+Full skill source: `skills/<name>/SKILL.md`.
 
 ## Agents
 

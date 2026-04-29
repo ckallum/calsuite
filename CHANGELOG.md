@@ -2,7 +2,27 @@
 
 All notable changes to this repository.
 
-Current version: **2.22**
+Current version: **2.23**
+
+## [2.23] — 2026-04-28
+
+### Added
+
+- **`skills/zoom-out/SKILL.md`** — new single-purpose skill: agent goes one layer up and produces a callers/collaborators/peers/entry-points map for an unfamiliar area. Reads `CONTEXT.md` if present and uses its vocabulary verbatim. No grilling, no proposing changes — orientation only.
+- **`skills/improve-architecture/SKILL.md` + `LANGUAGE.md`** — new periodic codebase-health skill. Surfaces deepening opportunities (shallow modules → deep modules) using the deletion test. Fixed architectural vocabulary (Module / Interface / Implementation / Depth / Seam / Adapter / Leverage / Locality) lives in `LANGUAGE.md` with a "Rejected framings" section. Read-and-decide tool — hands off to `/plan review` → `/execute` for implementation. Writes audit notes to `.context/architecture-audits/YYYY-MM-DD.md`.
+- **`skills/plan/SKILL.md`** — `--grill` modifier flag. Switches INTERVIEW/BRAINSTORM/REVIEW questioning into one-question-at-a-time decision-tree-walking mode: always lead with the recommended answer, prefer codebase exploration over asking, challenge user terms against `CONTEXT.md` inline, propose ADRs only for hard-to-reverse / surprising / real-tradeoff decisions.
+- **`templates/CONTEXT.md`** — template for the per-repo domain glossary. Lazy-create when the first term is resolved; opinionated single-sentence definitions, `_Avoid_` aliases, relationships, example domain dialogue, flagged ambiguities. Multi-context repos keep `CONTEXT-MAP.md` at root.
+- **`templates/adr/0000-template.md`** — template for Architecture Decision Records. Hard rule: only write when **all three** are true (hard to reverse, surprising without context, real trade-off). Filename `NNNN-kebab-title.md`, verb-led titles, immutable once accepted, supersession via new ADRs.
+- **`skills/sweep-issues/SKILL.md`** — `.out-of-scope/` durable rejection knowledge base. Step 2 now searches both GitHub issues and `.out-of-scope/<slug>.md` rejection records before creating duplicates. New section explains how to record rejections with format frontmatter (`slug`, `rejected`, `related-issues`) and a "What would change our minds" trigger for re-opening.
+- **AFK / HITL labelling** across `/guardian`, `/sweep-issues`, `/execute`. AFK = agent can complete unattended; HITL = needs human-in-the-loop. `/guardian` adopts AFK/HITL as aliases for autonomous/supervised. `/sweep-issues` tags every created issue with one of `afk` / `hitl` labels (auto-creates the labels if missing) and uses them as the routing signal for downstream skills.
+- **CONTEXT.md / ADR awareness** wired into `/plan`, `/execute`, `/review`, `/debug`, `/learn`. Each skill now reads `CONTEXT.md` (and `CONTEXT-MAP.md` for multi-context repos) plus relevant `docs/adr/` files before doing its work and uses the glossary vocabulary verbatim. `/learn` distinguishes learnings (small-scale durable facts) from CONTEXT.md updates (domain terms) from ADRs (hard-to-reverse architectural decisions).
+- **`skills/skill-builder/SKILL.md`** — Step 6 review checklist: 10 concrete checks (description has triggers, names modes, body length, no time-sensitive info, consistent terminology, concrete examples, references one level deep, gotchas section exists, allowed-tools minimal, no redundant instructions). Step 7 confirmation reports outcome.
+- **`skills/debug/SKILL.md`** — Phase 1 reframed as "Build a feedback loop" with the explicit principle that **the loop IS the skill**. Adds the 10-tactic ladder (failing test → curl → CLI → headless browser → trace replay → throwaway harness → fuzz → bisect → differential → HITL script), iterate-the-loop discipline (faster / sharper / more deterministic), non-deterministic bug guidance (raise the rate, don't chase clean repro), and explicit "stop and ask" path when no loop is buildable. Don't proceed to Phase 2 until you have a loop you believe in.
+- **`README.md`** — bucketed Skills overview section: Daily code work, Daily workflow, Occasional, Calsuite-internal. Replaces flat skill discovery with usage-frequency triage.
+
+### Why
+
+Adopted patterns from [mattpocock/skills](https://github.com/mattpocock/skills) that fill gaps calsuite had no answer for: vocabulary infrastructure (`CONTEXT.md` + ADRs), pre-implementation grilling (`/plan --grill`), proactive codebase health (`/improve-architecture`), durable rejection memory (`.out-of-scope/`), AFK/HITL labelling, orientation micro-skill (`/zoom-out`), feedback-loop framing in `/debug`, and skill-builder review checklist. Pulled the philosophy stack (domain glossary discipline, deletion test, deepening over abstraction) without adopting his distribution model — calsuite keeps the `_origin` protocol and multi-target sync since those serve different goals.
 
 ## [2.22] — 2026-04-25
 

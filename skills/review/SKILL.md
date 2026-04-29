@@ -24,6 +24,12 @@ allowed-tools:
 
 You are running the `/review` workflow. Analyze the current branch's diff against main for structural issues that tests don't catch.
 
+## Domain awareness
+
+If the repo has a `CONTEXT.md` (or a `CONTEXT-MAP.md` pointing to per-module `CONTEXT.md` files), read it before dispatching review agents. **Use its vocabulary verbatim** in findings — refer to the "Order intake module" if the glossary names it that, not "the order service." Inconsistent vocabulary in review feedback creates churn during execute/ship.
+
+If `docs/adr/` exists and the diff touches an area covered by an ADR, include "respect ADR-NNNN" in the relevant agent prompts so findings don't propose changes the ADR already rejected.
+
 ## Arguments
 
 - `/review` — full review of current branch vs main (default)

@@ -8,7 +8,7 @@ description: |
   Four modes: INTERVIEW (surface edge cases, write spec), BRAINSTORM (explore design),
   REVIEW (lock in architecture, data flow, edge cases, tests),
   VISUALIZE (diagram-based design validation, bug shakeout).
-argument-hint: "[mode] [spec-path] [--lifecycle]"
+argument-hint: "[mode] [spec-path] [--lifecycle] [--grill]"
 allowed-tools:
   - Read
   - Write
@@ -25,12 +25,76 @@ allowed-tools:
 
 Consolidated planning skill. Start here before writing code.
 
+## Domain awareness (shared)
+
+Before any mode runs, scan for the project's domain artifacts:
+
+- **`CONTEXT.md`** at the repo root (or `CONTEXT-MAP.md` pointing to per-module `CONTEXT.md` files) — the domain glossary. If present, read it and **use its vocabulary verbatim** in spec text, interview questions, diagrams, and review findings. Don't drift to synonyms; don't rewrite "Order intake module" as "the order service." When the conversation resolves a new term or sharpens a fuzzy one, offer to update `CONTEXT.md` inline.
+- **`docs/adr/`** (or `<context>/docs/adr/` in multi-context repos) — read any ADRs in the area being touched and respect them. Don't re-litigate decisions an ADR already locked in.
+- **No artifacts yet?** Don't scaffold them empty. Create `CONTEXT.md` lazily when the first term is resolved; create an ADR only when a decision meets **all three** criteria (hard to reverse, surprising without context, result of a real trade-off). Use the formats below.
+
+When `--grill` mode is active (see below), this discipline tightens: grill mode **must** challenge user terms against `CONTEXT.md` and propose ADRs for load-bearing irreversible decisions surfaced during the interview.
+
+### `CONTEXT.md` format (write inline as terms resolve)
+
+```md
+# {Context Name}
+
+{One or two sentence description of what this context is and why it exists.}
+
+## Language
+
+**{Term}**:
+{One-sentence definition. What it IS, not what it does.}
+_Avoid_: {alias 1}, {alias 2}
+
+## Relationships
+
+- A **{Term A}** {verb} one or more **{Term B}**
+
+## Example dialogue
+
+> **Dev:** "When a **Customer** places an **Order**…"
+> **Domain expert:** "An **Invoice** is only generated once a **Fulfillment** is confirmed."
+
+## Flagged ambiguities
+
+- "{ambiguous term}" was used to mean both **{Term A}** and **{Term B}** — resolved: distinct concepts.
+```
+
+Be opinionated (one canonical word per concept; aliases under `_Avoid_`). Domain-only — general programming concepts don't belong. One-sentence definitions. Multi-context repos use `CONTEXT-MAP.md` at root pointing to per-module `CONTEXT.md` files.
+
+### ADR format (write at `docs/adr/NNNN-kebab-title.md`)
+
+```md
+# ADR-{NNNN}: {Verb-led title}
+
+**Status:** Accepted
+**Date:** YYYY-MM-DD
+
+## Context
+{What forced the decision. 2-5 sentences.}
+
+## Decision
+{What we decided.}
+
+## Consequences
+**Positive:** {what gets easier}
+**Negative:** {what gets harder}
+
+## Alternatives considered
+- **{Alternative}** — rejected because {specific reason}
+```
+
+Filename `NNNN-kebab-title.md` (zero-padded sequential). Verb-led titles. **Immutable once accepted** — when a decision changes, write a new ADR with `Status: Superseded by ADR-NNNN` rather than editing in place.
+
 ## Arguments
 
 - `/plan` — ask for mode via AskUserQuestion
 - `/plan [mode]` — where mode is `interview`, `brainstorm`, `review`, or `visualize`
 - `/plan [mode] [spec-path]` — e.g. `/plan review auth-flow`
 - `--lifecycle` — force state × event matrix emission even when auto-detection signals don't fire
+- `--grill` — switch interview/brainstorm/review questioning into **grill mode**: one question at a time, always lead with the recommended answer, walk the decision tree branch-by-branch, update `CONTEXT.md` inline as terms resolve, propose ADRs only for hard-to-reverse decisions. See "Grill mode (modifier)" below.
 
 ## Lifecycle Detection (shared — runs before mode dispatch)
 
@@ -79,6 +143,27 @@ event_3          clear     clear     reject    clear
 Every cell is a review target — missing or fuzzy cells are the bugs. Derive states from the system's actual state enum (or the enum you are designing) and events from command entry points.
 
 ---
+
+## Grill mode (modifier)
+
+`--grill` is a **modifier**, not a separate mode. It applies on top of INTERVIEW, BRAINSTORM, or REVIEW. Detect it once, near the top:
+
+```bash
+echo "$ARGUMENTS" | grep -q -- '--grill' && GRILL=1
+```
+
+**When `GRILL=1`, the questioning style changes:**
+
+1. **One question at a time.** No multi-dimension batching. No "let me ask 5 things in this round." Walk the decision tree branch-by-branch — resolve dependencies between decisions one-by-one. Wait for the user's answer before continuing.
+2. **Always lead with your recommended answer.** Format every question as: *"My recommendation: X. Reason: Y. But before I commit, [the actual question]."* Never ask open-ended questions without a recommendation — the user pushes back on yours instead of generating from scratch.
+3. **Prefer codebase exploration over asking.** If a question can be answered by reading the code, read the code instead of asking. Only ask the user when the answer genuinely requires their judgment (product intent, tradeoff weighting, future plans).
+4. **Read `.out-of-scope/` early.** If the repo has `.out-of-scope/<slug>.md` rejection records, scan them before you start asking — don't re-litigate decisions that were already rejected for durable reasons. If a candidate seems to fall under an existing rejection, surface that to the user up front rather than walking the whole tree to the same dead end.
+5. **Challenge against `CONTEXT.md` inline.** When the user uses a term that conflicts with the glossary, call it out immediately: *"`CONTEXT.md` defines 'cancellation' as X, but you seem to mean Y — which is it?"* When a fuzzy term gets sharpened, **update `CONTEXT.md` right there** — don't batch glossary updates to the end.
+6. **Cross-reference with code.** When the user states how something works, check whether the code agrees. If you find a contradiction, surface it: *"Your code cancels entire Orders, but you just said partial cancellation is possible — which is right?"*
+7. **Propose ADRs sparingly.** Only offer to write an ADR when **all three** are true: hard to reverse, surprising without context, result of a real trade-off. If any is missing, skip — for non-ADR-worthy rejections, suggest `/sweep-issues` write a `.out-of-scope/<slug>.md` record instead. Decisions that are easy to revisit don't need an ADR — they create noise.
+8. **Stop only when the user says stop or the tree is fully resolved.** Grill mode is "relentless" by design — it's how you flush out misalignment before code is written. Don't wrap up just because you've run several rounds; wrap up when the decision tree has no unresolved branches.
+
+When `GRILL=0` (default), the existing INTERVIEW / BRAINSTORM / REVIEW question styles apply as written below.
 
 ## Mode Selection
 
