@@ -118,12 +118,30 @@ After creating all files:
 
 **Only register if the skill was created in the global skills directory** (the `skills/` folder next to `config/profiles.json`). Project-local skills should not be registered in the global profiles.
 
-## Step 6: Confirm
+## Step 6: Review Checklist
+
+Before finalizing, verify the skill against this checklist. Each item is non-negotiable — if any fails, fix before reporting completion.
+
+- [ ] **Description has triggers.** Frontmatter `description` includes 5-8 trigger phrases (verbs + objects users actually say). Not a paragraph summary.
+- [ ] **Description names the modes.** If the skill has multiple modes (e.g. RAW / SPEC / ISSUE), the description names them so the model knows when to invoke which.
+- [ ] **SKILL.md is reasonably tight.** Body excluding frontmatter is under 300 lines for simple skills, under 600 for multi-mode. If longer, content moves to `references/` or `templates/`.
+- [ ] **No time-sensitive info.** No "as of November 2025", no "the new version of X" — that rots. State invariants, not snapshots.
+- [ ] **Consistent terminology.** One word per concept. If the skill switches between "task", "step", and "operation" for the same thing, pick one and use it everywhere.
+- [ ] **Concrete examples, not just rules.** Each non-trivial instruction has at least one example showing the right shape.
+- [ ] **References one level deep.** SKILL.md links to `references/foo.md`; `foo.md` does not link to `references/foo/bar.md`. Flat, not nested.
+- [ ] **Gotchas section exists.** Even if currently empty, with a note to populate as failure modes surface.
+- [ ] **`allowed-tools` is minimal.** Only tools the skill actually uses. Adding `Bash` "just in case" defeats sandboxing.
+- [ ] **No redundant instructions.** Don't tell Claude how to read files, use git, or run tests — it already knows. Only include domain-specific or non-default behavior.
+
+If the skill bundles `references/`, also verify each reference file is used (linked from SKILL.md with a "read X before doing Y" instruction). Unused reference files are dead weight and should be deleted or inlined.
+
+## Step 7: Confirm
 
 Report to the user:
 - Files created (with paths)
 - Category used
 - Whether it was registered in profiles.json
+- Review checklist outcome (any items skipped and why)
 - Suggest next steps: "Try invoking `/<skill-name>` to test it. Add gotchas as you discover failure modes."
 
 ## Gotchas
