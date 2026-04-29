@@ -31,7 +31,16 @@ Three sibling artifacts, three different purposes — pick the right one before 
 | **CONTEXT.md term** | Domain vocabulary | A new domain term was resolved or sharpened during the conversation |
 | **ADR** (`docs/adr/NNNN-*.md`) | Architectural decisions that are hard to reverse | A real trade-off was made and a future reader will wonder "why" |
 
-If the candidate is a domain term, recommend updating `CONTEXT.md` (the project's domain glossary) instead of saving a learning — `/plan` and `/improve-architecture` carry the format inline. If it's an architectural decision that meets **all three** ADR criteria — hard to reverse, surprising without context, result of a real trade-off — recommend writing an ADR at `docs/adr/NNNN-kebab-title.md`. ADRs commit to the repo and survive across teams in a way learnings don't. Learnings are for everything else: smaller-scale durable facts that don't merit either.
+If the candidate is a domain term, recommend updating `CONTEXT.md` (the project's domain glossary) instead of saving a learning — `/plan` and `/improve-architecture` carry the format inline. In a multi-context repo the term goes in the relevant `<context>/CONTEXT.md`, not the root.
+
+If it's an architectural decision that meets **all three** ADR criteria — hard to reverse, surprising without context, result of a real trade-off — recommend writing an ADR. Path depends on scope:
+
+- **System-wide decision** → `docs/adr/NNNN-kebab-title.md` at the repo root.
+- **Context-specific decision** (multi-context repos only) → `<context>/docs/adr/NNNN-kebab-title.md`, alongside that context's code.
+
+Filename convention is the same in both locations: zero-padded sequential `NNNN`, verb-led kebab title. ADRs commit to the repo and survive across teams in a way learnings don't.
+
+Learnings are for everything else: smaller-scale durable facts that don't merit either.
 
 ## Storage
 

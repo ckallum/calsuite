@@ -27,6 +27,14 @@ Store answers in `config.json`. On subsequent runs, load config silently.
 
 {{IF_NO_CONFIG: Remove this section entirely.}}
 
+## Arguments
+
+{{IF_SKILL_TAKES_ARGUMENTS:}}
+- `/{{SKILL_NAME}}` — {{describe behavior with no argument; if not supported, say "abort and ask the user to supply X"}}
+- `/{{SKILL_NAME}} <{{ARG_NAME}}>` — {{describe what the argument means, valid forms, how it maps to the workflow step that consumes it}}
+
+{{IF_SKILL_TAKES_NO_ARGUMENTS: Remove this section entirely AND drop `argument-hint` from frontmatter.}}
+
 ## Workflow
 
 {{STEP_1_HEADING}}

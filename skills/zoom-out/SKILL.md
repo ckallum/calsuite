@@ -20,6 +20,16 @@ allowed-tools:
 
 You are unfamiliar with this area of code. Go **up** one layer of abstraction and produce a map.
 
+## Arguments
+
+- `/zoom-out` — no argument; infer the target from the recent conversation (last file read, last function discussed) and confirm with the user before mapping.
+- `/zoom-out <path-or-symbol>` — explicit target. The argument is matched against `argument-hint: "[path-or-symbol]"` in the frontmatter:
+  - **Path** (e.g. `src/billing/charges.ts`) — start there; map its module / package as the broader scope.
+  - **Symbol** (e.g. `applyDiscount`) — grep for the definition first, then proceed.
+  - Empty or ambiguous — fall through to the inference path above.
+
+The argument resolves at **Step 1: Resolve the target** in the Process below. Tools available are read-only (`Read`, `Grep`, `Glob`, `Agent` per the frontmatter) — the skill cannot modify files.
+
 ## Process
 
 1. **Resolve the target.** If `$ARGUMENTS` is a path, start there. If it's a symbol, grep for the definition. If empty, infer from the recent conversation (last file read, last function discussed) and confirm with the user before proceeding.
@@ -36,7 +46,7 @@ You are unfamiliar with this area of code. Go **up** one layer of abstraction an
 
 4. **Output.** A short hierarchical map plus 3-5 sentences of orientation. Format:
 
-   ```
+   ```text
    <Target> sits inside <broader concept from CONTEXT.md or filesystem>.
 
    Reached from:

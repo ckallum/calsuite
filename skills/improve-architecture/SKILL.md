@@ -123,7 +123,11 @@ Once the user picks a candidate, drop into a `/plan --grill`-style conversation.
 
 - **Naming a deepened module after a concept not in `CONTEXT.md`?** Add the term to `CONTEXT.md` right there using the format below. Same discipline as `/plan --grill`.
 - **Sharpening a fuzzy term during the conversation?** Update `CONTEXT.md` inline.
-- **User rejects the candidate with a load-bearing reason?** Offer an ADR (at `docs/adr/NNNN-kebab-title.md`) **only if all three ADR criteria apply** — hard to reverse, surprising without context, real trade-off. Frame as: *"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"* If the rejection doesn't meet all three (e.g. ephemeral "not worth it right now", or self-evident reasoning), skip the ADR and instead let `/sweep-issues` write a `.out-of-scope/<slug>.md` rejection record — the lighter-weight knowledge base.
+- **User rejects the candidate?** Persist the rejection **immediately, here, at rejection time** — don't defer to `/sweep-issues` (it may never run, and the next audit will re-suggest the same candidate). Two paths:
+  1. **Durable reason that meets all three ADR criteria** (hard to reverse, surprising without context, real trade-off): write `docs/adr/NNNN-kebab-title.md` now using the format below. Frame the offer as: *"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"*
+  2. **Durable reason that doesn't meet all three** (e.g. "we'd revisit if we add multi-tenancy"): write `.out-of-scope/<kebab-slug>.md` now (format documented in `/sweep-issues` SKILL.md — `slug`, `rejected`, `related-issues` frontmatter, plus "Why we rejected it" and "What would change our minds" body sections). The next audit reads this and skips the candidate.
+
+  Only skip persistence entirely if the user explicitly marks the rejection **ephemeral** (e.g. "not worth it right now", "ask me again next quarter") — those don't need durable records because the reasoning won't apply later.
 
 ### `CONTEXT.md` format (when adding terms inline)
 

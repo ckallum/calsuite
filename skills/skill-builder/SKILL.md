@@ -124,6 +124,7 @@ Before finalizing, verify the skill against this checklist. Each item is non-neg
 
 - [ ] **Description has triggers.** Frontmatter `description` includes 5-8 trigger phrases (verbs + objects users actually say). Not a paragraph summary.
 - [ ] **Description names the modes.** If the skill has multiple modes (e.g. RAW / SPEC / ISSUE), the description names them so the model knows when to invoke which.
+- [ ] **Has `## Arguments`.** If the skill declares `argument-hint:` in frontmatter, SKILL.md contains a `## Arguments` section enumerating each argument, whether it's optional, valid values or formats, and how it maps to the skill's main process. Skills with no parameters can omit this section.
 - [ ] **SKILL.md is reasonably tight.** Body excluding frontmatter is under 300 lines for simple skills, under 600 for multi-mode. If longer, content moves to `references/` or `templates/`.
 - [ ] **No time-sensitive info.** No "as of November 2025", no "the new version of X" — that rots. State invariants, not snapshots.
 - [ ] **Consistent terminology.** One word per concept. If the skill switches between "task", "step", and "operation" for the same thing, pick one and use it everywhere.

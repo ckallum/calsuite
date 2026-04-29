@@ -33,6 +33,29 @@ See `/guardian`'s "How AFK/HITL composes across skills" section for the authorit
 - **HITL-labelled task**: pause at each decision point and ask via AskUserQuestion before proceeding.
 - **Unlabelled**: behave as HITL — only escalate to AFK when explicitly marked or when the user is running under `/guardian mode autonomous`.
 
+### Resolving the mode (compute once, use everywhere)
+
+Compute a single `MODE` value at the start of execution and reuse it at every AskUserQuestion call site below:
+
+```bash
+# Pseudocode — adapt to the actual decision flow
+MODE=hitl                                          # default
+issue_has_label_afk && MODE=afk                    # ISSUE mode: read labels
+spec_or_user_marks_afk && MODE=afk                 # SPEC / RAW mode: explicit marker
+guardian_mode_is_autonomous && MODE=afk            # session-wide override
+```
+
+### AskUserQuestion gating rule
+
+Every AskUserQuestion call below falls into one of two categories:
+
+| Category | AFK behavior | HITL behavior |
+|---|---|---|
+| **Phase confirmation** — "proceed?", "continue?", "raise concerns?" between phases | **Skip** the prompt; proceed automatically and log the auto-decision in the batch report | Ask normally |
+| **User-owned decision** — actions that change shared state outside this run (close issue, post comment, push to remote, send notification) | **Always ask** regardless of mode — AFK does not authorize state changes the user hasn't explicitly delegated | Ask normally |
+
+Each AskUserQuestion call site below explicitly states which category it belongs to. The default for ambiguous calls is **phase confirmation** (skippable in AFK) — be conservative about marking a call user-owned, but never auto-execute issue-close, force-push, or external-system writes without explicit user confirmation.
+
 ## Domain awareness (shared, runs before any mode)
 
 If the repo has a `CONTEXT.md` (or a `CONTEXT-MAP.md` at the root pointing to per-module `CONTEXT.md` files), read it. **Use its vocabulary verbatim** in commit messages, test names, function/variable names, PR descriptions, and any user-facing text. The glossary is the project's source of truth for naming — drift defeats the point.
@@ -117,7 +140,7 @@ Otherwise, parse `$ARGUMENTS`:
 1. Summarize what the user wants from conversation context into a concrete task list.
 2. Explore the codebase to understand relevant files, patterns, and conventions.
 3. Break the work into discrete, ordered tasks (same format as `tasks.md`).
-4. Present via AskUserQuestion:
+4. **Phase confirmation** — present via AskUserQuestion **only if `MODE=hitl`**; in AFK mode, accept the derived task list and the 2-3 sentence intent summary as `COMPLIANCE_REFERENCE` automatically and log the auto-decision in the eventual batch report:
 
 > Here's what I understand you want to implement:
 > - Task 1: [description]
@@ -129,7 +152,7 @@ Otherwise, parse `$ARGUMENTS`:
 >
 > A) Proceed  B) Let me clarify
 
-Store the confirmed summary as `COMPLIANCE_REFERENCE`.
+Store the confirmed (or auto-accepted) summary as `COMPLIANCE_REFERENCE`.
 
 ### SPEC Mode
 
@@ -154,7 +177,7 @@ gh issue view <number> --json title,body,labels,comments,assignees
    - If it contains checklists (`- [ ]` items), extract them as tasks directly.
    - If prose only, derive discrete tasks (same approach as RAW mode).
 
-3. Present via AskUserQuestion:
+3. **Phase confirmation** — present via AskUserQuestion **only if `MODE=hitl`**; in AFK mode, accept the derived task list automatically:
 
 > Issue #N: **<title>**
 > Tasks derived from the issue:
@@ -175,7 +198,7 @@ gh issue view <number> --json title,body,labels,comments,assignees
    - **SPEC:** `feat/<slug>`
    - **ISSUE:** `feat/<issue-number>-<slugified-title>` (max 50 chars)
    - **RAW:** Ask user or derive from first task description
-4. Raise any concerns via AskUserQuestion before starting.
+4. **Phase confirmation** — raise any concerns via AskUserQuestion before starting **only if `MODE=hitl`**. In AFK mode, log concerns to the batch report and proceed; if a concern is severe enough that proceeding would corrupt state (uncommitted changes that conflict, missing dependencies, branch-protection issues), STOP regardless of mode and report — that's a hard blocker, not a phase prompt.
 
 ---
 
@@ -210,7 +233,7 @@ Return: what you implemented, what tests you wrote, test results, any concerns."
 description: "Implement task: <task title>"
 ```
 
-**If the agent has questions:** Present them to the user via AskUserQuestion. Answer, then re-dispatch.
+**If the agent has questions:** treat as a hard blocker. In `MODE=hitl`, present via AskUserQuestion, answer, then re-dispatch. In `MODE=afk`, the orchestrator does **not** have the user's input — STOP and report: *"Task `<title>` requires HITL clarification: `<questions>`. Re-run as HITL or label the issue `hitl` and re-execute."* Do not guess; do not skip; do not silently stall waiting for input that won't come.
 
 ### 3b: Dispatch compliance reviewer
 
@@ -271,7 +294,7 @@ After quality review passes, run `/simplify` to clean up the changed code — re
 
 ## Step 4: Batch Checkpoint (shared)
 
-After each batch of 3 tasks, report to the user:
+After each batch of 3 tasks, report to the user. **Phase confirmation** — present the "Continue?" prompt via AskUserQuestion **only if `MODE=hitl`**; in AFK mode, log the batch report and continue automatically to the next batch:
 
 ```text
 Batch N complete: tasks X-Y done
@@ -281,7 +304,7 @@ Batch N complete: tasks X-Y done
   Tests: all passing
 
 Next batch: tasks Y+1 to Z
-Continue? (A) Yes  (B) Review changes first  (C) Stop here
+Continue? (A) Yes  (B) Review changes first  (C) Stop here     ← MODE=hitl only
 ```
 
 ---
@@ -297,7 +320,7 @@ After all tasks are done:
      ```bash
      gh issue comment <number> --body "Implementation complete on branch \`$(git branch --show-current)\`. Changes: <summary of files changed and tests written>"
      ```
-     Ask user: "Close this issue? (A) Yes (B) No, keep open until PR merges"
+     **User-owned decision** — always ask via AskUserQuestion regardless of `MODE`: "Close this issue? (A) Yes (B) No, keep open until PR merges". Closing an issue is a state change visible outside this run; AFK does not authorize it.
    - **RAW:** No external updates.
 3. Report final status:
 

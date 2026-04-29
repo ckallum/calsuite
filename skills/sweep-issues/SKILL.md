@@ -89,10 +89,13 @@ If `--dry-run`, stop here.
 
 ### Step 4: Create Issues
 
-For each item, create a GitHub issue:
+For each item, create a GitHub issue with **both labels** — one category label (from the mapping below) and one mode label (`afk` or `hitl`):
 
 ```bash
-gh issue create --title "<title>" --label "<label>" --body "$(cat <<'EOF'
+gh issue create --title "<title>" \
+  --label "<category-label>" \
+  --label "<mode-label>" \
+  --body "$(cat <<'EOF'
 ## Summary
 {1-2 sentence description}
 
@@ -107,6 +110,8 @@ gh issue create --title "<title>" --label "<label>" --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+`<category-label>` is one of `enhancement` / `bug` / `tech-debt` / `infrastructure`. `<mode-label>` is one of `afk` / `hitl`. Both labels are required — never omit the mode label.
 
 **Label mapping:**
 - `enhancement` → `enhancement`
@@ -149,7 +154,7 @@ Format:
 ---
 slug: <kebab-slug>
 rejected: YYYY-MM-DD
-related-issues: [#NN, #MM]   # optional — issues that triggered the rejection
+related-issues: ["#NN", "#MM"]   # optional — quote each ID; bare # starts a YAML comment
 ---
 
 # <Short title>

@@ -16,13 +16,16 @@ Parse `$ARGUMENTS` to determine the subcommand:
 
 ### `mode <autonomous|supervised|lockdown>`
 
+Accepted aliases (case-insensitive): `AFK` → `autonomous`, `HITL` → `supervised`. Both `/guardian mode AFK` and `/guardian mode autonomous` resolve to the same canonical value.
+
 Switch Guardian's operating mode:
 
-1. Read the project's `.claude/config/guardian-rules.json` (or fall back to the repo's `config/guardian-rules.json`)
-2. Update the `"mode"` field to the requested value
-3. Read the `permissions` object for the new mode
-4. Update the project's `.claude/settings.json` — merge the mode's `allow` list into `permissions.allow`
-5. Report what changed
+1. **Normalize the mode argument.** Lowercase the input. If it equals `afk`, rewrite to `autonomous`. If it equals `hitl`, rewrite to `supervised`. Otherwise validate against `{autonomous, supervised, lockdown}` and abort if it doesn't match.
+2. Read the project's `.claude/config/guardian-rules.json` (or fall back to the repo's `config/guardian-rules.json`)
+3. Update the `"mode"` field to the **normalized canonical** value (never the alias — the on-disk config stores the canonical form so other tooling reads one value, not three).
+4. Read the `permissions` object for the new mode
+5. Update the project's `.claude/settings.json` — merge the mode's `allow` list into `permissions.allow`
+6. Report what changed (include the alias the user typed if it was normalized: *"Switched to `autonomous` (alias `AFK`)."*)
 
 **Modes:**
 - **autonomous** (alias: **AFK**) — Broad permissions, guardian blocks only dangerous ops. Best for unattended work — work that can run end-to-end without human input.
