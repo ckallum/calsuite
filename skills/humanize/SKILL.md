@@ -11,6 +11,13 @@ Apply [Anbeeld's WRITING.md](https://github.com/Anbeeld/WRITING.md) ruleset to a
 
 This is for content writing. If invoked on terse work output (a status note, a commit message, a one-line PR comment), confirm the user actually wants this — short utilitarian text shouldn't perform voice.
 
+## Arguments
+
+- `<path>` — read prose from a file path.
+- `above` / `last` — target the most recent assistant message in this conversation.
+- `<inline text>` — treat the argument itself as the prose to humanize.
+- omitted — ask the user what to humanize.
+
 ## Resolving input
 
 In order:
