@@ -19,7 +19,14 @@ When the user's intent matches, read the pointed file *before* doing anything el
 
 ## Codify on repeat
 
-If the user asks for the same *shape* of thing a second time, propose a skill. The third time is too late. Skill files live at `skills/<name>/SKILL.md` and are auto-registered via the installer.
+If the user asks for the same *shape* of thing a second time, propose a skill. The third time is too late. Skill files live at `skills/<name>/SKILL.md`.
+
+**Adding a new skill is two edits, not one:**
+
+1. Create `skills/<name>/SKILL.md` (and any supporting files).
+2. Add `<name>` to `config/profiles.json` — at minimum the `base.skills` array, plus any other profile that declares its own `skills` (currently `monorepo-root`). The installer treats the profile array as an **allowlist**, not autodiscover. A skill that exists on disk but not in any profile silently fails to distribute to targets, and `--sync` will report `0 new` while looking like it succeeded.
+
+If the skill is calsuite-internal (lives in calsuite, not distributed — e.g. `sync`, `reconcile`, `customise`, `skill-builder`), skip step 2.
 
 Record durable learnings (patterns, pitfalls, preferences) via `/learn save` — they persist across sessions in `.context/learnings/`.
 
