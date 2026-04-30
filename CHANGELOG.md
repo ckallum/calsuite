@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.24**
+Current version: **2.25**
+
+## [2.25] — 2026-04-30
+
+### Fixed
+
+- **`scripts/lib/origin-protocol.cjs` + `scripts/configure-claude.js`** — `--sync` no longer rewrites the `_origin: calsuite@<sha>` marker on files whose content is byte-identical to the calsuite source. Closes [#77](https://github.com/ckallum/calsuite/issues/77). Adds a new `'no-op'` action to `decideFileAction`'s return enum, fired when dest content matches both the install-sha content (calsuite-managed) and current calsuite HEAD (no rewrite needed). Sync logs now surface the count as `N unchanged` alongside `written` / `skipped`.
+
+### Why
+
+Every calsuite content change was creating a wave of zero-content drift PRs in target repos: 16 in verity, 23 in timeline, 23 in museli after [#75](https://github.com/ckallum/calsuite/issues/75) merged, all of them single-line `_origin` SHA bumps with no actual content delta. The marker's purpose (knowing which calsuite revision distributed each file, for divergence detection) is preserved — a stale marker still uniquely identifies a real calsuite revision, and the next *real* content change will refresh it.
 
 ## [2.24] — 2026-04-30
 

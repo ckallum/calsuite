@@ -144,6 +144,9 @@ function currentCalsuiteSha(calsuiteDir) {
  * Returns one of:
  *   'write-new'     dest missing — fresh write + stamp
  *   'write-update'  dest calsuite-managed and unchanged since install — safe overwrite
+ *   'no-op'         dest calsuite-managed and content already matches calsuite current —
+ *                   nothing to write; refreshing the _origin marker alone would create
+ *                   spurious drift in target repos (see issue #77).
  *   'migrate'       dest has no _origin but content matches calsuite current — stamp in place
  *   'skip-diverged' dest calsuite-managed but user edited — skip, flag
  *   'skip-unknown'  dest has no _origin and content differs — pre-protocol edit or stale, skip, flag
@@ -169,6 +172,10 @@ function decideFileAction(destPath, calsuiteRelPath, calsuiteDir) {
       return { action: 'skip-unknown', reason: `origin sha ${installSha} has no record of ${calsuiteRelPath}` };
     }
     if (normalizeForCompare(destContent) === normalizeForCompare(atSha)) {
+      if (calsuiteCurrent !== null &&
+          normalizeForCompare(destContent) === normalizeForCompare(calsuiteCurrent)) {
+        return { action: 'no-op' };
+      }
       return { action: 'write-update' };
     }
     return { action: 'skip-diverged', reason: `user-modified since ${installSha}` };
