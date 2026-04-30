@@ -83,4 +83,4 @@ Don't narrate the revision process by default. Show the result.
 
 ## Source
 
-Ruleset condensed from [Anbeeld's WRITING.md](https://github.com/Anbeeld/WRITING.md) (MIT). The mini version is embedded in `~/Projects/.claude/CLAUDE.md` as always-on prose guidance; this skill is the on-demand audit pass for long-form work. Re-sync if upstream rules change materially.
+Ruleset condensed from [Anbeeld's WRITING.md](https://github.com/Anbeeld/WRITING.md) (MIT). For always-on prose guidance, paste [ambient.md](./ambient.md) (~155 words) into your global `CLAUDE.md` or `AGENTS.md`. This skill is the on-demand audit pass for long-form work. Re-sync if upstream rules change materially.
