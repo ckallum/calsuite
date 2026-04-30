@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.23**
+Current version: **2.24**
+
+## [2.24] — 2026-04-30
+
+### Added
+
+- **`skills/humanize/SKILL.md`** — on-demand prose audit skill condensed from [Anbeeld's WRITING.md](https://github.com/Anbeeld/WRITING.md) (MIT). Use for blog posts, external docs, READMEs, long-form PR bodies. Resolves input from a file path, `above`/`last` (most recent assistant message), inline text, or asks. Embeds the full compact ruleset: workflow, medium routing, safety rails, 10 core rules, required checks, watchlist. Explicitly forbids fake-human moves (invented typos, programmed sentence-length wobble, staged messiness) — calibrates stance to genre instead.
+- **`skills/humanize/ambient.md`** — drop-in mini ruleset (~155 words) for global `CLAUDE.md` / `AGENTS.md`. Always-on prose guidance scoped to commit messages, PR bodies, READMEs, docs, external copy; explicitly skips terse status updates and one-line comments. Points to `/humanize` for the long-form audit pass.
+
+### Why
+
+Reviewed two AI-writing rulesets the user surfaced: Anbeeld's principled WRITING.md and a checklist-style "Humanizer" skill. Anbeeld won on the always-on layer (no fake-voice injection, calibrated to genre, refuses to break grammar to dodge detection). Split deployment: mini-ruleset embedded as ambient guidance, full audit gated behind an explicit `/humanize` invocation so it doesn't bleed into routine work output.
 
 ## [2.23] — 2026-04-28
 
