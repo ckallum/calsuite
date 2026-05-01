@@ -2,7 +2,19 @@
 
 All notable changes to this repository.
 
-Current version: **2.25**
+Current version: **2.26**
+
+## [2.26] — 2026-05-01
+
+### Changed
+
+- **`skills/sweep-issues/SKILL.md`** — new Step 2c "Flag PR-introduced bugs". For every candidate categorized as `bug`, the skill now diffs against `origin/main`, matches the candidate against changed files and added/modified symbols, and uses AskUserQuestion to force a fix-inline / pre-existing / dismiss decision before the issue gets created. Added `AskUserQuestion` to allowed-tools. Added the rule to "What NOT to Capture".
+- **`skills/ship/SKILL.md` Step 7.2** — triage is now grounded in an explicit `CHANGED_FILES` list captured from `git diff origin/main --name-only`. The "fix now" column gains a top row "Anything touching a file in `CHANGED_FILES` (default)", and the "create issue" column gains a matching "Pre-existing bug in a file this PR doesn't touch" row. New hard rule: bugs whose file is in `CHANGED_FILES` are never deferrable.
+- **`skills/ship/SKILL.md` PR-only mode** — new Step 2.5 between Commit and Push runs the same `CHANGED_FILES`-grounded triage. PR-only mode previously skipped Step 7.2 entirely, so any bug introduced by a docs/config/skill PR sailed straight into a deferred issue.
+
+### Why
+
+`/sweep-issues` was creating GitHub issues for bugs the PR itself had introduced — the post-PR safety-net call (`/ship` Step 9 and pr-only Step 4) had no awareness of the diff and would defer anything tagged "bug" without checking whether it lived in code the branch was changing. Step 7.2's existing inline-fix triage was the right idea but relied on the LLM "knowing" which files were touched without anchoring to the actual diff. The fix puts the diff-file-list in front of every triage decision, makes file-in-diff bugs un-deferrable by rule, and adds the same guard inside `/sweep-issues` itself so the rule holds whether the skill is invoked from `/ship`, from pr-only mode, or standalone.
 
 ## [2.25] — 2026-04-30
 
