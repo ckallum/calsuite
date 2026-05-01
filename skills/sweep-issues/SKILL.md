@@ -12,6 +12,7 @@ allowed-tools:
   - Read
   - Grep
   - Glob
+  - AskUserQuestion
 ---
 
 # Sweep Issues: Auto-Create GitHub Issues from Session Work
@@ -41,6 +42,7 @@ Scan the conversation for ANY of these patterns:
 - Items completed in this session
 - Items that are trivially small (single-line fixes you could do right now)
 - Vague wishes without actionable scope
+- **Bugs in code this branch is currently touching** — these belong inline in the PR, not deferred. Step 2c detects and surfaces these explicitly.
 
 ## Process
 
@@ -56,7 +58,7 @@ Review the conversation history and identify candidate items. For each, note:
   - **HITL** — needs a design decision, manual verification, external access, or domain knowledge an agent can't get from the code.
   - Prefer AFK whenever possible — only mark HITL when there's a real reason an agent can't finish unattended.
 
-### Step 2: Deduplicate Against Existing Issues and Prior Rejections
+### Step 2: Filter — dedup, prior rejections, and PR-introduced bugs
 
 For each candidate:
 
@@ -73,6 +75,41 @@ Skip anything that's already tracked. If an existing issue is related but doesn'
 If a prior rejection covers the same idea, **skip the candidate silently** and note it in the report as `Skipped (out-of-scope: <slug>.md)`. Don't re-litigate decisions that were already made — that's the whole point of the knowledge base.
 
 If a prior rejection is *related but not the same scope*, surface it to the user: *"This is similar to a previous rejection (`.out-of-scope/<slug>.md`) but the new scope differs because X — proceed?"* The user decides whether the new scope warrants a new issue or whether to update the rejection record.
+
+**2c. Flag PR-introduced bugs.** A bug in code this branch is already changing belongs inline in the PR, not in a deferred issue. Skip this check on `main` or when no diff exists — otherwise it produces noise.
+
+```bash
+# Skip the check entirely if not on a feature branch with real divergence
+branch=$(git branch --show-current 2>/dev/null)
+if [ -n "$branch" ] && [ "$branch" != "main" ] && [ "$branch" != "master" ]; then
+  changed_files=$(git diff origin/main --name-only 2>/dev/null)
+fi
+```
+
+If `$changed_files` is non-empty, for every candidate categorized as `bug`:
+
+1. Match the candidate against the diff. A candidate is **PR-touched** if any of:
+   - Its description references a file path in `$changed_files` (literal or basename match)
+   - Its description references a symbol (function, type, constant) that appears in `git diff origin/main` as an added or modified line
+2. If PR-touched, use AskUserQuestion individually:
+   ```
+   This bug looks like it lives in code this PR is changing:
+     <one-line bug description>
+     Matched: <file path or symbol>
+
+   PR-introduced bugs should be fixed in this PR, not deferred.
+
+   A) Fix inline — skip this candidate. You'll fix it before the PR is published
+      (or as a follow-up commit if the PR is already up).
+   B) Defer to issue — confirmed pre-existing, not introduced by this branch.
+   C) Dismiss — not a real bug.
+   ```
+3. Apply the answer:
+   - **A:** drop from the create-list. Add to the final report as `Skipped (fix inline): <description>`. After Step 5, surface a clear callout reminding the user to fix before publishing.
+   - **B:** keep the candidate. Add a `**Pre-existing:** confirmed not introduced by branch <name>` line to the issue body so the next reader knows the triage already happened.
+   - **C:** drop silently.
+
+This guard runs on every `/sweep-issues` invocation, including the safety-net call at the end of `/ship`. It's the last line of defense against PR-introduced bugs slipping into deferred issues.
 
 ### Step 3: Present Candidates
 
