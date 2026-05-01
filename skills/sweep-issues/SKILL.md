@@ -92,7 +92,7 @@ If `$changed_files` is non-empty, for every candidate categorized as `bug`:
    - Its description references a file path in `$changed_files` (literal or basename match)
    - Its description references a symbol (function, type, constant) that appears in `git diff origin/main` as an added or modified line
 2. If PR-touched, use AskUserQuestion individually:
-   ```
+   ```text
    This bug looks like it lives in code this PR is changing:
      <one-line bug description>
      Matched: <file path or symbol>
