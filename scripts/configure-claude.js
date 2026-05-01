@@ -113,6 +113,7 @@ function makeInstallStats() {
     'write-new': 0,
     'write-update': 0,
     'migrate': 0,
+    'no-op': 0,
     'skip-diverged': 0,
     'skip-unknown': 0,
     'skip-claimed': 0,
@@ -120,10 +121,11 @@ function makeInstallStats() {
   };
 }
 
-// Aggregate a stats object into the three numbers used in log lines.
+// Aggregate a stats object into the four numbers used in log lines.
 function summarizeInstallStats(stats) {
   return {
     written: stats['write-new'] + stats['write-update'] + stats['migrate'],
+    noOp: stats['no-op'],
     skipped: stats['skip-diverged'] + stats['skip-unknown'],
     preserved: stats['skip-claimed'] + stats['skip-exists'],
   };
@@ -166,6 +168,9 @@ function installProtectedFile({ srcFile, destFile, calsuiteDir, currentSha, stat
     fs.writeFileSync(destFile, stamped);
     return;
   }
+
+  // 'no-op': dest content already matches calsuite current; rewriting just to
+  // refresh the _origin marker would create zero-content drift PRs in targets.
 
   if (BLOCKING_SKIP_ACTIONS.has(decision.action)) {
     divergences.push({ destPath: destFile, action: decision.action, reason: decision.reason });
@@ -598,7 +603,8 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
   const preservedBreakdown = [];
   if (skillStats['skip-claimed']) preservedBreakdown.push(`${skillStats['skip-claimed']} user-claimed`);
   if (skillStats['skip-exists']) preservedBreakdown.push(`${skillStats['skip-exists']} non-md kept`);
-  console.log(`  ✓ Skills: ${skillSummary.written} written (${skillStats['write-new']} new / ${skillStats['write-update']} updated / ${skillStats['migrate']} migrated), ${skillSummary.skipped} skipped${skillSummary.preserved ? `, ${preservedBreakdown.join(' / ')}` : ''}`);
+  const skillNoOp = skillSummary.noOp ? `, ${skillSummary.noOp} unchanged` : '';
+  console.log(`  ✓ Skills: ${skillSummary.written} written (${skillStats['write-new']} new / ${skillStats['write-update']} updated / ${skillStats['migrate']} migrated)${skillNoOp}, ${skillSummary.skipped} skipped${skillSummary.preserved ? `, ${preservedBreakdown.join(' / ')}` : ''}`);
 
   // 4. Install agents via the same protocol (agent files are single .md each)
   if (resolvedProfile.agents.length > 0) {
@@ -611,7 +617,8 @@ function installForProfile(targetDir, resolvedProfile, label, opts = {}) {
       installProtectedFile({ srcFile: srcAgent, destFile: destAgent, calsuiteDir, currentSha, stats: agentStats, divergences });
     }
     const agentSummary = summarizeInstallStats(agentStats);
-    console.log(`  ✓ Agents: ${agentSummary.written} written, ${agentSummary.skipped} skipped${agentStats['skip-claimed'] ? `, ${agentStats['skip-claimed']} user-claimed` : ''}`);
+    const agentNoOp = agentSummary.noOp ? `, ${agentSummary.noOp} unchanged` : '';
+    console.log(`  ✓ Agents: ${agentSummary.written} written${agentNoOp}, ${agentSummary.skipped} skipped${agentStats['skip-claimed'] ? `, ${agentStats['skip-claimed']} user-claimed` : ''}`);
   }
 
   // 5. Copy templates (never overwrite existing)
@@ -790,7 +797,8 @@ function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null)
       }
     }
     const summary = summarizeInstallStats(stats);
-    console.log(`  → ${count} skill(s): ${summary.written} files written, ${summary.skipped} skipped, ${summary.preserved} preserved`);
+    const noOp = summary.noOp ? `, ${summary.noOp} unchanged` : '';
+    console.log(`  → ${count} skill(s): ${summary.written} files written${noOp}, ${summary.skipped} skipped, ${summary.preserved} preserved`);
   }
 
   // Install specified agents through the same protocol.
@@ -811,7 +819,8 @@ function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null)
       }
     }
     const summary = summarizeInstallStats(stats);
-    console.log(`  → ${count} agent(s): ${summary.written} written, ${summary.skipped} skipped`);
+    const noOp = summary.noOp ? `, ${summary.noOp} unchanged` : '';
+    console.log(`  → ${count} agent(s): ${summary.written} written${noOp}, ${summary.skipped} skipped`);
   }
 
   // Also install into workspaces if monorepo, unless the target opted out
