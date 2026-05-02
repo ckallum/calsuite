@@ -2,7 +2,13 @@
 
 All notable changes to this repository.
 
-Current version: **2.26**
+Current version: **2.27**
+
+## [2.27] — 2026-05-02
+
+### Fixed
+
+- **`skills/ship/SKILL.md` Gotchas** — the "/ship pr skips ALL safety checks" bullet contradicted Steps 2.5 (PR-introduced-bug sweep) and 3 (Pre-PR Gates from Step 7.4) added in 2.26. Reworded to reflect what pr-only mode actually does: skips the heavy checks (full test suite, simplification, Pre-Landing Review, CHANGELOG generation, commit splitting) but still runs the cheap ones (Step 2.5 sweep, Step 7.4 Pre-PR Gates, Step 8.5 claim-vs-diff grep).
 
 ## [2.26] — 2026-05-01
 
