@@ -564,7 +564,7 @@ args: ""
 - **Simplify runs BEFORE review** so the review stamp covers the final code state. Don't reorder Steps 4 and 4.5.
 - **`git push` may fail if the branch was force-pushed elsewhere.** Never force push to recover — ask the user.
 - **CHANGELOG auto-generation reads all commits on the branch** — if prior commits have bad messages, the CHANGELOG entries will be vague.
-- **`/ship pr` skips ALL safety checks** (tests, review, simplification). Only use for genuinely low-risk changes. If in doubt, use `/ship`.
+- **`/ship pr` skips the heavy safety checks** (full test suite, simplification, Pre-Landing Review, CHANGELOG generation, commit splitting) but still runs the cheap ones: the Step 2.5 PR-introduced-bug sweep, the Pre-PR Gates from Step 7.4 (PR-size, test-presence, spec-contract), and the PR-claim-vs-diff grep (Step 8.5). Use for genuinely low-risk changes (docs, config, skills); if in doubt, use `/ship`.
 - **Pre-PR Gates (Step 7.4) warn but do not block** unless `.claude/ship-config.json` sets `strict: true`. They surface context about the diff shape — large PRs, no-test diffs, spec deviations — but the user always has the final word.
 - **`.claude/ship-config.json` is optional and per-repo.** Keys: `criticalPaths: [glob, ...]` for strict test-presence on sensitive files, `strict: true` to promote the strict warning into a block. Only the test-presence gate reads this file — size, spec-contract, and claim-grep gates run unconditionally.
 - **PR-claim-vs-diff grep (Step 8.5) uses literal string search.** A claim is missing if `grep -F` doesn't find it in the full diff. If the code renamed a symbol that the PR body still references, the grep correctly flags it.
