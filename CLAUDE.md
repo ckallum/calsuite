@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.27** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.28** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -24,7 +24,7 @@ If the user asks for the same *shape* of thing a second time, propose a skill. T
 **Adding a new skill is two edits, not one:**
 
 1. Create `skills/<name>/SKILL.md` (and any supporting files).
-2. Add `<name>` to `config/profiles.json` — at minimum the `base.skills` array, plus any other profile that declares its own `skills` (currently `monorepo-root`). The installer treats the profile array as an **allowlist**, not autodiscover. A skill that exists on disk but not in any profile silently fails to distribute to targets, and `--sync` will report `0 new` while looking like it succeeded.
+2. Add `<name>` to `config/profiles.json` — at minimum the `base.skills` array, plus any other profile that declares its own `skills` (currently `monorepo-root`). The installer treats the profile array as an **allowlist**, not autodiscover. A skill that exists on disk but isn't in any profile won't distribute to targets — the installer warns about this on every run via `validateProfilesConfig()` (in both directions: orphan skills, and profile entries pointing at nonexistent dirs).
 
 If the skill is calsuite-internal (lives in calsuite, not distributed — e.g. `sync`, `reconcile`, `customise`, `skill-builder`), skip step 2.
 

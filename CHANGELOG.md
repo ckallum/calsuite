@@ -2,7 +2,22 @@
 
 All notable changes to this repository.
 
-Current version: **2.27**
+Current version: **2.28**
+
+## [2.28] — 2026-05-08
+
+### Fixed
+
+- **`/flow` skill relocated to source layout** — `skills/flow/SKILL.md` and `scripts/hooks/flow-trace.cjs` were originally committed to `.claude/skills/flow/` and `.claude/scripts/hooks/` in [`31222db`](https://github.com/ckallum/calsuite/commit/31222db) "feat: add flow trace hook, /flow skill, and /ship integration". That directory is the *target-side* destination the installer copies into, not the *source-side* it copies from — so `/flow` worked on calsuite itself but silently failed to distribute to any target via `--sync`. `git mv`'d both files into `skills/flow/` and `scripts/hooks/`, added the `Skill||Agent` PreToolUse and SessionEnd cleanup entries to `hooks/hooks.json` (with `${CALSUITE_DIR}` placeholders), and removed the now-stale entries from `.claude/settings.json` so calsuite-self doesn't reference the moved files.
+- **`config/profiles.json`** — `layman` and `spec-interview` had `SKILL.md` on disk since [`198ac62`](https://github.com/ckallum/calsuite/commit/198ac62) and [`b1c1f19`](https://github.com/ckallum/calsuite/commit/b1c1f19) respectively but were never wired into a profile. Added to `base.skills` and `monorepo-root.skills`, so `--sync` distributes them. The `flow` entry that was previously in both arrays is preserved — it now resolves correctly thanks to the relocation above.
+
+### Added
+
+- **`scripts/configure-claude.js` `validateProfilesConfig()`** — runs once per install/sync, cross-checks `profiles.json` against `skills/` and `agents/` in both directions, and warns on (a) profile entries pointing at nonexistent dirs and (b) skill/agent files on disk that no profile references. Filters hidden entries (`.foo`) so editor-state dirs don't trigger false positives. Guarded by `existsSync` on `SKILLS_DIR`/`AGENTS_DIR` so a corrupted checkout degrades to "no validation" instead of `ENOENT`. Surfaces the same class of drift that hid the `flow` mislocation and the `layman`/`spec-interview` orphans for months.
+
+### Why
+
+Discovered while applying the harness to `verity-v2-landing` and inventorying which skills had landed: `flow` appeared in the system prompt's available-skills list when working inside calsuite itself, but `--sync` had never delivered it to any other target. Tracing the path showed the file lived in `.claude/skills/flow/` rather than `skills/flow/`, and the installer (correctly) only copies from `skills/`. Same shape of mistake landed `flow-trace.cjs` and the hook wiring in `.claude/scripts/hooks/` and `.claude/settings.json` instead of `scripts/hooks/` and `hooks/hooks.json`. The class of bug the validator now catches is exactly this — file-on-disk vs. profile-or-source-list disagreement — so the fix relocates everything to where the installer expects it, restores the profile entry, and adds the bidirectional check that would have surfaced the original commit's mistake the day it landed.
 
 ## [2.27] — 2026-05-02
 

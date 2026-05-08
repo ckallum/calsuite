@@ -89,6 +89,17 @@
         ],
         "description": "Suggest manual compaction at logical intervals",
         "_origin": "calsuite"
+      },
+      {
+        "matcher": "tool == \"Skill\" || tool == \"Agent\"",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CALSUITE_DIR}/scripts/hooks/flow-trace.cjs\""
+          }
+        ],
+        "description": "Trace skill and agent invocations for /flow diagrams",
+        "_origin": "calsuite"
       }
     ],
     "PreCompact": [
@@ -221,6 +232,17 @@
           }
         ],
         "description": "Evaluate session for extractable patterns",
+        "_origin": "calsuite"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f \"${CLAUDE_PROJECT_DIR:-.}/.claude/flow-trace-${CLAUDE_SESSION_ID:-unknown}.jsonl\""
+          }
+        ],
+        "description": "Clean up flow trace files",
         "_origin": "calsuite"
       }
     ]

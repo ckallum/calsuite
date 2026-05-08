@@ -443,6 +443,63 @@ function mergeProfile(name, profiles, resolved, visited) {
   if (profile.templates) profile.templates.forEach(t => resolved.templates.add(t));
 }
 
+// Cross-check profiles.json against on-disk skills/agents in both directions.
+// Catches: profile entries that reference nonexistent files (silent skip in the
+// install loop), and on-disk skills/agents that no profile references (won't
+// distribute to any target). Idempotent — reports once per script run.
+let profilesValidated = false;
+function validateProfilesConfig(profilesConfig) {
+  if (profilesValidated) return;
+  profilesValidated = true;
+  if (!profilesConfig?.profiles) return;
+  if (!fs.existsSync(SKILLS_DIR) || !fs.existsSync(AGENTS_DIR)) return;
+
+  const availableSkills = new Set(
+    fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory() && !d.name.startsWith('.'))
+      .map(d => d.name)
+  );
+  const availableAgents = new Set(
+    fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
+      .filter(d => d.isFile() && d.name.endsWith('.md') && !d.name.startsWith('.'))
+      .map(d => d.name.replace(/\.md$/, ''))
+  );
+
+  const referencedSkills = new Set();
+  const referencedAgents = new Set();
+  const missingSkills = new Set();
+  const missingAgents = new Set();
+
+  // Skills are filtered through INTERNAL_SKILLS (calsuite-only, never distributed);
+  // agents have no equivalent exclusion list.
+  const skillIsKnown = name => INTERNAL_SKILLS.has(name) || availableSkills.has(name);
+
+  for (const profile of Object.values(profilesConfig.profiles)) {
+    for (const s of profile.skills || []) {
+      referencedSkills.add(s);
+      if (!skillIsKnown(s)) missingSkills.add(s);
+    }
+    for (const a of profile.agents || []) {
+      referencedAgents.add(a);
+      if (!availableAgents.has(a)) missingAgents.add(a);
+    }
+  }
+
+  const orphanSkills = [...availableSkills].filter(s => !INTERNAL_SKILLS.has(s) && !referencedSkills.has(s));
+  const orphanAgents = [...availableAgents].filter(a => !referencedAgents.has(a));
+
+  const issues = [];
+  if (missingSkills.size) issues.push(`profile-referenced skills missing on disk: ${[...missingSkills].sort().join(', ')}`);
+  if (missingAgents.size) issues.push(`profile-referenced agents missing on disk: ${[...missingAgents].sort().join(', ')}`);
+  if (orphanSkills.length) issues.push(`skills on disk not in any profile (won't distribute): ${orphanSkills.sort().join(', ')}`);
+  if (orphanAgents.length) issues.push(`agents on disk not in any profile (won't distribute): ${orphanAgents.sort().join(', ')}`);
+
+  if (issues.length) {
+    console.log('  ⚠ profiles.json validation:');
+    for (const issue of issues) console.log(`    • ${issue}`);
+  }
+}
+
 function findWorkspaces(targetDir) {
   const workspaces = [];
 
@@ -1704,6 +1761,7 @@ function main() {
       console.error('  ✗ Could not read profiles.json');
       process.exit(1);
     }
+    validateProfilesConfig(profilesConfig);
 
     const divergences = [];
     for (const target of targets.targets) {
@@ -1742,6 +1800,7 @@ function main() {
     console.error('  ✗ Could not read profiles.json');
     process.exit(1);
   }
+  validateProfilesConfig(profilesConfig);
 
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
   const divergences = [];
