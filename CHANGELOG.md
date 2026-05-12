@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.29**
+Current version: **2.30**
+
+## [2.30] — 2026-05-12
+
+### Added
+
+- **`scripts/configure-claude.js` `applyTargetSkillsFilter()` + `targets.json` `skills.exclude` knob** — closes [#82](https://github.com/ckallum/calsuite/issues/82). Per-target entries in `config/targets.json` may now carry `{ "skills": { "exclude": ["a", "b"] } }`; the named skills are dropped from the profile-resolved set before the install loop iterates. Plugins, agents, templates, and hooks are untouched. The install log appends `, N excluded by target config` to the `✓ Skills:` line when the filter fires; entries that don't match any profile-derived skill surface as a separate `⚠ targets.json skills.exclude entries with no matching profile-derived skill: …` warning so typos and profile-drift get caught the next sync. Plumbed through both single-target and `--sync` call sites. `--only` mode skips the filter — explicit skill lists always win.
+
+### Why
+
+The harness was binary: accept the full profile-resolved set or post-install `rm -rf .claude/skills/<name>` and remove the target from `config/targets.json` to stop `--sync` from resurrecting them. For small or single-purpose projects (the trigger here was a Tailwind landing page that only needs ~12 of the ~25 frontend-profile skills), neither option fit. `--only` exists but skips hooks/plugins/settings entirely, which is too restrictive when you still want the rest of the harness wired up. Adding a per-target exclude knob preserves the profile system as the source of truth (the auto-detection logic stays unchanged) and lets the target file express small curation deltas without forking profiles. Surfacing unmatched exclude entries as a warning matches the same drift-detection style used by `validateProfilesConfig()` for profile-vs-disk drift, so typos and skill renames don't silently fall through.
 
 ## [2.29] — 2026-05-12
 

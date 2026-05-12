@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.29** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.30** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -53,7 +53,7 @@ templates/   # spec / doc / changelog templates
 - `~/.mcp.json` — user-global MCP server configs (installer adds missing servers from manifest)
 - `<target>/.claude/settings.json` — **team-shared** (committed). Installer writes `enabledPlugins` and `permissions` here. Never hooks, never paths.
 - `<target>/.claude/settings.local.json` — **per-user** (gitignored by the installer). Installer writes calsuite hook wiring here with literal resolved `$CALSUITE_DIR` paths.
-- `config/targets.json` — repos that `--sync` installs to
+- `config/targets.json` — repos that `--sync` installs to. Each entry: `{ path, workspaces?, skills? }`. `workspaces: "skip"` restricts monorepo targets to root-only install. `skills: { exclude: ["a", "b"] }` drops the named skills from the profile-resolved install set; unmatched names surface as a ⚠ drift warning. See `config/targets.example.json`.
 - `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config change
 
 ## Gotchas
