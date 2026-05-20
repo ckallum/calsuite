@@ -1,4 +1,5 @@
 ---
+_origin: calsuite@88c2320
 name: receiving-pr-feedback
 version: 1.0.0
 description: |
@@ -57,9 +58,6 @@ Watch progress in the tmux panes. This instance is done.
 If a PR number is in `$ARGUMENTS`, fetch ALL comment types:
 
 ```bash
-# Derive owner/repo for gh api calls:
-# gh repo view --json nameWithOwner --jq '.nameWithOwner'
-
 # Issue-level comments (general PR discussion, including /review bot comments)
 gh pr view <number> --comments --json comments,reviews,reviewDecision
 
@@ -165,7 +163,7 @@ gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body
 
 ## Step 4.5: Update PR Description
 
-After fixes are applied and commits pushed, update the PR description to reflect the current state. Both `/ship` (Step 8) and this skill follow the same PR body structure defined in `skills/ship/pr-template.md`.
+After fixes are applied and commits pushed, update the PR description to reflect the current state. Both `/ship` (Step 8) and this skill follow the same PR body structure defined in `.claude/skills/ship/pr-template.md`.
 
 ### Compute summary data first
 
@@ -192,14 +190,14 @@ Split the body on `^## ` at line start (regex). This yields:
 
 Identify sections by header name. Known sections: Summary, How It Works, Important Files, Test Results, Pre-Landing Review, Development Flow, Doc Completeness, Revision History. Unknown sections are preserved in their original position.
 
-Reference implementation: `.claude/scripts/lib/pr-body-parser.cjs` (parsePrBody / assemblePrBody).
+Reference implementation: `.claude/scripts/lib/pr-body-parser.cjs` (parsePrBody / assemblePrBody). Path is relative to the target project's `.claude/` directory — the installer places calsuite's `scripts/lib/` there. In calsuite itself, the source file lives at `scripts/lib/pr-body-parser.cjs`.
 
 **c. Regenerate dynamic sections:**
 
 - **Summary**: Analyze all commits on the branch (`git log origin/main..HEAD --oneline`) and generate updated bullet points summarizing what shipped.
 - **Important Files**: Run `git diff origin/main --stat` and rebuild the file/change table matching the format in `pr-template.md`.
 - **Test Results**: Re-run the project's test suites and rebuild the results table. Omit suites that weren't run.
-- **Development Flow**: If `.claude/flow-trace-*.jsonl` exists, regenerate the Mermaid diagram. If no trace file exists, skip this section entirely.
+- **Development Flow**: If `.claude/flow-trace-${CLAUDE_SESSION_ID:-unknown}.jsonl` exists, regenerate the Mermaid diagram. If no trace file exists, skip this section entirely. The `:-unknown` fallback matches the default used by calsuite's session-scoped trackers when `CLAUDE_SESSION_ID` is unset.
 
 **d. Preserve static sections as-is (do not regenerate):**
 
@@ -221,21 +219,22 @@ If a `## Revision History` section exists, append to it. If not, create it after
 - Questions answered: Z comments
 ```
 
-Round number = count of existing `**Round N**` entries + 1. Date = today's date.
+Round number = count of lines in the Revision History section matching the anchored regex `^\*\*Round \d+\*\*` (line start, literal `**Round `, one or more digits, literal `**`), plus 1. This avoids false matches inside prose or HTML comments. Date = today's date.
 
 **f. Update the PR:**
 
-Reassemble the body from the parsed/modified sections, write to a temp file, and update:
+Reassemble the body from the parsed/modified sections, then write it to a temp file and update the PR. Use the `Write` tool to write the assembled body — this avoids heredoc sentinel collisions (a PR body can legitimately contain a line that is literally `EOF`, which would terminate a `<<'EOF'` heredoc early):
 
 ```bash
-tmp_body_file="$(mktemp)"
-trap 'rm -f "$tmp_body_file"' EXIT
-cat >"$tmp_body_file" <<'EOF'
-<reassembled body>
-EOF
-gh pr edit <number> --body-file "$tmp_body_file"
-trap - EXIT
-rm -f "$tmp_body_file"
+# 1. Create the temp file path
+tmp_body="$(mktemp)"
+trap 'rm -f "$tmp_body"' EXIT
+
+# 2. Write the reassembled body to $tmp_body using the Write tool
+#    (not a shell heredoc — sentinels can collide with body content)
+
+# 3. Update the PR from the file
+gh pr edit <number> --body-file "$tmp_body"
 ```
 
 ## Step 5: Summary
