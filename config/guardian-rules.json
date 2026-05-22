@@ -15,8 +15,8 @@
       "Bash(cargo:*)": "no specific guard — cargo run is arbitrary by design",
       "Bash(go:*)": "no specific guard — go run is arbitrary by design"
     },
-    "dropped-wildcards": "Bash(python:*), Bash(python3:*), Bash(pip:*) — removed in v2.33. Not used by calsuite tooling. Targets that need them can add explicit subcommand permissions via /fewer-permission-prompts or claim the file with --claim.",
-    "narrowed-wildcards": "Bash(node:*) → narrowed to node --version, node -v, and node scripts/configure-claude.js:*. Blocks node -e arbitrary inline JS. Hook scripts (scripts/hooks/*.cjs) run from settings.local.json and don't traverse the allowlist."
+    "dropped-wildcards": "Bash(python:*), Bash(python3:*), Bash(pip:*) — removed in v2.32. Not used by calsuite tooling. Targets that need them can add explicit subcommand permissions via /fewer-permission-prompts or claim the file with --claim.",
+    "narrowed-wildcards": "Bash(node:*) → narrowed to node --version, node -v, and node *configure-claude.js:*. The trailing wildcard on the script pattern uses a glob so absolute-path invocations (node /Users/.../scripts/configure-claude.js .) match the same as relative ones (node scripts/configure-claude.js .). Blocks node -e arbitrary inline JS. Hook scripts (scripts/hooks/*.cjs) run from settings.local.json and don't traverse the allowlist."
   },
   "mode": "autonomous",
   "permissions": {
@@ -38,7 +38,7 @@
         "Bash(bun:*)",
         "Bash(node --version)",
         "Bash(node -v)",
-        "Bash(node scripts/configure-claude.js:*)",
+        "Bash(node *configure-claude.js:*)",
         "Bash(gh:*)",
         "Bash(ls:*)",
         "Bash(cat:*)",
