@@ -1,15 +1,19 @@
+---
+_origin: calsuite@88c2320
+---
+
 # PR Body Template
 
-Shared template for PR creation across skills (`/ship`, `/receiving-pr-feedback`, parallel agents).
+Shared template for PR creation across skills (`/ship`, `/execute`, `/receiving-pr-feedback`, parallel agents).
 
 ## Usage
 
-This is the canonical PR body structure. Both `/ship` (Step 8) and `/receiving-pr-feedback` (Step 4.5) follow this format.
+This is the canonical PR body structure. Both `/ship` (Steps 8 draft + 8.6 create) and `/receiving-pr-feedback` (Step 4.5) follow this format.
 
 - **On initial PR creation** (`/ship`): all sections are generated fresh from the current branch state.
 - **After feedback rounds** (`/receiving-pr-feedback`): dynamic sections (Summary, Important Files, Test Results, Development Flow) are regenerated to reflect fixes. Static sections (How It Works, Pre-Landing Review, Doc Completeness) are preserved as-is. A Revision History section is appended with per-round summaries.
 
-Parser utility: `.claude/scripts/lib/pr-body-parser.cjs` provides `parsePrBody` / `assemblePrBody` for splitting and reassembling the body by `## ` headers.
+Parser utility: `.claude/scripts/lib/pr-body-parser.cjs` provides `parsePrBody` / `assemblePrBody` for splitting and reassembling the body by level-2 headers. The `.claude/` prefix is the runtime path inside target projects (where the installer places calsuite's `scripts/lib/`). In calsuite itself the source file lives at `scripts/lib/pr-body-parser.cjs`.
 
 ## Title Format
 
@@ -26,6 +30,11 @@ Parser utility: `.claude/scripts/lib/pr-body-parser.cjs` provides `parsePrBody` 
 ```markdown
 ## Summary
 <1-5 bullet points describing what shipped — derived from CHANGELOG or commit history>
+
+## Pre-PR Gates
+<Findings from Step 7.4 pre-PR gates: size warning, test-presence, spec-contract.
+Omit this section entirely when all gates pass cleanly. Only include when there
+is at least one non-silent finding.>
 
 ## How It Works
 <Mermaid diagram showing the key flow introduced or changed>
@@ -75,17 +84,25 @@ Omit suites that weren't run (e.g., no backend changes = no backend tests).
 - [ ] CLAUDE.md updated (if conventions/structure changed)
 - [ ] tasks.md updated (if working on a spec)
 
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+## Feedback-round additions
+
+The initial PR body created by `/ship` ends at the Doc Completeness section — **do not** include a Revision History heading on initial creation. An empty heading would survive `parsePrBody` and render as an empty section in the PR UI.
+
+`/receiving-pr-feedback` (Step 4.5) appends a Revision History section only after a feedback round has actually run. The format it uses:
+
+```markdown
 ## Revision History
-<!-- Omit this section on initial PR creation. Only appended by /receiving-pr-feedback. -->
-<!-- Example format (do not copy literally):
+
 **Round 1** (YYYY-MM-DD):
 - Accepted: X comments — brief list of key changes
 - Pushed back: Y comments
 - Questions answered: Z comments
--->
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
+
+Subsequent rounds append new `**Round N**` blocks to the existing `## Revision History` section (round number is the count of existing anchored `^\*\*Round \d+\*\*` matches + 1).
 
 ## gh pr create Example
 
