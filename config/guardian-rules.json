@@ -4,7 +4,7 @@
     "guarded-wildcards": {
       "Bash(rm:*)": "deny-rm-dangerous + deny-rm-rf-cwd",
       "Bash(curl:*)": "warn-curl-mutate + deny-curl-pipe-sh",
-      "Bash(wget:*)": "warn-curl-mutate + deny-curl-pipe-sh",
+      "Bash(wget:*)": "deny-curl-pipe-sh (warn-curl-mutate only matches curl, not wget)",
       "Bash(docker:*)": "warn-docker",
       "Bash(npm:*)": "deny-dev-server + warn-npm-install",
       "Bash(pnpm:*)": "deny-dev-server + warn-npm-install",
