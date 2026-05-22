@@ -76,7 +76,12 @@
       "Bash(basename:*)",
       "Bash(xargs:*)",
       "Bash(tr:*)",
-      "Bash(cut:*)"
+      "Bash(cut:*)",
+      "mcp__352b2b29-ee8b-4397-b747-f72ce51570c9__read_file_content",
+      "mcp__352b2b29-ee8b-4397-b747-f72ce51570c9__get_file_metadata",
+      "mcp__qmd__query",
+      "mcp__qmd__get",
+      "mcp__qmd__multi_get"
     ]
   }
 }

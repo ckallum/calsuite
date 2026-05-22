@@ -2,7 +2,27 @@
 
 All notable changes to this repository.
 
-Current version: **2.31**
+Current version: **2.32**
+
+## [2.32] — 2026-05-21
+
+### Changed
+
+- **Renamed `/simplify` references to `/code-review`** — Claude Code 2.1.146 renamed the built-in `/simplify` skill to `/code-review` (with an optional effort-level argument, e.g. `/code-review high`). Updated the four downstream references in calsuite that pointed users at the old name: `skills/execute/SKILL.md` (Step 3d: Simplify), `skills/improve-architecture/SKILL.md` (pair-skill mention + the "stay codebase-wide" guideline), and the `README.md` Occasional skills section. The `skills/plan/SKILL.md:320` description string (`"Code quality + simplify"`) is left as-is because it's prose describing an agent's job, not an invocation. No skills owned by calsuite changed names — only the references to the now-renamed built-in.
+- **README disambiguates `/code-review` vs `@code-reviewer`** — added a sentence to the `@code-reviewer` entry in the Agents section noting that the built-in `/code-review` skill (in-place cleanup) is a separate surface from calsuite's gating agent (`@code-reviewer`, which validates staged diffs before commit). The rename made the names visually similar; the distinction (skill vs agent invocation) is real but easy to miss now.
+
+### Why
+
+The user prompted "see what impacts our harness — /simplify has been renamed" after updating Claude Code from 2.1.132 → 2.1.146 and then "act on all" against the follow-up list. The `/simplify` references would silently route users at a missing command — `/execute` Step 3d explicitly instructs "run `/simplify`" after quality review, and `/improve-architecture` describes itself relative to that skill. The README pointer gets the explicit "renamed from" annotation as a one-cycle bridge.
+
+Other 2.1.133–2.1.146 items the user asked about were reviewed and consciously **not** acted on, with reasons:
+
+- **PreCompact hook as a real gate** — calsuite's `scripts/hooks/pre-compact.cjs` already logs the compaction event and appends a marker to the active session file. There's no condition under which calsuite should _block_ compaction (it's the user's call), so the new "exit 2 to block" capability has nothing meaningful to gate on. The soft logger is the right behavior.
+- **`skillOverrides` setting (`off` / `user-invocable-only` / `name-only`)** — would change skill-visibility behavior across every target the installer touches. That's a global UX preference, not a bug fix, and picking a non-default value without the user opting in would reduce discoverability of the skills the installer just distributed. Left for the user to set per-target if/when they want a narrower surface.
+- **`Skill(name *)` prefix matching** — relevant only if calsuite ever adds `Skill(...)` permission rules. It currently doesn't. Noted for future use.
+- **Hook `args: string[]` exec form** — the published `claude-code-settings.json` schema at schemastore.org does not yet expose an `args` field on hook entries, only `command: string`. Migrating without the schema confirmed would be guessing at a private API. Marginal win anyway (calsuite hook paths have no spaces or shell-special chars, so the current string form has no quoting issues). Revisit when the schema lands.
+- **`/fewer-permission-prompts` overlap with new built-in `/less-permission-prompts`** — `/fewer-permission-prompts` is not owned by calsuite (it's a built-in / external skill). Nothing in calsuite references either name. No action needed on our end.
+- **`worktree.baseRef` default change to `fresh`** — calsuite's `/worktrees` skill already uses `origin/main` as the base, so we're aligned with the new default.
 
 ## [2.31] — 2026-05-13
 

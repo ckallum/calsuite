@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.31**
+**Version: 2.32**
 
 ## Getting started
 
@@ -152,7 +152,7 @@ Skills are invoked as `/<name>`. Bucketed by how often you'll reach for them.
 
 ### Occasional
 - **`/qa`** — systematic QA testing.
-- **`/simplify`** — review changed code for reuse, quality, efficiency.
+- **`/code-review`** — review changed code for reuse, quality, efficiency. (Built-in; renamed from `/simplify` in Claude Code 2.1.146.)
 - **`/sweep-issues`** — auto-create GitHub issues from session context (deferred items, fast-follows, tech debt). Records `wontfix` enhancements to `.out-of-scope/`.
 - **`/retro`** — weekly engineering retrospective.
 - **`/new-spec`** — scaffold a spec directory with requirements / design / tasks templates.
@@ -177,7 +177,7 @@ Full skill source: `skills/<name>/SKILL.md`.
 - **`@context-loader`** — Reads all spec state, git history, and produces a prioritized briefing for the session
 - **`@doc-updater`** — Detects changed workspaces, fans out parallel sub-agents to update docs, creates architecture diagrams via Excalidraw MCP, then updates root tracking files
 - **`@browser`** — Browser automation via `agent-browser` CLI — screenshots, navigation, clicking, form filling, and visual verification
-- **`@code-reviewer`** — Reviews staged git changes against CLAUDE.md conventions and codebase patterns; writes a review stamp on PASS to unlock the commit gate
+- **`@code-reviewer`** — Reviews staged git changes against CLAUDE.md conventions and codebase patterns; writes a review stamp on PASS to unlock the commit gate. Distinct from the built-in `/code-review` skill (in-place code cleanup) — `@code-reviewer` is the gating agent that validates staged diffs before commit.
 
 ## Spec-driven Development
 
