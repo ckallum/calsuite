@@ -2,7 +2,19 @@
 
 All notable changes to this repository.
 
-Current version: **2.31**
+Current version: **2.32**
+
+## [2.32] — 2026-05-22
+
+### Changed
+
+- **`config/guardian-rules.json` autonomous mode allowlist narrowed** — closes [#90](https://github.com/ckallum/calsuite/issues/90). Three patterns dropped (`Bash(python:*)`, `Bash(python3:*)`, `Bash(pip:*)`) because calsuite tooling doesn't shell out to Python and the wildcards grant arbitrary code execution via `python script.py` / `python -c "…"`. One pattern narrowed: `Bash(node:*)` → `Bash(node --version)` + `Bash(node -v)` + `Bash(node *configure-claude.js:*)`. The trailing-wildcard form on the script pattern matches both relative (`node scripts/configure-claude.js .`) and absolute (`node /Users/.../scripts/configure-claude.js .`) invocations, which matters because agent sessions invoke the installer via absolute path. The narrowed set preserves the installer entry-point (the only place calsuite actually runs `node` from the allowlist) while blocking `node -e` arbitrary inline JS. Hook scripts under `scripts/hooks/*.cjs` execute via `settings.local.json` hook wiring and don't traverse the allowlist, so narrowing here has no impact on hook firing. The `_notes` field on `guardian-rules.json` was promoted from a single string to an object with four keys (`autonomous-mode-philosophy`, `guarded-wildcards`, `dropped-wildcards`, `narrowed-wildcards`) so the per-pattern justification lives next to the patterns themselves rather than in CHANGELOG archaeology. Remaining wildcards that arguably violate the same rule (`Bash(npm:*)`, `Bash(pnpm:*)`, `Bash(yarn:*)`, `Bash(bun:*)`, `Bash(npx:*)`, `Bash(make:*)`, `Bash(cargo:*)`, `Bash(go:*)`, `Bash(rm:*)`, `Bash(curl:*)`, `Bash(wget:*)`, `Bash(docker:*)`) are kept deliberately and pointed at their `rules.deny` / `rules.warn` guards in `_notes.guarded-wildcards` for traceability.
+
+### Why
+
+[#90](https://github.com/ckallum/calsuite/issues/90) flagged that the v2.31 calsuite allowlist contained ~13 patterns that the `/fewer-permission-prompts` skill classifies as arbitrary-code-execution wildcards. The skill's rules say "never allowlist a pattern that grants arbitrary code execution," but its sweep mode also says "don't remove anything," so the entries had survived multiple passes. The classification is correct in the abstract but the calsuite-specific tradeoff is layered: Guardian's `autonomous` mode is intentionally wide for unattended operation, with `rules.deny` and `rules.warn` providing command-level defense-in-depth that the allowlist syntax can't express (e.g. `Bash(npm:*)` is wide but `deny-dev-server` blocks `npm run dev`, `Bash(curl:*)` is wide but `deny-curl-pipe-sh` blocks the actual exploit shape). Narrowing every flagged pattern would have meant accepting a permission prompt every time the agent runs `cargo check` / `go build` / `make` / `docker ps`, which negates the point of autonomous mode. So the resolution splits the patterns into three buckets: drop where calsuite has zero usage and the deny rules don't apply (`python`/`pip` — they protect host Python installs but cost calsuite nothing); narrow where calsuite has one specific usage worth preserving (`node` → installer entry-point); keep where the deny/warn rules already provide layered defense and the wildcard is genuinely needed for autonomous workflows.
+
+The downstream blast radius is small. `scripts/configure-claude.js` only **seeds** `guardian-rules.json` into a target on first install (line 626-628 `if (!fs.existsSync(guardianDest))`), then derives `permissions.allow` from the target's local copy. Existing target repos that already have `~/Projects/<target>/.claude/config/guardian-rules.json` will not get the narrowed set on `--sync` — they keep whatever they had. Only fresh installs inherit the new defaults. Targets that need Python (e.g. a Django service) can add `Bash(python:*)` back via `/fewer-permission-prompts` and `--claim` the file locally.
 
 ## [2.31] — 2026-05-13
 
