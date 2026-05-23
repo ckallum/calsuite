@@ -1,5 +1,23 @@
 {
-  "_notes": "Bash(rm:*) is intentionally allowed — guarded by deny-rm-dangerous and deny-rm-rf-cwd rules for defense-in-depth",
+  "_notes": {
+    "autonomous-mode-philosophy": "Autonomous mode is intentionally wide for unattended operation. Risky wildcards are kept rather than dropped because the rules.deny and rules.warn arrays provide defense-in-depth at the command level — narrower than allowlist patterns can express. When adding a new wildcard, document its guard here.",
+    "guarded-wildcards": {
+      "Bash(rm:*)": "deny-rm-dangerous + deny-rm-rf-cwd",
+      "Bash(curl:*)": "warn-curl-mutate + deny-curl-pipe-sh",
+      "Bash(wget:*)": "deny-curl-pipe-sh (warn-curl-mutate only matches curl, not wget)",
+      "Bash(docker:*)": "warn-docker",
+      "Bash(npm:*)": "deny-dev-server + warn-npm-install",
+      "Bash(pnpm:*)": "deny-dev-server + warn-npm-install",
+      "Bash(yarn:*)": "deny-dev-server + warn-npm-install",
+      "Bash(bun:*)": "deny-dev-server + warn-npm-install",
+      "Bash(npx:*)": "warn-npm-install (lifecycle-script arb-exec is the residual risk)",
+      "Bash(make:*)": "no specific guard — Makefile targets are arbitrary by design",
+      "Bash(cargo:*)": "no specific guard — cargo run is arbitrary by design",
+      "Bash(go:*)": "no specific guard — go run is arbitrary by design"
+    },
+    "dropped-wildcards": "Bash(python:*), Bash(python3:*), Bash(pip:*) — removed in v2.32. Not used by calsuite tooling. Targets that need them can add explicit subcommand permissions via /fewer-permission-prompts or claim the file with --claim.",
+    "narrowed-wildcards": "Bash(node:*) → narrowed to node --version, node -v, and node *configure-claude.js:*. The trailing wildcard on the script pattern uses a glob so absolute-path invocations (node /Users/.../scripts/configure-claude.js .) match the same as relative ones (node scripts/configure-claude.js .). Blocks node -e arbitrary inline JS. Hook scripts (scripts/hooks/*.cjs) run from settings.local.json and don't traverse the allowlist."
+  },
   "mode": "autonomous",
   "permissions": {
     "autonomous": {
@@ -18,7 +36,9 @@
         "Bash(pnpm:*)",
         "Bash(yarn:*)",
         "Bash(bun:*)",
-        "Bash(node:*)",
+        "Bash(node --version)",
+        "Bash(node -v)",
+        "Bash(node *configure-claude.js:*)",
         "Bash(gh:*)",
         "Bash(ls:*)",
         "Bash(cat:*)",
@@ -45,9 +65,6 @@
         "Bash(curl:*)",
         "Bash(wget:*)",
         "Bash(docker:*)",
-        "Bash(python:*)",
-        "Bash(python3:*)",
-        "Bash(pip:*)",
         "Bash(cargo:*)",
         "Bash(make:*)",
         "Bash(cmake:*)",
