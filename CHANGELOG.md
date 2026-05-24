@@ -2,7 +2,24 @@
 
 All notable changes to this repository.
 
-Current version: **2.32**
+Current version: **2.33**
+
+## [2.33] — 2026-05-24
+
+### Fixed
+
+- **Installer no longer prepends a duplicate `_origin:` line when the source file ships with a placeholder frontmatter block** — closes [#93](https://github.com/ckallum/calsuite/issues/93). Two-part fix:
+  - **Installer guard** in `scripts/lib/origin-protocol.cjs`: tightened the regex used by `stampOrigin()` and `normalizeForCompare()` from `/^_origin:\s*(.+?)\s*$/m` to `/^_origin:\s*(.*?)\s*$/m`. The old `(.+?)` form required at least one character after `_origin:`, so the placeholder convention (`_origin:` with no value) didn't match, and `stampOrigin` fell through to the prepend branch — producing two `_origin:` keys in the destination instead of replacing the placeholder. The new `(.*?)` form matches the empty-value placeholder as well as fully-stamped lines.
+  - **Source cleanup**: removed the placeholder frontmatter block from `skills/improve-prompt/references/checklist.md` so it matches the convention of `skills/review/checklist.md` and `skills/ship/pr-template.md` (no source-side frontmatter; the installer's auto-prepend path adds the `_origin:` block on first install). Belt and braces — the installer fix alone covers this case, but a source file with no frontmatter at all is the simpler invariant.
+  - Verified with a `/tmp/test-project` install per CLAUDE.md `Testing configure-claude.js` guidance: all three auto-frontmatter target files (`improve-prompt/references/checklist.md`, `review/checklist.md`, `ship/pr-template.md`) now have exactly one `_origin:` line.
+
+### Why
+
+[#93](https://github.com/ckallum/calsuite/issues/93) was filed during the 2.32 downstream-sync sweep when four of five target repos came back with `---\n_origin: calsuite@<sha>\n_origin:\n---` in their freshly-installed `improve-prompt/references/checklist.md`. The duplicate is technically valid YAML — most parsers take last-key-wins, which means `_origin` reads as empty — but that's a silent footgun: `decideFileAction()` would route the file to `skip-unknown` on the next sync because `readOrigin()` returns `null` for the empty value, which is wrong (the file *is* calsuite-managed). The downstream PRs that landed yesterday (verityaml/verity#502, Verity-V2/landing#3) needed follow-up one-line dedup PRs (#503, #4) to fix the YAML before the next `--sync` would behave correctly.
+
+The regex fix is the load-bearing change — it makes the installer correct for any future source file that ships with a placeholder `_origin:`, not just `improve-prompt`. The source-side cleanup is belt-and-braces: removing the placeholder removes the failure case entirely, matching the convention already followed by `review/checklist.md` and `ship/pr-template.md` (which never had this bug because they have no source-side frontmatter at all).
+
+No new test harness — calsuite still relies on `/tmp/test-project` integration testing per CLAUDE.md, tracked separately in [#46](https://github.com/ckallum/calsuite/issues/46). The four `stampOrigin()` cases (placeholder source / re-stamp / frontmatter-without-origin / no-frontmatter) were verified inline before commit.
 
 ## [2.32] — 2026-05-22
 
