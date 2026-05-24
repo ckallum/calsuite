@@ -2,7 +2,22 @@
 
 All notable changes to this repository.
 
-Current version: **2.33**
+Current version: **2.34**
+
+## [2.34] — 2026-05-24
+
+### Changed
+
+- **Migrated all 21 hook entries in `hooks/hooks.json` from string form to exec form (`args: string[]`)** — closes [#91](https://github.com/ckallum/calsuite/issues/91). The published schema at `https://www.schemastore.org/claude-code-settings.json` now exposes `args: string[]` on hook command entries (verified against the live schema 2026-05-24), so the migration the 2.32 changelog flagged as "consciously not acted on" is now safe to land. Each entry's `node "${CALSUITE_DIR}/path/script.cjs"` became `"command": "node", "args": ["${CALSUITE_DIR}/path/script.cjs"]`. The one inline `node -e "<script>"` entry (the tmux reminder) became `"command": "node", "args": ["-e", "<script>"]`. The `ci-monitor.cjs` entry preserves its sibling `async: true` and `timeout: 30` fields untouched.
+- `_origin: "calsuite"` and `description` still live at the matcher-group level (sibling to `hooks` and `matcher`), not on the inner command entries — the schema's `additionalProperties: false` on command entries would reject them, and `mergeHooks()` in the installer keys off the matcher level anyway.
+
+### Why
+
+Exec form spawns the script directly without a shell fork — marginally faster, and path placeholders never need quoting (per the schema's `args` description: "each element is passed as-is"). Calsuite hook paths don't contain spaces today, so the practical win is small; the migration is mostly a cleanliness pass and removes one source of quoting bugs for any future hook with a space in its path. Issue #91 was specifically labelled `afk` because it's mechanical and the upstream gate (schema availability) is the only meaningful judgment call.
+
+`substituteCalsuiteDir()` in `scripts/configure-claude.js` works on the JSON-stringified hooks object, so it found `${CALSUITE_DIR}` inside `args[]` array elements with zero code changes — verified inline before commit. The pre-existing `mergeHooks()` filter (origin-keyed, not shape-keyed) also passed through unchanged: re-installing against a target with an injected project-specific hook preserved the project hook and kept all 21 calsuite hooks across runs.
+
+Verified against `/tmp/test-hooks-migrate` per CLAUDE.md `Testing configure-claude.js` guidance: 21 entries written, all `${CALSUITE_DIR}` placeholders resolved to absolute paths in `args[]`, project-specific hook preserved after re-run, idempotent.
 
 ## [2.33] — 2026-05-24
 
