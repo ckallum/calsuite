@@ -3,7 +3,12 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-const ORIGIN_LINE_RE = /^_origin:\s*(.+?)\s*$/m;
+// `(.*?)` (not `(.+?)`) so the placeholder form `_origin:` with no value also
+// matches. Source files that ship with a placeholder frontmatter block — e.g.
+// `skills/improve-prompt/references/checklist.md` — used to fall through to the
+// prepend branch in stampOrigin and produce two _origin keys in the destination.
+// See calsuite#93.
+const ORIGIN_LINE_RE = /^_origin:\s*(.*?)\s*$/m;
 
 function parseFrontmatter(content) {
   const match = content.match(FRONTMATTER_RE);

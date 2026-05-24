@@ -1,7 +1,3 @@
----
-_origin:
----
-
 # Audit checklist — fast pass
 
 A single-page checklist for triaging a prompt. Use when the user wants a quick pass rather than a full rewrite. Each item is a yes/no — if "no", note what to add or change.
