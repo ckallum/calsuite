@@ -1804,18 +1804,40 @@ function main() {
     return;
   }
 
-  // Handle --sync mode: re-run install against all targets in config/targets.json
+  // Handle --sync mode: re-run install against all targets in config/targets.json.
+  //
+  // `targets.json` is per-user (gitignored). A worktree under
+  // ~/Projects/calsuite/.claude/worktrees/<name>/ won't carry one, but the
+  // user's canonical checkout (the resolveCalsuiteDir() result) will. Fall back
+  // to that location when the script's own checkout lacks a targets file —
+  // otherwise the post-commit hook (.git/hooks/post-commit) prints a noisy
+  // multi-line "✗ config/targets.json not found" error on every commit from a
+  // worktree.
+  //
+  // If neither location has one, exit silently (code 0): --sync is triggered
+  // by the post-commit hook on every commit, not user-initiated, so there's
+  // no audience for first-run onboarding guidance here. The detailed error
+  // still fires on the explicit `configure-claude.js <target>` install path
+  // (line ~1374), which is where a missing targets file actually indicates an
+  // incomplete setup.
   if (flags.sync) {
-    const targets = readJsonSync(TARGETS_JSON);
+    let targets = readJsonSync(TARGETS_JSON);
+    let targetsPath = TARGETS_JSON;
     if (!targets) {
-      console.error('  ✗ config/targets.json not found.');
-      console.error('    Copy config/targets.example.json to config/targets.json and add your target repo paths.');
-      console.error('    (targets.json is gitignored so each user maintains their own list.)');
-      process.exit(1);
+      const canonical = resolveCalsuiteDir();
+      if (canonical !== CONFIG_REPO) {
+        targetsPath = path.join(canonical, 'config', 'targets.json');
+        targets = readJsonSync(targetsPath);
+      }
+    }
+    if (!targets) {
+      // No targets configured anywhere — nothing to sync. Stay silent.
+      return;
     }
     if (!targets?.targets?.length) {
-      console.error('  ✗ config/targets.json has no targets. Add at least one entry under "targets".');
-      process.exit(1);
+      // Empty targets array is a deliberate "I've set this up but turned sync
+      // off" state, not a misconfiguration. Silent no-op, same reasoning.
+      return;
     }
 
     console.log(`\nSyncing to ${targets.targets.length} target(s)...\n`);
