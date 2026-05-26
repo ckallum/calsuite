@@ -30,6 +30,23 @@ If the skill is calsuite-internal (lives in calsuite, not distributed — e.g. `
 
 Record durable learnings (patterns, pitfalls, preferences) via `/learn save` — they persist across sessions in `.context/learnings/`.
 
+## Behavior changes need caller surveys
+
+Before changing the externally-observable behavior of any shared interface — a function with multiple callsites, a CLI flag, a hook script, a skill that other skills invoke, a config schema, an exit-code contract — survey the callers first.
+
+```bash
+# Examples
+rg "configure-claude.js --sync" -l        # who runs this CLI flag?
+rg "readJsonSync\(.*TARGETS_JSON" -l      # who reads this config?
+rg "scripts/hooks/foo.cjs" .claude/       # who invokes this hook?
+```
+
+For each caller, decide whether the new behavior is intended for that context. If contexts disagree (e.g. post-commit hook wants silence, `/sync` slash command wants loudness), the fix needs to discriminate — typically via an env var like `process.env.GIT_DIR` (set by git in hook context), an explicit flag, or a TTY check.
+
+Concrete failure mode this catches (PR #95, 2026-05-25): `--sync` was made silent-on-missing-targets for the post-commit hook context. The `/sync` slash command, which interprets a missing output summary as "ran clean," then started falsely reporting success to users with no targets configured. Surveying the three callers (post-commit, `/sync`, `/reconcile-targets`) before the change would have surfaced the conflict immediately.
+
+This is a workflow rule, not a lint rule — it requires judgment per caller. But it's the highest-leverage discipline for avoiding "fixed for one caller, broke another" regressions in shared infrastructure.
+
 ## Structure
 
 ```
