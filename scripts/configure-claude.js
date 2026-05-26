@@ -77,16 +77,38 @@ const INTERNAL_SKILLS = new Set([
 ]);
 
 /**
- * Resolve the absolute path to the calsuite checkout on this machine.
- * Order: $CALSUITE_DIR env var → ~/Projects/calsuite → installer's parent.
+ * Resolve the absolute path to the canonical calsuite checkout on this machine.
+ * Order: $CALSUITE_DIR env var → git-common-dir auto-detect → installer's parent.
+ *
+ * The git step is the load-bearing one: from any worktree, `git rev-parse
+ * --git-common-dir` returns the canonical .git directory (worktrees have a
+ * .git FILE pointing back to it). Its parent is the canonical checkout root.
+ * This works for any user, any layout — no hardcoded `~/Projects/calsuite`
+ * assumption baked into source.
+ *
+ * The final fallback (installer's parent dir) covers the rare case where
+ * calsuite isn't a git tree (e.g. extracted from a tarball) or git isn't
+ * on PATH. Invoking `node scripts/configure-claude.js .` from any checkout
+ * Just Works because __dirname is always inside calsuite.
+ *
  * The resolved path is written literally into target's settings.local.json —
  * Claude Code's hook runner does not shell-expand hook commands, so embedded
  * $VAR syntax would not work at runtime.
  */
 function resolveCalsuiteDir() {
   if (process.env.CALSUITE_DIR) return path.resolve(process.env.CALSUITE_DIR);
-  const defaultPath = path.join(HOME_DIR, 'Projects', 'calsuite');
-  if (fs.existsSync(defaultPath)) return defaultPath;
+  try {
+    const { execFileSync } = require('node:child_process');
+    const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: CONFIG_REPO,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const canonical = path.dirname(path.resolve(CONFIG_REPO, commonDir));
+    if (fs.existsSync(canonical)) return canonical;
+  } catch {
+    // git not on PATH, or CONFIG_REPO isn't a git tree — fall through
+  }
   return CONFIG_REPO;
 }
 

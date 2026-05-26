@@ -1,0 +1,19 @@
+#!/bin/sh
+# Calsuite post-commit hook — auto-syncs config to target repos after commits
+# that touch shipped content (hooks/, skills/, agents/, scripts/, config/).
+#
+# Installed by `node scripts/setup.cjs` from the tracked template at
+# scripts/git-hooks/post-commit. Re-run setup.cjs to reinstall after a fresh
+# clone — git hooks live outside the tracked tree and aren't restored by
+# `git clone` alone.
+#
+# This hook is loud-on-error: configure-claude.js --sync is silent when
+# called from a git hook (GIT_DIR is set) and there's no config/targets.json,
+# so a fresh user without targets configured won't see spam on every commit.
+
+CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '^(hooks/|skills/|agents/|scripts/|config/)' | head -1)
+
+if [ -n "$CHANGED" ]; then
+  echo "[post-commit] Syncing calsuite to targets..."
+  node "$(git rev-parse --show-toplevel)/scripts/configure-claude.js" --sync 2>&1 | tail -5
+fi

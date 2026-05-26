@@ -29,6 +29,14 @@ Three small bugs that surfaced while shipping #91 — bundled into this version 
 
 > _Note: commit `dd67787` references "Closes #96" and commit `71137db` references "Closes #97, #98" — those refs are swapped (#96 ↔ #97) because the parallel `gh issue create` calls in the original sweep returned URLs in a non-deterministic order and the commit-message authoring assumed the wrong mapping. The end state is correct on merge — both #96 and #97 get auto-closed regardless of which commit references which — but the per-commit attribution is mislabelled. This CHANGELOG and the PR body have the correct mapping._
 
+### Added
+
+- **`scripts/setup.cjs` — first-run onboarding for fresh calsuite checkouts.** Installs `.git/hooks/post-commit` from the tracked template at `scripts/git-hooks/post-commit` (the hook lives outside the tracked tree and isn't restored by `git clone`, so a fresh clone previously had no auto-sync), optionally seeds `config/targets.json` from the example, and runs a smoke test against a throwaway temp project. Idempotent: re-running detects what's already in place and only fills gaps. Refuses to overwrite a non-calsuite post-commit hook without `--force`. Flags: `--yes` (no prompts, accept defaults), `--hook-only` (just install the hook), `--no-smoke` (skip smoke test for offline use). README's Getting Started now points at this as the first command after `git clone`.
+
+### Changed
+
+- **`resolveCalsuiteDir()` auto-detects the canonical calsuite checkout via `git rev-parse --git-common-dir` instead of hardcoded `~/Projects/calsuite`.** The previous fallback assumed the maintainer's directory layout (`~/Projects/...`); the new git-based detection works for any user, any layout. Resolution order is now: `CALSUITE_DIR` env var → git-common-dir parent (canonical .git for the current calsuite tree, including worktrees) → installer's own `__dirname/..` (final fallback for tarball-extracted or non-git checkouts). The `CALSUITE_DIR` env var is now even less necessary — only useful for the rare "multiple calsuite checkouts, force a specific one" override. README's "Where calsuite lives" section updated accordingly.
+
 ## [2.33] — 2026-05-24
 
 ### Fixed
