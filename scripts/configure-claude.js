@@ -1806,38 +1806,48 @@ function main() {
 
   // Handle --sync mode: re-run install against all targets in config/targets.json.
   //
-  // `targets.json` is per-user (gitignored). A worktree under
-  // ~/Projects/calsuite/.claude/worktrees/<name>/ won't carry one, but the
-  // user's canonical checkout (the resolveCalsuiteDir() result) will. Fall back
-  // to that location when the script's own checkout lacks a targets file —
-  // otherwise the post-commit hook (.git/hooks/post-commit) prints a noisy
-  // multi-line "✗ config/targets.json not found" error on every commit from a
-  // worktree.
+  // Loudness depends on invocation context:
   //
-  // If neither location has one, exit silently (code 0): --sync is triggered
-  // by the post-commit hook on every commit, not user-initiated, so there's
-  // no audience for first-run onboarding guidance here. The detailed error
-  // still fires on the explicit `configure-claude.js <target>` install path
-  // (line ~1374), which is where a missing targets file actually indicates an
-  // incomplete setup.
+  //   - Git hook context (process.env.GIT_DIR is set by git when running any
+  //     hook, including .git/hooks/post-commit): stay silent on missing or
+  //     deliberately-empty targets. The hook fires on every commit and the
+  //     user has no audience for first-run onboarding guidance there.
+  //
+  //   - User-initiated (no GIT_DIR; e.g. /sync slash command, manual CLI
+  //     invocation, /reconcile-targets): emit the loud error. /sync Step 3
+  //     specifically interprets "no summary block" as "sync ran clean," so
+  //     silent-return would falsely report success to a user with no targets
+  //     configured.
+  //
+  // No canonical-checkout fallback: a worktree experimenting with hook or
+  // skill changes shouldn't fan those WIP changes out to every downstream
+  // target on every commit. Worktrees skip silently in hook context, fire the
+  // loud error if the user manually runs --sync from one.
+  //
+  // Malformed targets.json (present but `targets` is not an array) is ALWAYS
+  // loud, regardless of context — that's a user mistake worth surfacing
+  // immediately rather than silently disabling sync.
   if (flags.sync) {
-    let targets = readJsonSync(TARGETS_JSON);
-    let targetsPath = TARGETS_JSON;
+    const targets = readJsonSync(TARGETS_JSON);
+    const inGitHook = !!process.env.GIT_DIR;
     if (!targets) {
-      const canonical = resolveCalsuiteDir();
-      if (canonical !== CONFIG_REPO) {
-        targetsPath = path.join(canonical, 'config', 'targets.json');
-        targets = readJsonSync(targetsPath);
-      }
+      if (inGitHook) return;
+      console.error('  ✗ config/targets.json not found.');
+      console.error('    Copy config/targets.example.json to config/targets.json and add your target repo paths.');
+      console.error('    (targets.json is gitignored so each user maintains their own list.)');
+      process.exit(1);
     }
-    if (!targets) {
-      // No targets configured anywhere — nothing to sync. Stay silent.
-      return;
+    if (!Array.isArray(targets.targets)) {
+      // Malformed config — fire loudly even from a git hook. This catches
+      // typos like {"foo": []} and wrong types like {"targets": {}} that
+      // would otherwise silently disable sync.
+      console.error('  ✗ config/targets.json malformed: top-level "targets" must be an array.');
+      process.exit(1);
     }
-    if (!targets?.targets?.length) {
-      // Empty targets array is a deliberate "I've set this up but turned sync
-      // off" state, not a misconfiguration. Silent no-op, same reasoning.
-      return;
+    if (!targets.targets.length) {
+      if (inGitHook) return;
+      console.error('  ✗ config/targets.json has no targets. Add at least one entry under "targets".');
+      process.exit(1);
     }
 
     console.log(`\nSyncing to ${targets.targets.length} target(s)...\n`);
