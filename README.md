@@ -6,11 +6,23 @@ Personal Claude Code configuration — hooks, commands, scripts, plugins, skills
 
 ## Getting started
 
-Clone this repo. By default, place it at `~/Projects/calsuite`; if you keep it elsewhere, export `CALSUITE_DIR=/your/path` in your shell profile before running the installer.
+Clone this repo and run the installer against a target project:
 
 ```bash
 node scripts/configure-claude.js /path/to/target-repo
 ```
+
+### Where calsuite lives
+
+The installer needs to know where calsuite is checked out on this machine. It resolves the location in this order:
+
+1. **`CALSUITE_DIR` env var** — if set, this wins. Use it when calsuite lives outside `~/Projects/calsuite` AND you invoke the installer from outside calsuite's tree (rare).
+2. **`~/Projects/calsuite`** — used if it exists. The recommended default.
+3. **The installer's own parent directory** — `__dirname/..` from `scripts/configure-claude.js`. This means **running `node scripts/configure-claude.js .` from any calsuite checkout works without configuration**, regardless of where you placed it.
+
+Most users don't need to set `CALSUITE_DIR`. Set it only if you keep calsuite somewhere non-default AND invoke `configure-claude.js` via an absolute path from outside the calsuite tree. To set it, add `export CALSUITE_DIR=/your/path` to your shell profile.
+
+### Multi-target sync
 
 For multi-target workflows (`--sync`, `/sync`, `/reconcile-targets`), copy `config/targets.example.json` to `config/targets.json` and list your target repos:
 
