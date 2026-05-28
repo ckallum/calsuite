@@ -176,6 +176,15 @@ function smokeTest() {
     }
     const parsed = JSON.parse(fs.readFileSync(settingsLocal, 'utf8'));
     const hookCount = Object.values(parsed.hooks || {}).flat().length;
+    if (hookCount === 0) {
+      // Zero hook groups means the installer parsed hooks/hooks.json into
+      // settings.local.json but ended up with an empty hooks block — a real
+      // regression (e.g. mergeHooks() filtered everything, or hooks.json was
+      // malformed). Reporting "passed" here would silently hide it.
+      fail(`Installer produced 0 hook groups in settings.local.json — expected at least 1.`);
+      fail(`Target: ${tmpRoot}`);
+      process.exit(2);
+    }
     ok(`Installer produced ${hookCount} hook group(s) in settings.local.json`);
     ok(`Smoke test passed (target: ${tmpRoot})`);
   } finally {

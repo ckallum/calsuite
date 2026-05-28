@@ -124,6 +124,29 @@ function substituteCalsuiteDir(hooksObj, calsuiteDir) {
   return JSON.parse(json.replace(/\$\{CALSUITE_DIR\}/g, () => safeDir));
 }
 
+/**
+ * Validate that a parsed targets.json has the expected shape — `targets` must
+ * be an array. Used by every code path that consumes TARGETS_JSON so a typo
+ * like `{"foo": []}` (wrong key) or `{"targets": {}}` (wrong type) produces
+ * a single loud diagnostic with exit 1 instead of an obscure
+ * ".find is not a function" / "targets is not iterable" crash later.
+ *
+ * No-op for null inputs (file missing): callers handle the no-file case
+ * differently — `--sync` is silent in git hook context but loud manually,
+ * while `installOnly`/single-target/prune-stale tolerate a missing file
+ * (they only need it for the optional workspaces-skip lookup). This helper
+ * stays narrowly focused on shape validation of present-but-malformed
+ * configs, which is unconditionally a user mistake worth surfacing.
+ */
+function ensureTargetsArray(targetsJson) {
+  if (!targetsJson) return;
+  if (!Array.isArray(targetsJson.targets)) {
+    console.error('  ✗ config/targets.json malformed: top-level "targets" must be an array.');
+    console.error('    See config/targets.example.json for the expected shape.');
+    process.exit(1);
+  }
+}
+
 // Actions that should result in (re)writing the destination file.
 const WRITE_ACTIONS = new Set(['write-new', 'write-update', 'migrate']);
 // Actions that indicate a file was skipped and needs user reconciliation.
@@ -950,6 +973,7 @@ function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null)
   const detectedProfiles = detectProfiles(targetDir);
   if (detectedProfiles.includes('monorepo')) {
     const targetsConfig = readJsonSync(TARGETS_JSON);
+    ensureTargetsArray(targetsConfig);
     const matchingTarget = targetsConfig?.targets?.find(
       t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
     );
@@ -1380,6 +1404,7 @@ function handlePruneStale(targetPath, { assumeYes = false } = {}) {
   // so single-target invocations can still pick up the `workspaces` config —
   // Category D gates on that field.
   const targetsJson = readJsonSync(TARGETS_JSON);
+  ensureTargetsArray(targetsJson);
   let targets;
   if (targetPath) {
     const resolved = path.resolve(targetPath);
@@ -1859,13 +1884,10 @@ function main() {
       console.error('    (targets.json is gitignored so each user maintains their own list.)');
       process.exit(1);
     }
-    if (!Array.isArray(targets.targets)) {
-      // Malformed config — fire loudly even from a git hook. This catches
-      // typos like {"foo": []} and wrong types like {"targets": {}} that
-      // would otherwise silently disable sync.
-      console.error('  ✗ config/targets.json malformed: top-level "targets" must be an array.');
-      process.exit(1);
-    }
+    // Malformed config — fire loudly even from a git hook. Catches typos
+    // like {"foo": []} and wrong types like {"targets": {}} that would
+    // otherwise crash with ".find is not a function" further down.
+    ensureTargetsArray(targets);
     if (!targets.targets.length) {
       if (inGitHook) return;
       console.error('  ✗ config/targets.json has no targets. Add at least one entry under "targets".');
@@ -1932,6 +1954,7 @@ function main() {
   // this, `node configure-claude.js ~/Projects/verity` would reinstall the
   // workspace harness even though the user configured the target otherwise.
   const targetsConfig = readJsonSync(TARGETS_JSON);
+  ensureTargetsArray(targetsConfig);
   const matchingTarget = targetsConfig?.targets?.find(
     t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
   );

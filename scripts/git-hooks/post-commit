@@ -15,5 +15,14 @@ CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '^(hooks/|s
 
 if [ -n "$CHANGED" ]; then
   echo "[post-commit] Syncing calsuite to targets..."
-  node "$(git rev-parse --show-toplevel)/scripts/configure-claude.js" --sync 2>&1 | tail -5
+  # Capture exit status before piping to tail. Piping directly into tail would
+  # mask --sync's exit code (the pipeline's status is tail's, which is always
+  # 0). We need the original status so a sync failure surfaces in the hook's
+  # exit code rather than being silently swallowed.
+  buf=$(mktemp)
+  trap 'rm -f "$buf"' EXIT
+  node "$(git rev-parse --show-toplevel)/scripts/configure-claude.js" --sync >"$buf" 2>&1
+  status=$?
+  tail -5 "$buf"
+  exit "$status"
 fi

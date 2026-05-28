@@ -10,6 +10,7 @@ Current version: **2.34**
 
 - **Migrated all 21 hook entries in `hooks/hooks.json` from string form to exec form (`args: string[]`)** — closes [#91](https://github.com/ckallum/calsuite/issues/91). The published schema at `https://json.schemastore.org/claude-code-settings.json` now exposes `args: string[]` on hook command entries (verified against the live schema 2026-05-24), so the migration the 2.32 changelog flagged as "consciously not acted on" is now safe to land. Each entry's `node "${CALSUITE_DIR}/path/script.cjs"` became `"command": "node", "args": ["${CALSUITE_DIR}/path/script.cjs"]`. The one inline `node -e "<script>"` entry (the tmux reminder) became `"command": "node", "args": ["-e", "<script>"]`. The `ci-monitor.cjs` entry preserves its sibling `async: true` and `timeout: 30` fields untouched.
 - `_origin: "calsuite"` and `description` still live at the matcher-group level (sibling to `hooks` and `matcher`), not on the inner command entries — the schema's `additionalProperties: false` on command entries would reject them, and `mergeHooks()` in the installer keys off the matcher level anyway.
+- **`resolveCalsuiteDir()` auto-detects the canonical calsuite checkout via `git rev-parse --git-common-dir` instead of hardcoded `~/Projects/calsuite`.** The previous fallback assumed the maintainer's directory layout (`~/Projects/...`); the new git-based detection works for any user, any layout. Resolution order is now: `CALSUITE_DIR` env var → git-common-dir parent (canonical .git for the current calsuite tree, including worktrees) → installer's own `__dirname/..` (final fallback for tarball-extracted or non-git checkouts). The `CALSUITE_DIR` env var is now even less necessary — only useful for the rare "multiple calsuite checkouts, force a specific one" override. README's "Where calsuite lives" section updated accordingly.
 
 ### Why
 
@@ -32,10 +33,6 @@ Three small bugs that surfaced while shipping #91 — bundled into this version 
 ### Added
 
 - **`scripts/setup.cjs` — first-run onboarding for fresh calsuite checkouts.** Installs `.git/hooks/post-commit` from the tracked template at `scripts/git-hooks/post-commit` (the hook lives outside the tracked tree and isn't restored by `git clone`, so a fresh clone previously had no auto-sync), optionally seeds `config/targets.json` from the example, and runs a smoke test against a throwaway temp project. Idempotent: re-running detects what's already in place and only fills gaps. Refuses to overwrite a non-calsuite post-commit hook without `--force`. Flags: `--yes` (no prompts, accept defaults), `--hook-only` (just install the hook), `--no-smoke` (skip smoke test for offline use). README's Getting Started now points at this as the first command after `git clone`.
-
-### Changed
-
-- **`resolveCalsuiteDir()` auto-detects the canonical calsuite checkout via `git rev-parse --git-common-dir` instead of hardcoded `~/Projects/calsuite`.** The previous fallback assumed the maintainer's directory layout (`~/Projects/...`); the new git-based detection works for any user, any layout. Resolution order is now: `CALSUITE_DIR` env var → git-common-dir parent (canonical .git for the current calsuite tree, including worktrees) → installer's own `__dirname/..` (final fallback for tarball-extracted or non-git checkouts). The `CALSUITE_DIR` env var is now even less necessary — only useful for the rare "multiple calsuite checkouts, force a specific one" override. README's "Where calsuite lives" section updated accordingly.
 
 ## [2.33] — 2026-05-24
 
