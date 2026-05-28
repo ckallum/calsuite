@@ -30,6 +30,19 @@ If the skill is calsuite-internal (lives in calsuite, not distributed — e.g. `
 
 Record durable learnings (patterns, pitfalls, preferences) via `/learn save` — they persist across sessions in `.context/learnings/`.
 
+## Fresh-clone test
+
+Calsuite is a personal harness for the maintainer, but the source is distributable — anyone should be able to `git clone` it and run a single command to get a working install. Code that only works on the maintainer's machine defeats the point.
+
+Two failure modes that have happened, both of which the fresh-clone test catches:
+
+- **Hardcoded directory layouts under `HOME_DIR`.** A `path.join(HOME_DIR, 'Projects', 'calsuite')` fallback assumes the maintainer's repo location. Use `git rev-parse --git-common-dir` (works for any git checkout) or `__dirname` (works for any installer invocation) or an env var (explicit override). Never bake a user-directory convention into a fallback.
+- **Tribal knowledge that isn't tracked.** A git hook installed manually on the maintainer's machine doesn't survive `git clone`. Anything required for the install to work must be either tracked in the repo (templates + an installer that copies them) or documented as a one-line setup step the user runs explicitly.
+
+The deterministic check: run `scripts/setup.cjs` against a checkout that's not the maintainer's — a clean `~/Stuff/calsuite/`, `/tmp/calsuite-test/`, anywhere. The setup script + smoke test must produce a working install with no manual fix-ups. If anything fails, fix the source, not the user's environment.
+
+Concrete failure modes this catches (PR #95, 2026-05-26): `resolveCalsuiteDir()` fell back to a hardcoded `~/Projects/calsuite` that nobody but the maintainer had; `.git/hooks/post-commit` was untracked, so fresh clones had no auto-sync. The "can a non-maintainer use this?" question would have surfaced both at design time. Adversarial review (`/review --converse codex`) examined the relevant code on PR #95 and did NOT flag either — both reviewers were tuned for correctness, not distributability. Naming this concern explicitly in CLAUDE.md changes what implementers and reviewers look for.
+
 ## Behavior changes need caller surveys
 
 Before changing the externally-observable behavior of any shared interface — a function with multiple callsites, a CLI flag, a hook script, a skill that other skills invoke, a config schema, an exit-code contract — survey the callers first.
