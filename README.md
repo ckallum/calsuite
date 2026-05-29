@@ -2,15 +2,35 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.33**
+**Version: 2.34**
 
 ## Getting started
 
-Clone this repo. By default, place it at `~/Projects/calsuite`; if you keep it elsewhere, export `CALSUITE_DIR=/your/path` in your shell profile before running the installer.
+Clone this repo, then run the first-run setup script:
+
+```bash
+node scripts/setup.cjs
+```
+
+This installs the `.git/hooks/post-commit` hook (which lives outside the tracked tree and isn't restored by `git clone`), optionally seeds `config/targets.json` from the example, and runs a smoke test against a throwaway temp project. Re-running is safe — it only fills gaps and refuses to overwrite a non-calsuite post-commit hook without `--force`.
+
+Then install calsuite into each target project:
 
 ```bash
 node scripts/configure-claude.js /path/to/target-repo
 ```
+
+### Where calsuite lives
+
+The installer auto-detects its own checkout location — you don't need to configure anything if calsuite is a normal git clone. Resolution order:
+
+1. **`CALSUITE_DIR` env var** — if set, this wins. Use only when you have multiple calsuite checkouts and want to force a specific one (very rare).
+2. **`git rev-parse --git-common-dir` from the installer's location** — auto-detects the canonical checkout from any worktree. Works for any user, any directory layout.
+3. **The installer's own parent directory** — `__dirname/..` from `scripts/configure-claude.js`. Final fallback for tarball-extracted or non-git checkouts.
+
+Most users don't need to set `CALSUITE_DIR`. To set it anyway (for forced override), add `export CALSUITE_DIR=/your/path` to your shell profile.
+
+### Multi-target sync
 
 For multi-target workflows (`--sync`, `/sync`, `/reconcile-targets`), copy `config/targets.example.json` to `config/targets.json` and list your target repos:
 
