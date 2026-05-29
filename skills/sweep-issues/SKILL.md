@@ -131,7 +131,7 @@ If `--dry-run`, stop here.
 For each item, create a GitHub issue with **both labels** — one category label (from the mapping below) and one mode label (`afk` or `hitl`):
 
 ```bash
-gh issue create --title "<title>" \
+url=$(gh issue create --title "<title>" \
   --label "<category-label>" \
   --label "<mode-label>" \
   --body "$(cat <<'EOF'
@@ -147,8 +147,11 @@ gh issue create --title "<title>" \
 - [ ] {requirement 2}
 - [ ] {requirement 3}
 EOF
-)"
+)")
+# Capture $url and bind it to this candidate's title BEFORE moving on.
 ```
+
+**Create issues serially, not in parallel.** Each candidate has a title — bind the returned URL (`https://github.com/<owner>/<repo>/issues/<N>`) to that title as you go. Running `gh issue create` calls in parallel (e.g. shell `&` backgrounding) returns URLs in non-deterministic completion order, so creation-order → title mapping breaks and the Step 5 report cites the wrong issue numbers. Serial execution is cheap (one round-trip per issue, ~200ms each), and the bug it prevents is durable: the bad number-to-title mapping survives into commit messages, CHANGELOG entries, and PR bodies long after the run finished.
 
 `<category-label>` is one of `enhancement` / `bug` / `tech-debt` / `infrastructure`. `<mode-label>` is one of `afk` / `hitl`. Both labels are required — never omit the mode label.
 
