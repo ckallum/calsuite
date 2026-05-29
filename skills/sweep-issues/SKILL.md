@@ -2,6 +2,9 @@
 name: sweep-issues
 version: 1.0.0
 description: |
+  create issues from this session, file the follow-ups, track deferred items,
+  spin this off as an issue, capture the fast-follows, log this as a bug,
+  sweep loose ends, what should we open issues for, post-ship cleanup.
   Sweep the current session for deferred items, fast-follows, enhancements,
   minor bugs, and improvements — then auto-create GitHub issues for each.
   Runs automatically at the end of /ship, after plans, or manually.

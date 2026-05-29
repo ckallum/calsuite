@@ -132,7 +132,7 @@ rm /tmp/claude-babysit-<pr>.json /tmp/claude-babysit-<pr>.log 2>/dev/null
    ```
 4. Spawn the daemon:
    ```bash
-   node .claude/scripts/hooks/babysit-pr-daemon.js <owner/repo> <pr-number> &
+   node .claude/scripts/hooks/babysit-pr-daemon.cjs <owner/repo> <pr-number> &
    disown
    ```
 5. Confirm: "Babysitter started for PR #<n>. You'll get a notification when something needs attention."

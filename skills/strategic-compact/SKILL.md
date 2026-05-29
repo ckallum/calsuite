@@ -10,7 +10,7 @@ Hook-driven system that suggests manual `/compact` at strategic intervals rather
 
 ## How it works
 
-A PreToolUse hook on Edit/Write runs `skills/strategic-compact/scripts/suggest-compact.js` which:
+A PreToolUse hook on Edit/Write runs `skills/strategic-compact/scripts/suggest-compact.cjs` which:
 
 1. **Tracks tool call count** per session via a temp file keyed by `CLAUDE_SESSION_ID`
 2. **Suggests `/compact` at threshold** (default 50 tool calls) — signals you're likely transitioning from exploration to execution
@@ -29,6 +29,6 @@ Set `COMPACT_THRESHOLD` environment variable to override the default 50-call thr
 
 ## Files
 
-- `skills/strategic-compact/scripts/suggest-compact.js` — the hook implementation
+- `skills/strategic-compact/scripts/suggest-compact.cjs` — the hook implementation
 - Registered in `hooks/hooks.json` as a PreToolUse hook on Edit/Write
-- Works with `scripts/hooks/pre-compact.js` which saves state before compaction
+- Works with `scripts/hooks/pre-compact.cjs` which saves state before compaction

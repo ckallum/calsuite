@@ -2,6 +2,9 @@
 name: flow
 version: 1.0.0
 description: |
+  session diagram, what skills ran, workflow trace, mermaid of this session,
+  show me the session graph, visualise the workflow, map this session,
+  draw what we did, render the session flow.
   Generate a Mermaid flowchart diagram of the current session's development
   workflow — which skills and agents ran, in what order, with parallel edges
   and collapsed repeated dispatches.

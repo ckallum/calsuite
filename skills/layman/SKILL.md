@@ -1,6 +1,12 @@
 ---
 name: layman
-description: Summarise a code change in plain, non-technical language with real-life analogies and a clear flow
+description: |
+  explain in plain English, explain like I'm five, non-technical summary,
+  summarise this PR for stakeholders, what does this change do in normal words,
+  explain for my mum, explain for the PM, explain for the founder,
+  plain-language change summary, demystify this diff.
+  Summarise a code change in plain, non-technical language with real-life
+  analogies and a clear flow. Designed to run after /ship when scope is final.
 user-invocable: true
 arguments: Optional PR number (#123), commit hash, branch, or file path. Defaults to current branch's PR, then staged/unstaged changes, then most recent commit.
 ---

@@ -1,6 +1,9 @@
 ---
 name: new-spec
 description: |
+  new spec, scaffold a spec, start a spec, kick off a spec for X,
+  create spec directory, set up requirements/design/tasks, spin up a spec folder,
+  begin a feature spec, draft a spec.
   Scaffold a new spec directory with requirements.md, design.md, and tasks.md
   templates. Adds a row to SPECLOG.md.
 argument-hint: <slug>

@@ -1,6 +1,11 @@
 ---
 name: update-docs
-description: Update project documentation, specs, and changelog based on recent changes
+description: |
+  update the changelog, refresh docs, update SPECLOG, sync project docs,
+  document recent work, write up what changed, bump the docs, refresh tasks.md,
+  update README for recent changes, post-merge docs pass.
+  Update project documentation, specs, and changelog based on recent changes —
+  delegates to the @doc-updater agent for workspace-aware updates.
 user-invocable: true
 arguments: Optional spec name to focus on e.g. "auth-system"
 ---

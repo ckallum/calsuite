@@ -1,6 +1,11 @@
 ---
 name: guardian
-description: "Configure Guardian autonomous mode, switch modes, view audit log, and manage rules"
+description: |
+  switch to AFK, go autonomous, lockdown mode, raise/lower autonomy,
+  what did guardian block, guardian audit log, show recent denials,
+  add a guardian rule, remove a guardian rule, autonomous approvals,
+  guardian status, what's my current mode.
+  Configure Guardian autonomous mode, switch modes, view audit log, and manage rules.
 user-invocable: true
 argument-hint: "[mode|log|rules] [args]"
 allowed-tools: Bash(node *), Bash(cat *), Bash(tail *), Bash(jq *), Read, Glob, Edit

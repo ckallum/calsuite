@@ -2,8 +2,12 @@
 name: lint-rule-gen
 version: 1.0.0
 description: |
-  Generate lint rules from review feedback patterns.
-  Aliases: /lint-rule-gen, /generate-lint-rule
+  encode this nit as a lint rule, codify recurring feedback, prevent this pattern,
+  add a guard for X, generate eslint rule from a PR comment,
+  turn this review comment into a rule, write a lint rule for X,
+  catch this at lint time. Aliases: /lint-rule-gen, /generate-lint-rule.
+  Generate lint rules from review feedback patterns — runs after seeing a nit
+  recur in PR reviews or whenever you want to move enforcement left to lint time.
 argument-hint: "[description of pattern to catch]"
 allowed-tools:
   - Read
