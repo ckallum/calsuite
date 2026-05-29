@@ -2,7 +2,15 @@
 
 All notable changes to this repository.
 
-Current version: **2.34**
+Current version: **2.35**
+
+## [2.35] — 2026-05-29
+
+### Changed
+
+- **Consolidated `spec-interview` into `plan`'s INTERVIEW mode** — closes [#101](https://github.com/ckallum/calsuite/issues/101). The `spec-interview` skill carried `disable-model-invocation: true` and its description shape ("surface edge cases, write spec") was a direct overlap with `/plan interview`. Folded two pieces of unique content from `skills/spec-interview/SKILL.md` into `skills/plan/SKILL.md`'s INTERVIEW topics list — `performance budgets` and `accessibility considerations` — and added the stance line "Write it as a definitive spec, not a discussion document" to Step 5. Deleted `skills/spec-interview/` and removed the entry from `base.skills` and `monorepo-root.skills` in `config/profiles.json`. Installer's `validateProfilesConfig()` reports clean in both directions; smoke install against a throwaway target writes 27 top-level skill dirs (down from 28) with no drift warnings.
+- The issue body assumed PR #99's progressive-disclosure split had landed and pointed at `skills/plan/references/interview.md` as the fold target. That split hasn't merged yet, so INTERVIEW mode is still inline in `skills/plan/SKILL.md` (lines 179-217). The folded content travels with INTERVIEW mode whenever the split eventually happens — no follow-up needed on this side.
+- Historical references to `spec-interview` in `CHANGELOG.md` (2.16 / 2.31 entries) are preserved as immutable record.
 
 ## [2.34] — 2026-05-24
 
