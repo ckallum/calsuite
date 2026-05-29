@@ -129,6 +129,7 @@ Once a mode is selected, read the corresponding reference file before executing 
 - REVIEW → [references/review.md](references/review.md)
 - VISUALIZE → [references/visualize.md](references/visualize.md)
 
+
 ## Gotchas
 
 - **AskUserQuestion strict rules only apply to REVIEW mode.** In INTERVIEW and BRAINSTORM modes, questions can be open-ended and exploratory — the lettered-option/recommendation format is not required.

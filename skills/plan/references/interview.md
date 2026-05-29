@@ -35,5 +35,6 @@ Rewrite the spec file incorporating all decisions from the interview:
 - Integrate all interview answers as concrete decisions (not as Q&A)
 - Add new sections for topics that emerged
 - Follow the spec format: `requirements.md`, `design.md`, `tasks.md`
+- Write it as a definitive spec, not a discussion document
 - Flag any remaining open questions
 - **If `LIFECYCLE=1`** (see Lifecycle Detection in SKILL.md): include a state × event matrix in `design.md` under a `## State Transitions` section. Every cell must be filled — fuzzy cells get called out as open questions.
