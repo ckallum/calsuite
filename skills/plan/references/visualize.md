@@ -3,11 +3,11 @@
 **Input:** Specs in `.claude/specs/<slug>/`.
 **Output:** Validated Mermaid diagrams at `.claude/specs/<slug>/diagrams.md`.
 
-### Step 1: Find and read the spec
+## Step 1: Find and read the spec
 
 Same as REVIEW Step 0 — find the spec by slug or most recent. Read all three files (`requirements.md`, `design.md`, `tasks.md`).
 
-### Step 2: Assess which diagrams are needed
+## Step 2: Assess which diagrams are needed
 
 Analyze the spec and determine which diagram types are relevant:
 
@@ -20,7 +20,7 @@ Analyze the spec and determine which diagram types are relevant:
 
 Skip diagram types that don't apply. A simple CRUD feature might only need Data Flow + User Flow. A background job feature needs Sequence + State Machine.
 
-### Step 3: Generate diagrams
+## Step 3: Generate diagrams
 
 For each relevant diagram type, generate a Mermaid diagram. Rules:
 
@@ -32,7 +32,7 @@ For each relevant diagram type, generate a Mermaid diagram. Rules:
 - **For sequence diagrams:** Show failure responses alongside the happy path (use `alt` blocks)
 - **For user flows:** Show empty states, loading states, and error states as nodes
 
-### Step 4: Interactive validation
+## Step 4: Interactive validation
 
 Present each diagram to the user via AskUserQuestion (one diagram per question):
 
@@ -47,7 +47,7 @@ Present each diagram to the user via AskUserQuestion (one diagram per question):
 
 This is the key step. The user stares at the visual and catches things the text missed. If they choose B, update the diagram and re-present.
 
-### Step 5: Write diagrams.md
+## Step 5: Write diagrams.md
 
 Write all validated diagrams to `.claude/specs/<slug>/diagrams.md`:
 
@@ -72,7 +72,7 @@ sequenceDiagram
 \`\`\`
 ```
 
-### Step 6: Summary
+## Step 6: Summary
 
 ```text
 Diagrams written to .claude/specs/<slug>/diagrams.md

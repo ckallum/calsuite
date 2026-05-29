@@ -1,9 +1,9 @@
 # INTERVIEW Mode
 
-### Step 1: Find the spec
+## Step 1: Find the spec
 If a path is provided in `$ARGUMENTS`, use it. Otherwise, look for files in `.claude/specs/` or ask the user. Read the file thoroughly.
 
-### Step 2: System context
+## Step 2: System context
 Before interviewing, gather context:
 ```bash
 git log --oneline -20                    # Recent history
@@ -11,7 +11,7 @@ git diff origin/main --stat              # In-flight changes
 ```
 Read CLAUDE.md, SPECLOG.md, TODO.md, and any related spec files. Understand what already exists and what's planned.
 
-### Step 3: Interview the user
+## Step 3: Interview the user
 Conduct a deep, multi-round interview using AskUserQuestion. The goal is to surface non-obvious decisions, edge cases, and tradeoffs.
 
 Interview guidelines:
@@ -23,13 +23,13 @@ Interview guidelines:
 - **Provide informed options.** When asking about tradeoffs, present concrete options with pros/cons.
 - **Reference existing patterns.** Check what similar features in the codebase do and ask whether this should follow the same pattern or diverge.
 
-### Step 4: Continue until complete
+## Step 4: Continue until complete
 Keep interviewing across multiple rounds. A thorough interview typically needs 4-8 rounds. You are done when:
 - All major architectural decisions are resolved
 - Edge cases and error flows are addressed
 - The user confirms they have nothing else to add
 
-### Step 5: Write the final spec
+## Step 5: Write the final spec
 Rewrite the spec file incorporating all decisions from the interview:
 - Preserve the original structure and intent
 - Integrate all interview answers as concrete decisions (not as Q&A)

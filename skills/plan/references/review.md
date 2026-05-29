@@ -1,6 +1,6 @@
 # REVIEW Mode
 
-### Step 0: System Audit
+## Step 0: System Audit
 Before reviewing anything, gather context:
 ```bash
 git log --oneline -30
@@ -15,7 +15,7 @@ Read CLAUDE.md, TODO.md, SPECLOG.md, and the spec being reviewed. Map:
 
 Also check for `.claude/specs/<slug>/diagrams.md`. If it exists, read it — the review agents should validate diagrams match the spec. If it does NOT exist, note: **"Tip: Run `/plan visualize <slug>` first to visually validate the design."**
 
-### Step 1: Scope Challenge
+## Step 1: Scope Challenge
 Before reviewing anything, answer:
 1. **What existing code already partially or fully solves each sub-problem?** Can we reuse existing routes, components, services?
 2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred.
@@ -28,7 +28,7 @@ Then ask if the user wants:
 
 **Critical: If the user does not select SCOPE REDUCTION, respect that fully.** Your job becomes making the plan succeed. Raise scope concerns once — after that, commit.
 
-### Parallel Review — DISPATCH 4 AGENTS
+## Parallel Review — DISPATCH 4 AGENTS
 
 After scope is agreed, dispatch **4 parallel review agents** in a single message using the Agent tool. Each agent reads the spec/plan independently and returns findings. This runs all reviews concurrently instead of sequentially.
 
@@ -101,7 +101,7 @@ Return a numbered list of issues with recommendations."
 description: "Performance review"
 ```
 
-### Process Agent Results
+## Process Agent Results
 
 After all 4 agents return, merge their findings into a unified list. For each issue across all agents, present to the user via AskUserQuestion individually — one issue per call. Present options, recommend, explain WHY. Do NOT batch.
 
