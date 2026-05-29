@@ -105,11 +105,12 @@ Check the root README — monorepos almost always document the recommended dev c
 After starting the server, find what port it's listening on (don't assume 3000):
 
 ```bash
-# From the log
-grep -oE 'http://localhost:[0-9]+' /tmp/verify-server.log | head -1
+# From the log (source state from Step 3 for $VERIFY_LOG / $VERIFY_PID)
+source /tmp/verify-state.env
+grep -oE 'http://localhost:[0-9]+' "$VERIFY_LOG" | head -1
 
 # Or check the process
-lsof -iTCP -sTCP:LISTEN -P -n | grep $SERVER_PID
+lsof -iTCP -sTCP:LISTEN -P -n | grep "$VERIFY_PID"
 ```
 
 Save the port to a shell variable; subsequent steps use it.

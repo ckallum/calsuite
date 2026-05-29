@@ -103,46 +103,85 @@ If you cannot find a runnable command, stop and tell the user. Verifying nothing
 
 ## Step 3: Run it
 
-Start the dev server **in the background** so the rest of the loop can act against it. Use a PID-scoped log path so parallel worktree runs don't clobber each other's logs:
+**State model — read this first.** Claude Code spawns a fresh shell for every Bash tool call. Variables you set in this step (`SERVER_PID`, `LOG`, `ts`) do NOT survive into Step 4. An `EXIT trap` registered here fires the moment THIS shell call ends — killing the server right after it becomes ready, before Step 4 runs. So the skill writes state to a singleton file (`/tmp/verify-state.env`) and every subsequent step starts by sourcing it. Teardown happens explicitly in Step 7, not via trap.
+
+### 3a. Lock check + launch
 
 ```bash
-LOG=/tmp/verify-server-$$.log
-<dev-command> > "$LOG" 2>&1 &
-SERVER_PID=$!
+# Refuse if a previous run left state behind — explicit cleanup is safer than auto-clobber.
+if [ -f /tmp/verify-state.env ]; then
+  echo "Stale verify state at /tmp/verify-state.env — finish the previous run, or:"
+  echo "  source /tmp/verify-state.env && [ -n \"\${VERIFY_PGID:-}\" ] && kill -- -\"\$VERIFY_PGID\" 2>/dev/null; rm -f /tmp/verify-state.env"
+  exit 1
+fi
+
+VERIFY_TS=$(date +%Y-%m-%d-%H%M%S)
+VERIFY_LOG=/tmp/verify-server-${VERIFY_TS}.log
+VERIFY_DIR=.context/verify/${VERIFY_TS}
+mkdir -p "${VERIFY_DIR}/screenshots" "${VERIFY_DIR}/responses"
+
+# Scope docker compose to this run so the teardown doesn't tear down the user's other compose work.
+# Honors the project's own COMPOSE_PROJECT_NAME if set, otherwise namespaces by timestamp.
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-verify-${VERIFY_TS//[-:]/}}"
+
+# Launch in its own process group via `setsid` so the teardown can signal the whole tree.
+# `npm run dev`, `concurrently`, vite/next wrappers, Go air, etc. all spawn children — killing
+# only the parent PID leaves them orphaned holding the port.
+setsid bash -c '<dev-command> > "$1" 2>&1' _ "$VERIFY_LOG" &
+VERIFY_PID=$!
+VERIFY_PGID=$(ps -o pgid= -p "$VERIFY_PID" 2>/dev/null | tr -d ' ')
+
+# Persist state for subsequent steps. Every later step starts with: source /tmp/verify-state.env
+cat > /tmp/verify-state.env <<EOF
+VERIFY_TS=${VERIFY_TS}
+VERIFY_LOG=${VERIFY_LOG}
+VERIFY_DIR=${VERIFY_DIR}
+VERIFY_PID=${VERIFY_PID}
+VERIFY_PGID=${VERIFY_PGID}
+COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
+EOF
+echo "state: /tmp/verify-state.env (ts=${VERIFY_TS}, pid=${VERIFY_PID}, pgid=${VERIFY_PGID})"
 ```
 
-Then wait for ready — don't just `sleep 10`. Pick whichever signal is cheapest to check:
+### 3b. Wallclock-bounded ready poll
+
+Don't just `sleep 10`, and don't loop forever — a server stuck in init (waiting on a missing DB, prompting for input) will spin until Claude's tool timeout. Cap with a wallclock deadline:
 
 ```bash
-# Port open + responds 2xx/3xx
+source /tmp/verify-state.env
+TIMEOUT=${VERIFY_READY_TIMEOUT:-60}   # override via env or .claude/verify-config.json → dev.readySignal.timeoutSeconds
+START=$(date +%s)
 READY=0
+
 until curl -fsS -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null | grep -qE '^[23]'; do
-  sleep 0.5
-  # Bail early if the server died — break out so the trap fires cleanly
-  if ! kill -0 $SERVER_PID 2>/dev/null; then
-    echo "server crashed during startup"
-    tail -50 "$LOG"
+  if [ $(($(date +%s) - START)) -ge "$TIMEOUT" ]; then
+    echo "ready timeout after ${TIMEOUT}s"
+    tail -50 "$VERIFY_LOG"
     break
   fi
+  if ! kill -0 "$VERIFY_PID" 2>/dev/null; then
+    echo "server crashed during startup"
+    tail -50 "$VERIFY_LOG"
+    break
+  fi
+  sleep 0.5
 done
-kill -0 $SERVER_PID 2>/dev/null && READY=1
+kill -0 "$VERIFY_PID" 2>/dev/null && READY=1
 
-# READY=0 here means startup failed — surface, do not proceed to drive.
-[ "$READY" = "1" ] || { echo "verify aborted: server never became ready"; exit 1; }
+if [ "$READY" != "1" ]; then
+  echo "verify aborted: server never became ready — running teardown"
+  [ -n "${VERIFY_PGID:-}" ] && kill -- -"$VERIFY_PGID" 2>/dev/null
+  rm -f /tmp/verify-state.env
+  exit 1
+fi
 ```
 
-Alternative ready signals (use what fits the stack):
-- A log line: `until grep -q "Listening on" "$LOG"; do sleep 0.5; done`
+Alternative ready signals (use whichever fits the stack):
+- A log line: `until grep -q "Listening on" "$VERIFY_LOG"; do sleep 0.5; done`
 - A health endpoint: `curl -fsS http://localhost:3000/health`
-- A Docker healthcheck: `docker compose ps --format json | jq -e '.[].Health == "healthy"'`
+- A Docker healthcheck: `docker compose ps --format json | jq -e 'all(.Health == "healthy")'`
 
-**If startup fails repeatedly**, read the log, fix the cause (missing env var, port conflict, broken migration), retry. Cap at 3 attempts — past that, the problem is outside verify's scope and you should surface it.
-
-**Always trap cleanup** so a failed loop doesn't leak processes:
-
-```bash
-trap 'kill $SERVER_PID 2>/dev/null; docker compose down 2>/dev/null; true' EXIT
-```
+**If startup fails repeatedly across attempts**, read the log, fix the cause (missing env var, port conflict, broken migration), retry. Cap at 3 attempts — past that, the problem is outside verify's scope.
 
 ---
 
@@ -200,7 +239,7 @@ Driving is not enough. You need **artefacts that a reviewer (or you, next week) 
 | Class | What to capture |
 |---|---|
 | **Screenshot** | Before + after of the UI change. Saved as PNG, referenced from the summary. |
-| **Log evidence** | The line(s) that prove the backend handler ran. `grep -A2 "<expected-marker>" /tmp/verify-server.log > /tmp/verify-logs.txt` |
+| **Log evidence** | The line(s) that prove the backend handler ran. `source /tmp/verify-state.env && grep -A2 "<expected-marker>" "$VERIFY_LOG" > "${VERIFY_DIR}/logs.txt"` |
 | **DB evidence** | The row(s) the action produced. `SELECT * FROM widgets WHERE name = 'verify-test'` saved to disk. |
 | **HTTP evidence** | The response body matches what the change promised. Diff against an expected shape. |
 
@@ -232,14 +271,22 @@ If proof fails — wrong screenshot, missing log line, HTTP 500, DB row absent �
 Read the actual error first:
 
 ```bash
-tail -100 "$LOG"
+source /tmp/verify-state.env
+tail -100 "$VERIFY_LOG"
 # Or for browser console errors:
 agent-browser --session verify snapshot | grep -i -E '(error|warning|exception)'
 ```
 
 Identify the specific cause from the specific error. Apply a targeted fix to the code. Most dev servers hot-reload — you don't need to restart unless you changed config, installed a dep, or the framework requires it (Go binaries, Rust binaries). Then re-run Step 4 against the same dev server.
 
-**Cap at 3 fix attempts.** If three targeted fixes don't get you to green, the problem is bigger than the loop can handle. Surface:
+**Cap at 3 fix attempts.** Enforce by logging every attempt — drift past 3 becomes visible in the artifact instead of buried in scrollback. Append one line per attempt to `${VERIFY_DIR}/attempts.txt` before re-running Step 4:
+
+```bash
+source /tmp/verify-state.env
+echo "$(date -u +%FT%TZ) attempt-N: <one-line: what you tried this round>" >> "${VERIFY_DIR}/attempts.txt"
+```
+
+`summary.md` (written in Step 7) embeds `attempts.txt` so reviewers can see the fix path the verify took. If three targeted fixes don't get you to green, the problem is bigger than the loop can handle. Surface:
 
 1. What you were trying to verify (the action, the expected proof)
 2. What actually happened on each attempt (the error / wrong proof)
@@ -252,17 +299,35 @@ Then either invoke `/debug` (it's built for exactly this systematic-investigatio
 
 ## Step 7: Tear down and write the summary
 
-When proof is captured, kill the server and any sidecars:
+When proof is captured, run an **explicit teardown** — no EXIT trap, because the trap from Step 3 would have fired long ago (the launching shell exited at the end of that Bash tool call).
 
 ```bash
-kill $SERVER_PID 2>/dev/null
-docker compose down 2>/dev/null || true
+source /tmp/verify-state.env
+
+# Kill the process group, not just the parent PID — npm/concurrently/vite/next wrappers
+# spawn children that would otherwise leak and hold the port.
+[ -n "${VERIFY_PGID:-}" ] && kill -- -"$VERIFY_PGID" 2>/dev/null
+
+# Only down compose services this run brought up (scoped via COMPOSE_PROJECT_NAME in Step 3).
+# Leaves the user's other compose services untouched.
+if [ -n "${COMPOSE_PROJECT_NAME:-}" ] && command -v docker >/dev/null 2>&1; then
+  docker compose -p "$COMPOSE_PROJECT_NAME" down --remove-orphans 2>/dev/null || true
+fi
+
+# Custom teardown from .claude/verify-config.json — only if declared.
+if [ -f .claude/verify-config.json ]; then
+  td=$(jq -r '.teardown // empty' .claude/verify-config.json 2>/dev/null)
+  [ -n "$td" ] && bash -c "$td" || true
+fi
+
+# Release the lock so the next verify can start.
+rm -f /tmp/verify-state.env
 ```
 
-Write `summary.md` with: scope detected, commands run, what was proven, links to evidence files. Use a single `ts=$(date +%Y-%m-%d-%H%M%S)` at the start of the run and reuse `$ts` for both the evidence dir and the final message — keeping one timestamp avoids skew between the dir name and any cross-references. Output the summary path so the user (and a future `/ship` integration) can find it:
+Write `summary.md` with: scope detected, commands run, what was proven, links to evidence files, and `attempts.txt` if the fix loop ran. Reuse `$VERIFY_TS` and `$VERIFY_DIR` from the state file so the dir name and final message stay in sync. Output the summary path so the user (and a future `/ship` integration) can find it:
 
 ```
-Verify passed. Evidence: .context/verify/<ts>/summary.md
+Verify passed. Evidence: ${VERIFY_DIR}/summary.md   # e.g. .context/verify/2026-05-29-141203/summary.md
 ```
 
 ---
@@ -335,7 +400,7 @@ Until the integration lands, paste the `summary.md` path into the PR body yourse
 
 - **Hot reload is your friend.** Most dev servers reload on file save — you don't need to restart for code edits. Restart only for: env var changes, deps installed, framework binaries (Go/Rust), config files the server reads at boot.
 - **Auth bypass varies.** Some apps accept `X-Dev-User: foo@bar.com`, some need a real session, some have a `/dev/login` route. Check `references/frontend-recipes.md` or ask the user once and consider adding to `.claude/verify-config.json` for next time.
-- **Log path is `$$`-scoped** so parallel worktree runs don't clobber each other. Step 3's example uses `/tmp/verify-server-$$.log` and binds it to `$LOG`; subsequent steps read `$LOG`, not the literal path.
+- **Run state lives at `/tmp/verify-state.env`** because Claude Code spawns a fresh shell per Bash tool call — variables and `trap`s from Step 3 don't survive into Step 4. Every step after Step 3 starts with `source /tmp/verify-state.env`. Step 7 explicitly tears down and removes the file. If a previous run crashed mid-loop, manually run the snippet printed by Step 3a's lock check.
 - **`docker compose down` between runs** if you used Docker — orphan containers hold ports.
 - **Screenshots are evidence, not decoration.** If `agent-browser screenshot` fails, retry once before giving up. The screenshot is half the proof.
 - **The DB query is the receipt for write paths.** A successful HTTP 200 doesn't prove the row landed — it proves the handler returned. Always go one level deeper for writes.

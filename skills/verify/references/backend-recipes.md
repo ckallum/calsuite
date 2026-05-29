@@ -17,7 +17,7 @@ curl -fsS -X POST http://localhost:8080/api/widgets \
 jq -e '.id and .name == "verify-test"' /tmp/verify-response.json
 
 # 3. Grep the log for the expected path marker
-grep -E "widget.created.*verify-test" /tmp/verify-server.log
+grep -E "widget.created.*verify-test" "$VERIFY_LOG"
 
 # 4. Query the DB to confirm the row landed
 psql -h localhost -U dev appdev -c \
@@ -93,13 +93,13 @@ Bad: `received POST /api/widgets` (matches every request), `created` (matches ev
 If logs are JSON:
 
 ```bash
-jq -c 'select(.event == "widget.created" and .name == "verify-test")' /tmp/verify-server.log
+jq -c 'select(.event == "widget.created" and .name == "verify-test")' "$VERIFY_LOG"
 ```
 
 If they're plain text with a known format:
 
 ```bash
-grep -E '"event":"widget.created".*"name":"verify-test"' /tmp/verify-server.log
+grep -E '"event":"widget.created".*"name":"verify-test"' "$VERIFY_LOG"
 ```
 
 ### Adding log lines

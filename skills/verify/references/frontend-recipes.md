@@ -30,11 +30,16 @@ agent-browser --session verify open http://localhost:3000
 ## The core loop
 
 ```bash
+# Source state from Step 3 — VERIFY_DIR points at .context/verify/<ts>/, screenshots/ already exists
+source /tmp/verify-state.env
+
 # 1. Open the page that contains the change
 agent-browser --session verify open http://localhost:3000/signup
 
-# 2. Before screenshot
-agent-browser --session verify screenshot .context/verify/<ts>/screenshots/before-signup.png
+# 2. Before screenshot — VERIFY_DIR/screenshots/ was created in Step 3a. If you bypass Step 3
+#    (e.g. testing the recipe standalone), run `mkdir -p "${VERIFY_DIR}/screenshots"` first —
+#    agent-browser does not auto-create parents and the screenshot will fail silently.
+agent-browser --session verify screenshot "${VERIFY_DIR}/screenshots/before-signup.png"
 
 # 3. Snapshot to get @ref IDs
 agent-browser --session verify snapshot
@@ -48,7 +53,7 @@ agent-browser --session verify click @submit
 agent-browser --session verify wait 2000
 
 # 6. After screenshot
-agent-browser --session verify screenshot .context/verify/<ts>/screenshots/after-signup.png
+agent-browser --session verify screenshot "${VERIFY_DIR}/screenshots/after-signup.png"
 
 # 7. Look for errors
 agent-browser --session verify snapshot | grep -i -E '(error|warning|exception|failed)'
@@ -117,8 +122,11 @@ If the change is "the dashboard shows the user's recent invoices", you need invo
 2. **No seed script** — create the data via API or DB shell as part of the verify run:
 
 ```bash
-# Via API (preferred — exercises real code paths)
-curl -X POST http://localhost:3000/api/invoices \
+# Via API (preferred — exercises real code paths). -fsS is load-bearing: -f makes curl exit
+# non-zero on 4xx/5xx, -s quiets progress, -S still shows errors. Without -f, a 500 looks like
+# success to the shell. Content-Type is required by most JSON APIs (otherwise 415).
+curl -fsS -X POST http://localhost:3000/api/invoices \
+  -H 'Content-Type: application/json' \
   -H 'X-Dev-User: verify@test.local' \
   -d '{"amount": 1000, "status": "pending"}'
 
