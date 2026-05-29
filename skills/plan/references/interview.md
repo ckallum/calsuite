@@ -36,4 +36,4 @@ Rewrite the spec file incorporating all decisions from the interview:
 - Add new sections for topics that emerged
 - Follow the spec format: `requirements.md`, `design.md`, `tasks.md`
 - Flag any remaining open questions
-- **If `LIFECYCLE=1`** (see Lifecycle Detection above): include a state × event matrix in `design.md` under a `## State Transitions` section. Every cell must be filled — fuzzy cells get called out as open questions.
+- **If `LIFECYCLE=1`** (see Lifecycle Detection in SKILL.md): include a state × event matrix in `design.md` under a `## State Transitions` section. Every cell must be filled — fuzzy cells get called out as open questions.

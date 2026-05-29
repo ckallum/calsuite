@@ -132,7 +132,7 @@ Each potential TODO as its own AskUserQuestion. For each: What, Why, Pros, Cons,
 ASCII diagrams for any non-trivial data flow, state machine, or pipeline.
 
 ### State × event matrix (conditional)
-**If `LIFECYCLE=1`** (see Lifecycle Detection at top of file): emit a state × event matrix listing every event/command across every state. Every cell must specify expected behavior (OK, error, skip, reject, stop-first, etc.). Empty or fuzzy cells are flagged as CRITICAL gaps. If the spec's `design.md` already contains a matrix, validate it — every cell reachable, no stuck states. If missing, emit one and recommend adding to `design.md`. Skip this section entirely when `LIFECYCLE=0`.
+**If `LIFECYCLE=1`** (see Lifecycle Detection in SKILL.md): emit a state × event matrix listing every event/command across every state. Every cell must specify expected behavior (OK, error, skip, reject, stop-first, etc.). Empty or fuzzy cells are flagged as CRITICAL gaps. If the spec's `design.md` already contains a matrix, validate it — every cell reachable, no stuck states. If missing, emit one and recommend adding to `design.md`. Skip this section entirely when `LIFECYCLE=0`.
 
 ### Failure modes
 For each new codepath: one realistic failure, whether a test covers it, whether error handling exists, whether the user would see a clear error or silent failure. Any failure with no test AND no error handling AND silent -> **critical gap**.

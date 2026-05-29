@@ -25,7 +25,7 @@ After exploring options, synthesize into a concrete proposal:
 ### Step 4: Write the spec
 Create spec files in `.claude/specs/<feature-name>/`:
 - `requirements.md` — User stories, functional/non-functional requirements
-- `design.md` — Architecture, data model, API design, key decisions. **If `LIFECYCLE=1`** (see Lifecycle Detection): include a state × event matrix under `## State Transitions`.
+- `design.md` — Architecture, data model, API design, key decisions. **If `LIFECYCLE=1`** (see Lifecycle Detection in SKILL.md): include a state × event matrix under `## State Transitions`.
 - `tasks.md` — Phased implementation tasks with checkboxes
 
 Update SPECLOG.md with the new spec entry.

@@ -2,7 +2,24 @@
 
 All notable changes to this repository.
 
-Current version: **2.34**
+Current version: **2.35**
+
+## [2.35] — 2026-05-29
+
+### Changed
+
+- **Harness-wide skill audit pass against skill-creator standards.** Applied progressive-disclosure refactors, description rewrites, and anti-pattern cleanup across all 35 skills. Three skills over the 500-line ceiling split into `references/` subfiles: `plan` (502→139, four modes + format templates extracted), `review` (856→406, Converse mode + 9 agent prompts extracted), `ship` (580→441, Pre-PR Gates extracted, PR-only Step 2.5 deduplicated against Step 7.2b). Ten weak descriptions rewritten with trigger-phrase lists modelled on `zoom-out`: `sweep-issues`, `flow`, `guardian`, `layman`, `humanize`, `lint-rule-gen`, `new-spec`, `context7`, `update-docs`, `session-start`. `plan-ceo`'s 10× repeated STOP block collapsed into a single section-loop subsection; Prime Directives + Engineering Preferences + Priority Hierarchy + CRITICAL RULE + For Each Issue You Find merged into one Operating principles section. Bare-imperative "Important Rules" walls deleted from `ship` and `review` (rules were already enforced contextually by specific workflow steps).
+- **Sync gotcha covering branch-posture behaviour.** Added documentation in `skills/sync/SKILL.md` explaining what survives when a target's `.claude/` is tracked vs gitignored and the user syncs on dev then switches back to main. Three cases enumerated; rule of thumb: sync on the branch that should own the canonical version and commit there.
+
+### Fixed
+
+- **`skills/configure-claude/SKILL.md` hardcoded `/Users/callumke/Projects/calsuite`** replaced with `${CALSUITE_DIR:-$HOME/Projects/calsuite}` — the previous form broke for every other user of the distributed config.
+- **`skills/strategic-compact/SKILL.md` documented `.js` paths** corrected to `.cjs` — actual files at `skills/strategic-compact/scripts/suggest-compact.cjs` and `scripts/hooks/pre-compact.cjs`.
+- **`skills/babysit-pr/SKILL.md` daemon spawn path** corrected from `.js` to `.cjs` to match the source-of-truth script extension.
+
+### Why
+
+`/skill-creator`'s standards explicitly flag three failure modes that show up across long-lived skill harnesses: descriptions that don't trigger on natural phrasing, MUST/ALWAYS walls instead of theory-of-mind reasoning, and SKILL.md files over 500 lines that should use progressive disclosure. A harness-wide pass against these standards surfaces and corrects all three categories at once rather than spreading the work across separate PRs.
 
 ## [2.34] — 2026-05-24
 

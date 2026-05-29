@@ -63,7 +63,7 @@ Use `docs:` for documentation, `chore:` for config/skills, `style:` for formatti
 
 Even in pr-only mode, scan the conversation for **bugs in code this branch is changing**. PR-only mode skips tests, review, and simplification — but it must NOT skip the rule that bugs introduced by the PR get fixed in the PR.
 
-Apply the bug-vs-deferred triage from [Step 7.2b](#step-72-sweep-and-fix-inline) — same decision rule (anything touching `CHANGED_FILES` defaults to "fix now"; bugs in `CHANGED_FILES` are never deferrable), same options. Defer non-matching candidates to Step 4 (the post-PR `/sweep-issues` call will create the issue). Skip this step silently if no candidates surfaced.
+First capture the file list this branch touches: `git diff origin/main --name-only > /tmp/ship-changed-files.txt` — hold contents as `CHANGED_FILES`. Then apply the bug-vs-deferred triage from [Step 7.2b](#step-72-sweep-and-fix-inline) — same decision rule (anything touching `CHANGED_FILES` defaults to "fix now"; bugs in `CHANGED_FILES` are never deferrable), same options. Defer non-matching candidates to Step 4 (the post-PR `/sweep-issues` call will create the issue). Skip this step silently if no candidates surfaced.
 
 ### Step 3: Push, run Pre-PR Gates, create PR
 
