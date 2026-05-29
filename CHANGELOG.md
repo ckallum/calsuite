@@ -2,7 +2,19 @@
 
 All notable changes to this repository.
 
-Current version: **2.34**
+Current version: **2.35**
+
+## [2.35] — 2026-05-29
+
+### Added
+
+- **New `/verify` skill** — the pre-PR end-to-end verification loop. Detects scope from the diff (frontend / backend / schema / cross-cutting), discovers how to run the app from `.claude/verify-config.json` or `package.json` / `Makefile` / `docker-compose.yml`, starts the dev server in the background, drives the changed code path (browser for UI via `agent-browser`, `curl` for API), and captures evidence across four classes: screenshots, log markers, DB rows, and HTTP responses. Fix loop is capped at 3 attempts before surfacing — "needs a loop, not the user in the loop." Distributed to `base` and `monorepo-root` profiles. Adapts to whatever stack the downstream repo uses; stack-specific patterns live in `skills/verify/references/{discover-stack,frontend-recipes,backend-recipes,config-schema}.md` so the main `SKILL.md` stays under 400 lines.
+
+### Why
+
+`/ship` Step 3 runs unit tests — necessary, not sufficient. Unit tests don't prove the button works, the API writes the row, or the migration creates the column the handler expects. The verify-then-ship loop (write → run → drive → see fail → read logs → fix → hot reload → screenshot success → open PR) closes that gap, and downstreams kept asking variants of "did you actually click the thing." Pulling this into a shared skill means every target inherits the same loop shape regardless of stack — Next.js fullstack, Django + React monorepo, Go API + Vite SPA all run the same `/verify`, just with different config-discovered commands underneath.
+
+The skill is intentionally **not** wired into `/ship` yet. The verify-as-explicit-step ritual (`/verify` → `/ship`) lets each downstream prove the loop works for their stack before we make it mandatory; once 2-3 downstreams have run it in anger, `/sweep-issues` will track the `/ship` integration as a follow-up.
 
 ## [2.34] — 2026-05-24
 

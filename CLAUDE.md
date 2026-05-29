@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.34** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.35** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -85,6 +85,7 @@ templates/   # spec / doc / changelog templates
 - `<target>/.claude/settings.local.json` — **per-user** (gitignored by the installer). Installer writes calsuite hook wiring here with literal resolved `$CALSUITE_DIR` paths.
 - `config/targets.json` — repos that `--sync` installs to. Each entry: `{ path, workspaces?, skills? }`. `workspaces: "skip"` restricts monorepo targets to root-only install. `skills: { exclude: ["a", "b"] }` drops the named skills from the profile-resolved install set; unmatched names surface as a ⚠ drift warning. See `config/targets.example.json`.
 - `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config change
+- `<target>/.claude/verify-config.json` — **optional** per-project config for `/verify` (dev command, ports, log path, DB shell, auth bypass, seed script). Without it the skill auto-discovers from `package.json` / `Makefile` / `docker-compose.yml`; schema lives at `skills/verify/references/config-schema.md`.
 
 ## Gotchas
 
