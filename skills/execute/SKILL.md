@@ -1,6 +1,5 @@
 ---
 name: execute
-version: 2.1.0
 description: |
   execute this, build this, implement this, start coding, run the plan,
   implement tasks, work through the plan, execute tasks, build from spec,

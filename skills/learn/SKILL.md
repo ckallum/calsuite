@@ -1,6 +1,5 @@
 ---
 name: learn
-version: 1.0.0
 description: |
   save learning, remember this, note this pattern, record pitfall, capture preference,
   learn from this, review learnings, what have I learned, search learnings, prune learnings.

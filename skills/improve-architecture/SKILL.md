@@ -1,6 +1,5 @@
 ---
 name: improve-architecture
-version: 1.0.0
 description: |
   improve architecture, codebase health check, find refactor opportunities, identify shallow modules,
   deepen this code, ball of mud rescue, ai navigability audit, codebase entropy review,

@@ -1,6 +1,5 @@
 ---
 name: lint-rule-gen
-version: 1.0.0
 description: |
   encode this nit as a lint rule, codify recurring feedback, prevent this pattern,
   add a guard for X, generate eslint rule from a PR comment,

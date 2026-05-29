@@ -1,6 +1,5 @@
 ---
 name: review
-version: 1.1.0
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.

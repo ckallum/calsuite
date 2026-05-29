@@ -1,6 +1,5 @@
 ---
 name: sweep-issues
-version: 1.0.0
 description: |
   create issues from this session, file the follow-ups, track deferred items,
   spin this off as an issue, capture the fast-follows, log this as a bug,

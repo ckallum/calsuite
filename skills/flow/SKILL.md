@@ -1,6 +1,5 @@
 ---
 name: flow
-version: 1.0.0
 description: |
   session diagram, what skills ran, workflow trace, mermaid of this session,
   show me the session graph, visualise the workflow, map this session,

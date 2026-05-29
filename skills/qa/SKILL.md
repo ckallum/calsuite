@@ -1,6 +1,5 @@
 ---
 name: qa
-version: 1.0.0
 description: |
   Systematically QA test a web application. Use when asked to "qa", "QA", "test this site",
   "find bugs", "dogfood", or review quality. Four modes: diff-aware (automatic on feature

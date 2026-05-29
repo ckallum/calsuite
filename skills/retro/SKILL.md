@@ -1,6 +1,5 @@
 ---
 name: retro
-version: 1.1.0
 description: |
   retro, retrospective, what did I ship, weekly summary, how was my week,
   shipping velocity, commit stats, engineering metrics.

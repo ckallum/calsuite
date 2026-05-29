@@ -1,6 +1,5 @@
 ---
 name: debug
-version: 1.0.0
 description: |
   debug this, fix this bug, why is this failing, investigate error, trace the issue,
   something is broken, test failure, systematic debugging, diagnose, root cause.

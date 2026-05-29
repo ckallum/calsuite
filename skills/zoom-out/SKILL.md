@@ -1,6 +1,5 @@
 ---
 name: zoom-out
-version: 1.0.0
 description: |
   zoom out, give me a map, broader context, higher-level perspective, what's the big picture,
   how does this fit, walk me through this area, I don't know this code, unfamiliar code,

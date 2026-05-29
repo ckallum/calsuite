@@ -1,6 +1,5 @@
 ---
 name: skill-builder
-version: 1.0.0
 description: |
   Create a skill, new skill, build a skill, scaffold skill, make a skill, skill template,
   generate Claude Code skill, skill authoring, create slash command. Scaffolds production-quality

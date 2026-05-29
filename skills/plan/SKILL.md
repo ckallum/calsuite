@@ -1,6 +1,5 @@
 ---
 name: plan
-version: 1.0.0
 description: |
   plan this, how should I implement, architecture review, design review, spec interview,
   brainstorm this, flesh out the spec, review my plan, technical review, visualize the flow,

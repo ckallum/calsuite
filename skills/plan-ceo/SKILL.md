@@ -1,6 +1,5 @@
 ---
 name: plan-ceo
-version: 1.0.0
 description: |
   review my plan, founder review, CEO review, rethink this, challenge my approach,
   10-star review, is this the right thing to build, scope check.

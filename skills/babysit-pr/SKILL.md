@@ -1,6 +1,5 @@
 ---
 name: babysit-pr
-version: 1.0.0
 description: |
   watch this PR, monitor CI, babysit, watch CI, is CI done, check PR status,
   watch for merge, keep an eye on this.

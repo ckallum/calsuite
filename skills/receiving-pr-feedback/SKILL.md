@@ -1,6 +1,5 @@
 ---
 name: receiving-pr-feedback
-version: 1.0.0
 description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.

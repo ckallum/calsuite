@@ -1,6 +1,5 @@
 ---
 name: ship
-version: 1.0.0
 description: |
   ship it, push this, create PR, land this, send it, merge this, commit and push,
   open a pull request, ship this branch, clean gone branches, pr only, just make a pr,

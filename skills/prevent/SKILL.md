@@ -1,6 +1,5 @@
 ---
 name: prevent
-version: 1.0.0
 description: |
   prevent this, never again, stop this from happening, how do we prevent,
   make sure this doesn't happen, enforce this, guard against, catch this earlier,

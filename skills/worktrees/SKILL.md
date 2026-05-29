@@ -1,6 +1,5 @@
 ---
 name: worktrees
-version: 1.0.0
 description: |
   worktree, git worktree, isolated branch, separate copy, work in isolation,
   parallel branch, feature isolation, worktree setup.
