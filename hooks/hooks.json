@@ -7,7 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/guardian.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/guardian.cjs"]
           }
         ],
         "description": "Guardian: evaluate tool call risk and block dangerous operations",
@@ -18,7 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/pr-intent-gate.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/pr-intent-gate.cjs"]
           }
         ],
         "description": "PR Intent Gate: require ## Why section in PR body",
@@ -29,7 +31,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/merged-branch-guard.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/merged-branch-guard.cjs"]
           }
         ],
         "description": "Merged Branch Guard: block operations on branches with merged PRs",
@@ -40,7 +43,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/review-gate.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/review-gate.cjs"]
           }
         ],
         "description": "Review gate: require code review before commits",
@@ -51,7 +55,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/lint-gate.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/lint-gate.cjs"]
           }
         ],
         "description": "Lint gate: check structural lint rules before commits",
@@ -62,7 +67,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"if(!process.env.TMUX){console.error('[Hook] Consider running in tmux for session persistence');console.error('[Hook] tmux new -s dev  |  tmux attach -t dev')}\""
+            "command": "node",
+            "args": [
+              "-e",
+              "if(!process.env.TMUX){console.error('[Hook] Consider running in tmux for session persistence');console.error('[Hook] tmux new -s dev  |  tmux attach -t dev')}"
+            ]
           }
         ],
         "description": "Reminder to use tmux for long-running commands",
@@ -73,7 +82,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/skill-usage-tracker.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/skill-usage-tracker.cjs"]
           }
         ],
         "description": "Track skill invocations for usage analytics",
@@ -84,7 +94,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/skills/strategic-compact/scripts/suggest-compact.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/skills/strategic-compact/scripts/suggest-compact.cjs"]
           }
         ],
         "description": "Suggest manual compaction at logical intervals",
@@ -95,7 +106,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/flow-trace.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/flow-trace.cjs"]
           }
         ],
         "description": "Trace skill and agent invocations for /flow diagrams",
@@ -108,7 +120,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/pre-compact.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/pre-compact.cjs"]
           }
         ],
         "description": "Save state before context compaction",
@@ -121,7 +134,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/session-start.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/session-start.cjs"]
           }
         ],
         "description": "Load previous context and detect package manager on new session",
@@ -134,7 +148,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/pr-url-logger.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/pr-url-logger.cjs"]
           }
         ],
         "description": "Log PR URL and provide review command after PR creation",
@@ -145,7 +160,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/ci-monitor.cjs\"",
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/ci-monitor.cjs"],
             "async": true,
             "timeout": 30
           }
@@ -158,7 +174,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/prettier-format.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/prettier-format.cjs"]
           }
         ],
         "description": "Auto-format JS/TS files with Prettier after edits",
@@ -169,7 +186,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/typescript-check.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/typescript-check.cjs"]
           }
         ],
         "description": "TypeScript check after editing .ts/.tsx files",
@@ -180,7 +198,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/console-log-warn.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/console-log-warn.cjs"]
           }
         ],
         "description": "Warn about console.log statements after edits",
@@ -191,7 +210,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/eslint-check.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/eslint-check.cjs"]
           }
         ],
         "description": "ESLint check: report violations after JS/TS edits for agent self-correction",
@@ -204,7 +224,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/check-console-log.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/check-console-log.cjs"]
           }
         ],
         "description": "Check for console.log in modified files after each response",
@@ -217,7 +238,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/session-end.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/session-end.cjs"]
           }
         ],
         "description": "Persist session state on end",
@@ -228,7 +250,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/evaluate-session.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/evaluate-session.cjs"]
           }
         ],
         "description": "Evaluate session for extractable patterns",
@@ -239,7 +262,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CALSUITE_DIR}/scripts/hooks/flow-trace-cleanup.cjs\""
+            "command": "node",
+            "args": ["${CALSUITE_DIR}/scripts/hooks/flow-trace-cleanup.cjs"]
           }
         ],
         "description": "Clean up flow trace files",

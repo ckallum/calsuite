@@ -2,7 +2,37 @@
 
 All notable changes to this repository.
 
-Current version: **2.33**
+Current version: **2.34**
+
+## [2.34] — 2026-05-24
+
+### Changed
+
+- **Migrated all 21 hook entries in `hooks/hooks.json` from string form to exec form (`args: string[]`)** — closes [#91](https://github.com/ckallum/calsuite/issues/91). The published schema at `https://json.schemastore.org/claude-code-settings.json` now exposes `args: string[]` on hook command entries (verified against the live schema 2026-05-24), so the migration the 2.32 changelog flagged as "consciously not acted on" is now safe to land. Each entry's `node "${CALSUITE_DIR}/path/script.cjs"` became `"command": "node", "args": ["${CALSUITE_DIR}/path/script.cjs"]`. The one inline `node -e "<script>"` entry (the tmux reminder) became `"command": "node", "args": ["-e", "<script>"]`. The `ci-monitor.cjs` entry preserves its sibling `async: true` and `timeout: 30` fields untouched.
+- `_origin: "calsuite"` and `description` still live at the matcher-group level (sibling to `hooks` and `matcher`), not on the inner command entries — the schema's `additionalProperties: false` on command entries would reject them, and `mergeHooks()` in the installer keys off the matcher level anyway.
+- **`resolveCalsuiteDir()` auto-detects the canonical calsuite checkout via `git rev-parse --git-common-dir` instead of hardcoded `~/Projects/calsuite`.** The previous fallback assumed the maintainer's directory layout (`~/Projects/...`); the new git-based detection works for any user, any layout. Resolution order is now: `CALSUITE_DIR` env var → git-common-dir parent (canonical .git for the current calsuite tree, including worktrees) → installer's own `__dirname/..` (final fallback for tarball-extracted or non-git checkouts). The `CALSUITE_DIR` env var is now even less necessary — only useful for the rare "multiple calsuite checkouts, force a specific one" override. README's "Where calsuite lives" section updated accordingly.
+
+### Why
+
+Exec form spawns the script directly without a shell fork — marginally faster, and path placeholders never need quoting (per the schema's `args` description: "each element is passed as-is"). Calsuite hook paths don't contain spaces today, so the practical win is small; the migration is mostly a cleanliness pass and removes one source of quoting bugs for any future hook with a space in its path. Issue #91 was specifically labelled `afk` because it's mechanical and the upstream gate (schema availability) is the only meaningful judgment call.
+
+`substituteCalsuiteDir()` in `scripts/configure-claude.js` works on the JSON-stringified hooks object, so it found `${CALSUITE_DIR}` inside `args[]` array elements with zero code changes — verified inline before commit. The pre-existing `mergeHooks()` filter (origin-keyed, not shape-keyed) also passed through unchanged: re-installing against a target with an injected project-specific hook preserved the project hook and kept all 21 calsuite hooks across runs.
+
+Verified against `/tmp/test-hooks-migrate` per CLAUDE.md `Testing configure-claude.js` guidance: 21 entries written, all `${CALSUITE_DIR}` placeholders resolved to absolute paths in `args[]`, project-specific hook preserved after re-run, idempotent.
+
+### Fixed
+
+Three small bugs that surfaced while shipping #91 — bundled into this version because they were small, well-scoped, and discovered as a coherent batch during the ship workflow run for #91 itself.
+
+- **`scripts/configure-claude.js --sync` is now context-aware: silent in git hooks, loud on user invocations** — closes [#97](https://github.com/ckallum/calsuite/issues/97). The post-commit hook (`.git/hooks/post-commit`) calls `node configure-claude.js --sync` from `$(git rev-parse --show-toplevel)`. Worktrees never have `config/targets.json` (it's per-user, gitignored), so `--sync` printed a multi-line "✗ config/targets.json not found / copy the example / gitignored per-user" warning on every commit. Loudness now keys on `process.env.GIT_DIR`, which git sets when invoking hooks: present → silent no-op (post-commit context, no audience for first-run guidance); absent → restore the loud error (`/sync` slash command, `/reconcile-targets`, manual CLI — these all interpret silent output as "ran clean" and would falsely succeed). Malformed `targets.json` (top-level `targets` not an array) is ALWAYS loud regardless of context — user mistake worth surfacing immediately rather than silently disabling sync. Deliberate empty `{"targets": []}` follows the same context-dependent loudness as missing. No canonical-checkout fallback: a worktree holding experimental WIP shouldn't fan those changes out to every downstream target on every commit — worktrees skip silently in hook context, fire the loud error if `--sync` is run manually from one.
+- **`/review` and `/ship` spec-gate fallback no longer matches unrelated specs** — closes [#96](https://github.com/ckallum/calsuite/issues/96). Both `skills/review/SKILL.md` (Step 3) and `skills/ship/SKILL.md` (Step 7.4 Gate 3) detected the active spec by stripping `feat|fix|chore|refactor|feature` prefixes from the branch slug, then falling back to "first spec under `.claude/specs/` alphabetically" if no exact match. For issue-driven branches like `claude/<task>`, the fallback grabbed a completely unrelated spec — Agent I / Gate 3 then ran with the wrong `COMPLIANCE_REFERENCE`. Hit concretely on this PR's branch (`claude/awesome-davinci-061a23` matched `.claude/specs/flow-trace`). Dropped the `find` fallback entirely — genuinely spec-driven branches still match via the slug check.
+- **`/review` signal-gating greps no longer produce two-line `"0\n0"` strings** — closes [#98](https://github.com/ckallum/calsuite/issues/98). `skills/review/SKILL.md` Step 3 used `F_COUNT=$(grep -cE 'pat' "$DIFF_FILE" || echo 0)` for the F/G/H/versioned-struct gates. `grep -c` always prints the count to stdout (`0` on no match) and exits 1 on no match — so `|| echo 0` appended a second `0`, producing `"0\n0"`. Subsequent `[ "$F_COUNT" -gt 0 ]` tests errored with "integer expression required" (the orchestrator silently interpreted the bash output and proceeded, which masked the bug). Dropped `|| echo 0` from all four gates. `/ship`'s Step 7.4 was unaffected — it uses `|| true` which doesn't double up.
+
+> _Note: commit `dd67787` references "Closes #96" and commit `71137db` references "Closes #97, #98" — those refs are swapped (#96 ↔ #97) because the parallel `gh issue create` calls in the original sweep returned URLs in a non-deterministic order and the commit-message authoring assumed the wrong mapping. The end state is correct on merge — both #96 and #97 get auto-closed regardless of which commit references which — but the per-commit attribution is mislabelled. This CHANGELOG and the PR body have the correct mapping._
+
+### Added
+
+- **`scripts/setup.cjs` — first-run onboarding for fresh calsuite checkouts.** Installs `.git/hooks/post-commit` from the tracked template at `scripts/git-hooks/post-commit` (the hook lives outside the tracked tree and isn't restored by `git clone`, so a fresh clone previously had no auto-sync), optionally seeds `config/targets.json` from the example, and runs a smoke test against a throwaway temp project. Idempotent: re-running detects what's already in place and only fills gaps. Refuses to overwrite a non-calsuite post-commit hook without `--force`. Flags: `--yes` (no prompts, accept defaults), `--hook-only` (just install the hook), `--no-smoke` (skip smoke test for offline use). README's Getting Started now points at this as the first command after `git clone`.
 
 ## [2.33] — 2026-05-24
 

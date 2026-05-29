@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.33** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.34** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -29,6 +29,36 @@ If the user asks for the same *shape* of thing a second time, propose a skill. T
 If the skill is calsuite-internal (lives in calsuite, not distributed — e.g. `sync`, `reconcile`, `customise`, `skill-builder`), skip step 2.
 
 Record durable learnings (patterns, pitfalls, preferences) via `/learn save` — they persist across sessions in `.context/learnings/`.
+
+## Fresh-clone test
+
+Calsuite is a personal harness for the maintainer, but the source is distributable — anyone should be able to `git clone` it and run a single command to get a working install. Code that only works on the maintainer's machine defeats the point.
+
+Two failure modes that have happened, both of which the fresh-clone test catches:
+
+- **Hardcoded directory layouts under `HOME_DIR`.** A `path.join(HOME_DIR, 'Projects', 'calsuite')` fallback assumes the maintainer's repo location. Use `git rev-parse --git-common-dir` (works for any git checkout) or `__dirname` (works for any installer invocation) or an env var (explicit override). Never bake a user-directory convention into a fallback.
+- **Tribal knowledge that isn't tracked.** A git hook installed manually on the maintainer's machine doesn't survive `git clone`. Anything required for the install to work must be either tracked in the repo (templates + an installer that copies them) or documented as a one-line setup step the user runs explicitly.
+
+The deterministic check: run `scripts/setup.cjs` against a checkout that's not the maintainer's — a clean `~/Stuff/calsuite/`, `/tmp/calsuite-test/`, anywhere. The setup script + smoke test must produce a working install with no manual fix-ups. If anything fails, fix the source, not the user's environment.
+
+Concrete failure modes this catches (PR #95, 2026-05-26): `resolveCalsuiteDir()` fell back to a hardcoded `~/Projects/calsuite` that nobody but the maintainer had; `.git/hooks/post-commit` was untracked, so fresh clones had no auto-sync. The "can a non-maintainer use this?" question would have surfaced both at design time. Adversarial review (`/review --converse codex`) examined the relevant code on PR #95 and did NOT flag either — both reviewers were tuned for correctness, not distributability. Naming this concern explicitly in CLAUDE.md changes what implementers and reviewers look for.
+
+## Behavior changes need caller surveys
+
+Before changing the externally-observable behavior of any shared interface — a function with multiple callsites, a CLI flag, a hook script, a skill that other skills invoke, a config schema, an exit-code contract — survey the callers first.
+
+```bash
+# Examples
+rg "configure-claude.js --sync" -l        # who runs this CLI flag?
+rg "readJsonSync\(.*TARGETS_JSON" -l      # who reads this config?
+rg "scripts/hooks/foo.cjs" .claude/       # who invokes this hook?
+```
+
+For each caller, decide whether the new behavior is intended for that context. If contexts disagree (e.g. post-commit hook wants silence, `/sync` slash command wants loudness), the fix needs to discriminate — typically via an env var like `process.env.GIT_DIR` (set by git in hook context), an explicit flag, or a TTY check.
+
+Concrete failure mode this catches (PR #95, 2026-05-25): `--sync` was made silent-on-missing-targets for the post-commit hook context. The `/sync` slash command, which interprets a missing output summary as "ran clean," then started falsely reporting success to users with no targets configured. Surveying the three callers (post-commit, `/sync`, `/reconcile-targets`) before the change would have surfaced the conflict immediately.
+
+This is a workflow rule, not a lint rule — it requires judgment per caller. But it's the highest-leverage discipline for avoiding "fixed for one caller, broke another" regressions in shared infrastructure.
 
 ## Structure
 
@@ -62,6 +92,7 @@ templates/   # spec / doc / changelog templates
 - Hooks live in **`settings.local.json`** (gitignored), not `settings.json`. Writing calsuite paths into committed `settings.json` breaks every collaborator and CI.
 - Hook scripts are **not** copied or symlinked into target repos. Hook commands in `settings.local.json` reference `$CALSUITE_DIR/scripts/hooks/*.cjs` directly. `$CALSUITE_DIR` is resolved **at install time** into an absolute path — Claude Code's hook runner does NOT shell-expand hook commands at runtime.
 - `hooks/hooks.json` template uses `${CALSUITE_DIR}` placeholder. Installer substitutes via `substituteCalsuiteDir()` in `scripts/configure-claude.js`.
+- Hook command entries use **exec form**: `"command": "node", "args": ["${CALSUITE_DIR}/scripts/hooks/x.cjs"]` — not a shell string. Each `args[]` element is passed to the spawned process as-is (no shell interpretation, no quoting needed for paths with spaces). `substituteCalsuiteDir()` resolves `${CALSUITE_DIR}` in both `command` and `args` because it operates on the JSON-stringified form. Inline scripts use `"command": "node", "args": ["-e", "<script>"]`. Sibling fields (`async`, `timeout`) sit alongside `command`/`args` on the same object.
 - Calsuite location resolves in this order: `$CALSUITE_DIR` env var → `~/Projects/calsuite` default → installer's own parent dir.
 - Skills and agents use the `_origin` safe-overwrite protocol — frontmatter marker `_origin: calsuite@<short-sha>`. Decision matrix lives in `scripts/lib/origin-protocol.cjs` (`decideFileAction`). Migration for pre-protocol files happens automatically per-file (byte-identical → auto-stamp, differs → skip + log).
 - Content comparison is LF-normalized and strips the `_origin` line from both sides. Source files never carry `_origin`; target files always do once stamped. Comparing raw bytes would false-positive every time.
