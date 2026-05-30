@@ -93,7 +93,7 @@ The skill polls until the signal arrives or the timeout hits. Without this field
 
 ### `teardown`
 
-A command to run on EXIT trap. Typical: `docker compose down`, or a custom cleanup script. The skill always kills the dev-server PID — `teardown` is for sidecars.
+A command to run during explicit Step 7 teardown. Typical: `docker compose down`, or a custom cleanup script. The skill always kills the dev-server process group — `teardown` is for sidecars.
 
 ### `logs`
 

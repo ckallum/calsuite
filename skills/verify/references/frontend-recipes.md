@@ -55,8 +55,10 @@ agent-browser --session verify wait 2000
 # 6. After screenshot
 agent-browser --session verify screenshot "${VERIFY_DIR}/screenshots/after-signup.png"
 
-# 7. Look for errors
-agent-browser --session verify snapshot | grep -i -E '(error|warning|exception|failed)'
+# 7. Look for errors — hard errors fail the verify; warnings are surfaced but non-blocking
+#    (see "Console error handling" below for why warnings alone don't fail).
+agent-browser --session verify snapshot | grep -i -E '(error|exception|failed)'
+agent-browser --session verify snapshot | grep -i 'warning' || true
 ```
 
 ## Asserting success

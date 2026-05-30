@@ -43,6 +43,14 @@ write code → run the app → drive the changed path → did it work?
 
 **The loop runs without you in it.** Don't pause to ask the user mid-loop. If you get stuck, surface everything you tried in one message — not five.
 
+## Arguments
+
+| Arg | Required | Meaning |
+|---|---|---|
+| `skip` | optional | Bypass the verification loop entirely — prints the skip line and stops. Use when the change has no observable runtime behavior. Equivalent to the auto-skip in "When to skip" below, but forced regardless of the diff. |
+
+No argument runs the full loop (detect scope → run → drive → prove → tear down).
+
 ## When to skip
 
 If `git diff origin/main --name-only` shows **only** `*.md`, `LICENSE`, `.github/`, or `*.json` config without any behavior implication, print one line and stop:
@@ -166,7 +174,11 @@ until curl -fsS -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/nul
   fi
   sleep 0.5
 done
-kill -0 "$VERIFY_PID" 2>/dev/null && READY=1
+# Set READY only if the probe actually succeeded — a process that's still alive but
+# stuck in init would otherwise false-positive past the timeout break.
+if curl -fsS -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null | grep -qE '^[23]'; then
+  READY=1
+fi
 
 if [ "$READY" != "1" ]; then
   echo "verify aborted: server never became ready — running teardown"
@@ -390,7 +402,7 @@ Until the integration lands, paste the `summary.md` path into the PR body yourse
 
 - **The loop runs without the user.** Don't pause for confirmation between steps. Surface only when stuck after 3 fix attempts, or when "cannot verify" applies.
 - **Always capture evidence.** Screenshots / logs / DB rows. If you didn't save it, you didn't verify it.
-- **Always tear down processes** with `trap ... EXIT`. A leaked dev server eats the next session's port.
+- **Always tear down processes explicitly in Step 7.** A leaked dev server eats the next session's port. Don't use a `trap ... EXIT` — it fires when the launching Bash call ends, killing the server before Step 4 runs.
 - **Add log lines if the path is opaque.** Instrumenting the change is part of verifying it, not separate cleanup.
 - **Never claim verified when you didn't.** Use the "cannot verify" template instead. False confidence is the worst output.
 - **Cap fix attempts at 3.** Past that, hand off to `/debug` or the user. Looping silently is the worst form of stuck.
