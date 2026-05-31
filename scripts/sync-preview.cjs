@@ -80,6 +80,7 @@ function previewTarget(targetPath) {
     'write-new': [],
     'write-update': [],
     'migrate': [],
+    'no-op': [],
     'skip-diverged': [],
     'skip-unknown': [],
     'skip-claimed': [],

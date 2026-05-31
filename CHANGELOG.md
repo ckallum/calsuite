@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.36**
+Current version: **2.37**
+
+## [2.37] — 2026-05-31
+
+### Fixed
+
+- **Installing into a git worktree now honors per-target `targets.json` overrides.** Single-path invocation (`node scripts/configure-claude.js <dir>`) matched a target's config by exact path equality, so a worktree of a registered target — whose working-tree path differs from the registered one — matched nothing and silently dropped `workspaces: "skip"` and `skills.exclude`. A worktree of the monorepo target `verity` would reinstall the full workspace harness into `frontend/` and `backend/` instead of staying root-only. Added `findMatchingTarget()`, which falls back from path equality to git repo identity (`git rev-parse --git-common-dir`, shared across all worktrees of a repo) so overrides follow the repo rather than the path. Threaded through all three matching callsites: single-path `main()`, `installOnly()` (`--only`), and `handlePruneStale()`.
+- **`scripts/sync-preview.cjs` no longer crashes when an installed file is already current.** The preview's bucket map was missing the `no-op` action that `decideFileAction` returns for up-to-date files, so any clean target threw `Cannot read properties of undefined (reading 'push')` — the common case, which made the dry run effectively unusable.
+
+### Why
+
+Surfaced while syncing calsuite `2.36` out to its five downstream targets via per-target worktree PRs. Building the sync branch in a throwaway worktree off `origin/main` keeps the target's checked-out branch untouched, which is the natural way to turn a mechanical sync into reviewable PRs — but it tripped the path-equality assumption baked into target matching. The git-identity fallback makes the worktree workflow correct by construction instead of relying on the caller to hand-stage around the over-install.
 
 ## [2.36] — 2026-05-29
 
