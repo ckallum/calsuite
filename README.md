@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.35**
+**Version: 2.36**
 
 ## Getting started
 
@@ -172,6 +172,7 @@ Skills are invoked as `/<name>`. Bucketed by how often you'll reach for them.
 
 ### Occasional
 - **`/qa`** — systematic QA testing.
+- **`/verify`** — pre-PR end-to-end verification loop. Detects scope from the diff (frontend / backend / cross-cutting), runs the app, drives the changed path with `agent-browser` or `curl`, captures evidence (screenshots, log markers, DB rows). Fix-and-retry capped at 3×.
 - **`/code-review`** — review changed code for reuse, quality, efficiency. (Built-in; renamed from `/simplify` in Claude Code 2.1.146.)
 - **`/sweep-issues`** — auto-create GitHub issues from session context (deferred items, fast-follows, tech debt). Records `wontfix` enhancements to `.out-of-scope/`.
 - **`/retro`** — weekly engineering retrospective.

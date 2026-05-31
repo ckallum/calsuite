@@ -2,7 +2,21 @@
 
 All notable changes to this repository.
 
-Current version: **2.35**
+Current version: **2.36**
+
+## [2.36] — 2026-05-29
+
+### Added
+
+- **New `/verify` skill** — the pre-PR end-to-end verification loop. Detects scope from the diff (frontend / backend / schema / cross-cutting), discovers how to run the app from `.claude/verify-config.json` or `package.json` / `Makefile` / `docker-compose.yml`, starts the dev server in the background, drives the changed code path (browser for UI via `agent-browser`, `curl` for API), and captures evidence across four classes: screenshots, log markers, DB rows, and HTTP responses. Fix loop is capped at 3 attempts before surfacing — "needs a loop, not the user in the loop." Distributed to `base` and `monorepo-root` profiles. Adapts to whatever stack the downstream repo uses; stack-specific patterns live in `skills/verify/references/{discover-stack,frontend-recipes,backend-recipes,config-schema}.md`.
+
+### Why
+
+`/ship` Step 3 runs unit tests — necessary, not sufficient. Unit tests don't prove the button works, the API writes the row, or the migration creates the column the handler expects. The verify-then-ship loop (write → run → drive → see fail → read logs → fix → hot reload → screenshot success → open PR) closes that gap, and downstreams kept asking variants of "did you actually click the thing." Pulling this into a shared skill means every target inherits the same loop shape regardless of stack — Next.js fullstack, Django + React monorepo, Go API + Vite SPA all run the same `/verify`, just with different config-discovered commands underneath.
+
+The skill is intentionally **not** wired into `/ship` yet. The verify-as-explicit-step ritual (`/verify` → `/ship`) lets each downstream prove the loop works for their stack before we make it mandatory; the `/ship` integration is tracked as [#110](https://github.com/ckallum/calsuite/issues/110).
+
+The PR went through two review rounds before landing. Round 0 (/review) caught 4 critical issues — README missing `/verify` from the Skills Overview, `argument-hint` advertising a `--skip-discovery` flag the body never parsed, false claims about `/ship` auto-linking the evidence summary, and an `NODE_ENV === 'development'`-alone auth bypass (production has shipped with NODE_ENV unset; replaced with a positive `ALLOW_DEV_AUTH=1` opt-in). Round 1 (adversarial `/review pr 108 --converse codex`) caught 8 more bash-correctness bugs in the skill text. The load-bearing one: variables and `trap` from Step 3 do NOT survive into Step 4 because Claude Code spawns a fresh shell per Bash tool call — the EXIT trap was firing the instant Step 3's call exited, killing the server right after it became ready. Restructured to persist state via `/tmp/verify-state.env`, source it in every later step, and replace the EXIT trap with an explicit Step 7 teardown. Coordinated changes in the same rewrite: wallclock deadline on the ready-loop, `setsid` launch + `kill -- -PGID` so npm/concurrently/vite children get reaped, `COMPOSE_PROJECT_NAME=verify-<ts>` so `docker compose down` scopes only to what verify brought up, `mkdir -p` for the screenshots dir upfront, `attempts.txt` per-attempt log so 3-attempt-cap drift is visible in the artifact. The first downstream to run `/verify` in anger gets a working loop — that was the whole point of the round.
 
 ## [2.35] — 2026-05-29
 
