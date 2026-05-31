@@ -147,6 +147,48 @@ function ensureTargetsArray(targetsJson) {
   }
 }
 
+/**
+ * Resolve a directory's git "common dir" — the shared .git directory every
+ * worktree of a repo points at. Two worktrees of the same repo return the same
+ * value, while their working-tree paths (--show-toplevel) differ. Returns null
+ * if `dir` isn't a git tree or git isn't on PATH.
+ */
+function gitCommonDir(dir) {
+  try {
+    const { execFileSync } = require('node:child_process');
+    return execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find the config/targets.json entry that corresponds to `targetDir`.
+ *
+ * Matches on path equality first (the common case), then falls back to git repo
+ * identity so installing into a *worktree* of a registered target still picks
+ * up that target's per-repo overrides (`workspaces: "skip"`, `skills.exclude`).
+ * Without the identity fallback a worktree's path never equals the registered
+ * path, so overrides silently vanish — e.g. a monorepo target with
+ * `workspaces: "skip"` would get its workspace harness reinstalled.
+ */
+function findMatchingTarget(targets, targetDir) {
+  if (!Array.isArray(targets)) return undefined;
+  const exact = targets.find(
+    t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
+  );
+  if (exact) return exact;
+  const targetCommon = gitCommonDir(targetDir);
+  if (!targetCommon) return undefined;
+  return targets.find(
+    t => gitCommonDir(path.resolve(t.path.replace(/^~/, HOME_DIR))) === targetCommon
+  );
+}
+
 // Actions that should result in (re)writing the destination file.
 const WRITE_ACTIONS = new Set(['write-new', 'write-update', 'migrate']);
 // Actions that indicate a file was skipped and needs user reconciliation.
@@ -974,9 +1016,7 @@ function installOnly(targetDir, onlySkills, onlyAgents, outerDivergences = null)
   if (detectedProfiles.includes('monorepo')) {
     const targetsConfig = readJsonSync(TARGETS_JSON);
     ensureTargetsArray(targetsConfig);
-    const matchingTarget = targetsConfig?.targets?.find(
-      t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
-    );
+    const matchingTarget = findMatchingTarget(targetsConfig?.targets, targetDir);
     const skipWorkspaces = matchingTarget?.workspaces === 'skip';
     if (!skipWorkspaces) {
       const workspaces = findWorkspaces(targetDir);
@@ -1412,9 +1452,7 @@ function handlePruneStale(targetPath, { assumeYes = false } = {}) {
       console.error(`  ✗ ${resolved} does not exist`);
       process.exit(1);
     }
-    const matching = targetsJson?.targets?.find(
-      t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === resolved
-    );
+    const matching = findMatchingTarget(targetsJson?.targets, resolved);
     targets = [{ path: resolved, label: path.basename(resolved), workspaces: matching?.workspaces }];
   } else {
     if (!targetsJson) {
@@ -1955,9 +1993,7 @@ function main() {
   // workspace harness even though the user configured the target otherwise.
   const targetsConfig = readJsonSync(TARGETS_JSON);
   ensureTargetsArray(targetsConfig);
-  const matchingTarget = targetsConfig?.targets?.find(
-    t => path.resolve(t.path.replace(/^~/, HOME_DIR)) === targetDir
-  );
+  const matchingTarget = findMatchingTarget(targetsConfig?.targets, targetDir);
   const skipWorkspaces = matchingTarget?.workspaces === 'skip';
 
   const { isMonorepo } = installTarget(targetDir, profilesConfig, {
