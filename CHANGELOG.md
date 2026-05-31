@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.37**
+Current version: **2.38**
+
+## [2.38] — 2026-05-31
+
+### Added
+
+- **`/review` checklist gains a "Cross-cutting patterns" framing section.** Three abstract shapes that most Pass 1/Pass 2 bullets instantiate: **A — State surface sync** (any logical state with two or more surfaces must have every transition touch all of them), **B — Defensive-default trap** (substituting an empty/default/`Ok(None)` for an error signal turns "something broke" into "nothing happened"), and **C — Stale-reference class** (after a structural change, every reference to the old shape must grep to zero). It sits at the top of Review Categories so a reviewer carries the principle into the scan and flags new instances the concrete bullets don't yet list.
+
+### Why
+
+Surfaced while syncing calsuite out to its five downstream targets. museli's installed checklist carried this section but calsuite's source didn't, so a mechanical force-adopt would have deleted the richer downstream content. Ported the framing up to source instead — with its concrete "instances of this" cross-references rewritten to match calsuite's current checklist taxonomy (e.g. *Stale in-memory state after DB write*, *Aggregation Source Consistency*, *Error Handling*) rather than museli's older bullet names — so the next sync resolves the divergence everywhere instead of clobbering it.
 
 ## [2.37] — 2026-05-31
 
