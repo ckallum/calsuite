@@ -31,7 +31,7 @@ Unit tests prove the function returns the right value for an input. Verify prove
 
 The flow:
 
-```
+```text
 write code → run the app → drive the changed path → did it work?
                               ↓ no                      ↓ yes
                            read logs                capture evidence
@@ -125,7 +125,16 @@ fi
 
 VERIFY_TS=$(date +%Y-%m-%d-%H%M%S)
 VERIFY_LOG=/tmp/verify-server-${VERIFY_TS}.log
-VERIFY_DIR=.context/verify/${VERIFY_TS}
+# Honor evidenceDir from .claude/verify-config.json if declared, else default.
+EVIDENCE_BASE=.context/verify
+if [ -f .claude/verify-config.json ]; then
+  EVIDENCE_BASE=$(jq -r '.evidenceDir // ".context/verify"' .claude/verify-config.json 2>/dev/null)
+fi
+# jq's `// default` only fires for a missing key in valid JSON; if jq is absent
+# or the config is malformed the command substitution is empty, which would root
+# VERIFY_DIR at `/`. Guard the empty case explicitly.
+EVIDENCE_BASE=${EVIDENCE_BASE:-.context/verify}
+VERIFY_DIR=${EVIDENCE_BASE%/}/${VERIFY_TS}
 mkdir -p "${VERIFY_DIR}/screenshots" "${VERIFY_DIR}/responses"
 
 # Scope docker compose to this run so the teardown doesn't tear down the user's other compose work.

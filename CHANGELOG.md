@@ -2,7 +2,33 @@
 
 All notable changes to this repository.
 
-Current version: **2.38**
+Current version: **2.40**
+
+## [2.40] — 2026-06-02
+
+### Fixed
+
+- **`--claim` and `--reconcile` now stamp the registered target name when run against a worktree.** Both derived the `_origin` value from the directory basename (`deriveTargetName`), so claiming a file inside a *worktree* of a registered target — e.g. `/tmp/cs-wt-museli/.claude/skills/review/checklist.md` — stamped `_origin: cs-wt-museli` instead of `_origin: museli`. A later `--sync` of the real checkout then computed the basename as `museli`, saw a foreign owner, and skipped the file for the wrong reason. A new `resolveTargetName()` resolves the target through git-repo identity (the same `findMatchingTarget` path #113 added for `--sync`), falling back to the basename only for files outside any registered target (one-off claims, fresh clones with no `targets.json`).
+- **`/verify` guards the `evidenceDir` fallback when `jq` is absent or the config is malformed.** The `jq -r '.evidenceDir // ".context/verify"'` default only covers a missing key in *valid* JSON; if `jq` isn't installed or `verify-config.json` is unparseable, the command substitution returns empty and `VERIFY_DIR` would root at `/`. Added an explicit `EVIDENCE_BASE=${EVIDENCE_BASE:-.context/verify}` guard. Narrow trigger and it fails loudly, hence non-blocking — found independently by all three PR-review agents.
+
+### Why
+
+Surfaced while reconciling the `/review` checklist across the downstream targets via worktrees: a `--claim` against a museli worktree stamped `_origin: cs-wt-museli` and had to be hand-corrected before commit. #113 moved `--sync`/install/prune-stale to git-identity matching but left `--claim`/`--reconcile` on the naive basename, so the worktree footgun persisted in exactly the reconcile workflow that most often runs against worktrees.
+
+## [2.39] — 2026-06-02
+
+### Fixed
+
+- **`/review` Agent I dispatch prose now matches the exact-match `SPEC_DIR` code.** The gating logic was tightened to require an exact spec-directory match (no fallback to "first spec under `.claude/specs/`"), but the Agent I dispatch paragraph still described the old fallback. An issue-driven branch like `claude/<task>` would read as "a spec exists, dispatch the agent" when the code had already (correctly) decided to skip.
+- **`/sweep-issues` PR-introduced-bug guard works on non-`main` default branches.** The guard diffed against a hardcoded `origin/main`, so a repo whose default branch is `master` (the guard already special-cased that name) diffed against a nonexistent ref, got an empty file list, and silently never fired. Now resolves the default branch via `git rev-parse --abbrev-ref origin/HEAD`.
+- **`/sweep-issues` bootstraps the custom category labels.** Only `afk`/`hitl` were gate-created; `gh issue create --label tech-debt` fails outright if the label is missing, dropping the issue. Added gated creates for `tech-debt` and `infrastructure` (`enhancement`/`bug` are GitHub defaults).
+- **`/verify` honors the documented `evidenceDir` config.** `config-schema.md` advertised an `evidenceDir` knob, but the main loop hardcoded `.context/verify/<ts>`. The script now reads `evidenceDir` from `.claude/verify-config.json` (via the same `jq` pattern used for teardown) and falls back to the default.
+- **`/verify` frontend error check no longer inverts its own intent.** The console-error grep printed matches but never failed the run, despite the comment promising "hard errors fail the verify." Rewritten as `grep -qi … && exit 1` so a match (errors present) actually fails.
+- **`config-schema.md` no longer claims `/ship` auto-links verify evidence.** It said `/ship` "knows to link" the evidence dir; `verify/SKILL.md` says the opposite in three places. Corrected to match — `/ship` does not yet pick it up.
+
+### Why
+
+PR-review feedback (adversarial pass) on the `/verify`, `/review`, and `/sweep-issues` skills. Each finding was verified against current source before fixing — the markdownlint MD040 finding was dropped (calsuite runs no markdownlint, so a full fence-retag is scope creep; only the one cited ASCII-diagram fence was tagged `text`). The rest were real: stale prose drifting from tightened code, default-branch assumptions that break the distributable "works on any clone" contract, and documented config knobs the code ignored.
 
 ## [2.38] — 2026-05-31
 
