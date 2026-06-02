@@ -189,6 +189,30 @@ function findMatchingTarget(targets, targetDir) {
   );
 }
 
+/**
+ * Resolve the `_origin` target name to stamp on a claimed/reconciled file.
+ *
+ * Prefers the registered target's basename via git-repo identity, so claiming a
+ * file inside a *worktree* of a registered target stamps the real target name
+ * (e.g. `museli`) rather than the throwaway worktree directory (`cs-wt-museli`).
+ * A worktree-derived name makes later --sync of the real checkout treat the file
+ * as owned by a different target and skip it for the wrong reason. Falls back to
+ * the path-derived basename for files outside any registered target (a one-off
+ * claim in an unlisted repo, or a fresh clone with no targets.json).
+ */
+function resolveTargetName(destPath) {
+  const marker = path.sep + '.claude' + path.sep;
+  const idx = destPath.lastIndexOf(marker);
+  if (idx !== -1) {
+    const targetDir = destPath.slice(0, idx);
+    const targetsConfig = readJsonSync(TARGETS_JSON);
+    ensureTargetsArray(targetsConfig);
+    const match = findMatchingTarget(targetsConfig?.targets, targetDir);
+    if (match) return path.basename(path.resolve(match.path.replace(/^~/, HOME_DIR)));
+  }
+  return deriveTargetName(destPath);
+}
+
 // Actions that should result in (re)writing the destination file.
 const WRITE_ACTIONS = new Set(['write-new', 'write-update', 'migrate']);
 // Actions that indicate a file was skipped and needs user reconciliation.
@@ -1173,7 +1197,7 @@ function handleClaim(targetPath) {
     console.error(`    got: ${destPath}`);
     process.exit(1);
   }
-  const targetName = deriveTargetName(destPath);
+  const targetName = resolveTargetName(destPath);
   const content = fs.readFileSync(destPath, 'utf8');
   const stamped = originProtocol.stampOrigin(content, targetName);
   fs.writeFileSync(destPath, stamped);
@@ -1257,8 +1281,9 @@ function handleReconcile(targetPath) {
     process.exit(1);
   }
 
+  const targetName = resolveTargetName(destPath);
   console.log('Resolution options:');
-  console.log(`  [k] Keep target's version (stamp _origin: ${deriveTargetName(destPath)})`);
+  console.log(`  [k] Keep target's version (stamp _origin: ${targetName})`);
   console.log(`  [a] Adopt calsuite's current version (overwrite)`);
   console.log(`  [m] Three-way merge in $EDITOR`);
   console.log(`  [s] Skip (leave file flagged)`);
@@ -1275,7 +1300,6 @@ function handleReconcile(targetPath) {
   const choice = buf.slice(0, bytesRead).toString('utf8').trim().toLowerCase();
 
   if (choice === 'k' || choice === 'keep') {
-    const targetName = deriveTargetName(destPath);
     const stamped = originProtocol.stampOrigin(destContent, targetName);
     fs.writeFileSync(destPath, stamped);
     console.log(`  ✓ Kept target's version. Stamped ${destPath} → _origin: ${targetName}`);
