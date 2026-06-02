@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.37**
+**Version: 2.38**
 
 ## Getting started
 
