@@ -2,7 +2,22 @@
 
 All notable changes to this repository.
 
-Current version: **2.38**
+Current version: **2.39**
+
+## [2.39] — 2026-06-02
+
+### Fixed
+
+- **`/review` Agent I dispatch prose now matches the exact-match `SPEC_DIR` code.** The gating logic was tightened to require an exact spec-directory match (no fallback to "first spec under `.claude/specs/`"), but the Agent I dispatch paragraph still described the old fallback. An issue-driven branch like `claude/<task>` would read as "a spec exists, dispatch the agent" when the code had already (correctly) decided to skip.
+- **`/sweep-issues` PR-introduced-bug guard works on non-`main` default branches.** The guard diffed against a hardcoded `origin/main`, so a repo whose default branch is `master` (the guard already special-cased that name) diffed against a nonexistent ref, got an empty file list, and silently never fired. Now resolves the default branch via `git rev-parse --abbrev-ref origin/HEAD`.
+- **`/sweep-issues` bootstraps the custom category labels.** Only `afk`/`hitl` were gate-created; `gh issue create --label tech-debt` fails outright if the label is missing, dropping the issue. Added gated creates for `tech-debt` and `infrastructure` (`enhancement`/`bug` are GitHub defaults).
+- **`/verify` honors the documented `evidenceDir` config.** `config-schema.md` advertised an `evidenceDir` knob, but the main loop hardcoded `.context/verify/<ts>`. The script now reads `evidenceDir` from `.claude/verify-config.json` (via the same `jq` pattern used for teardown) and falls back to the default.
+- **`/verify` frontend error check no longer inverts its own intent.** The console-error grep printed matches but never failed the run, despite the comment promising "hard errors fail the verify." Rewritten as `grep -qi … && exit 1` so a match (errors present) actually fails.
+- **`config-schema.md` no longer claims `/ship` auto-links verify evidence.** It said `/ship` "knows to link" the evidence dir; `verify/SKILL.md` says the opposite in three places. Corrected to match — `/ship` does not yet pick it up.
+
+### Why
+
+PR-review feedback (adversarial pass) on the `/verify`, `/review`, and `/sweep-issues` skills. Each finding was verified against current source before fixing — the markdownlint MD040 finding was dropped (calsuite runs no markdownlint, so a full fence-retag is scope creep; only the one cited ASCII-diagram fence was tagged `text`). The rest were real: stale prose drifting from tightened code, default-branch assumptions that break the distributable "works on any clone" contract, and documented config knobs the code ignored.
 
 ## [2.38] — 2026-05-31
 
