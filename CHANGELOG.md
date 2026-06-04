@@ -9,6 +9,7 @@ Current version: **2.40**
 ### Added
 
 - **`/grok` — an incremental tutor that makes the learner deeply understand the session.** It reconstructs the work (diff, decisions, surrounding code) into a tiered understanding checklist — *the problem* (what, why it existed, the branches considered), *the solution* (what changed, why this way, the edge cases), *the broader context* (why it matters, what it impacts) — written to `.context/grok/<slug>.md`. The skill calibrates by having the learner restate their understanding first, then teaches and quizzes one item at a time, ticking a box only once that item is *demonstrated* (restated in their own words **and** answered correctly), never just heard. Quizzing uses `AskUserQuestion` with mixed open-ended / multiple-choice questions, randomized correct-answer position, and answers revealed only after submission. The session does not end until every box is ticked. Supports `eli5` / `eli14` / `elii` depth on request and shows real code / debugger output rather than describing it abstractly.
+- **`CLAUDE.md` gains a Skills inventory.** Until now CLAUDE.md only pointed at `skills/<name>/SKILL.md` generically and never listed skills by name; the routing table now points at a by-name index (distributed skills + calsuite-internal ones, each with a one-line purpose). `config/profiles.json` stays the functional source of truth — the inventory is the human-readable index, and the two-edit rule now notes keeping it current.
 
 ### Why
 
