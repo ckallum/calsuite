@@ -2,14 +2,17 @@
 name: grok
 version: 1.0.0
 description: |
-  grok this, help me understand, teach me this session, walk me through what we did,
-  make sure I understand, tutor me, explain this deeply, I want to learn this, drill me,
-  quiz me, do I actually understand this, onboard me to this change.
-  An incremental tutor: reconstructs the session into a tiered understanding checklist
-  (problem -> solution -> broader context), calibrates against the learner's current
-  understanding, then teaches and quizzes one item at a time -- confirming mastery at both
-  altitudes (high-level motivation and low-level business logic / edge cases) before
-  advancing. The session does not end until every item has been demonstrably grokked.
+  grok this, help me deeply understand this session, tutor me on what we changed,
+  teach me this change, make sure I really understand this, quiz me until I get it,
+  drill me on this, do I actually understand this, onboard me to this work.
+  An interactive, mastery-gated tutor for the work just done: it builds a tiered
+  understanding checklist (problem -> solution -> broader context), calibrates against
+  what the learner already knows, then teaches and quizzes one item at a time and does
+  not stop until every item is demonstrated — restated in their own words and answered
+  correctly — at both high-level (motivation) and low-level (business logic, edge cases)
+  altitude. Use when the goal is durable, verified understanding of a change or the whole
+  session; not for a quick one-shot explanation (for a plain-English summary use /layman,
+  or just answer inline).
 user-invocable: true
 argument-hint: "[this session | PR/commit/branch/path | topic]"
 allowed-tools:
