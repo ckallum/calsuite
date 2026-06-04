@@ -2,9 +2,9 @@
 
 All notable changes to this repository.
 
-Current version: **2.40**
+Current version: **2.41**
 
-## [2.40] — 2026-06-04
+## [2.41] — 2026-06-04
 
 ### Added
 
@@ -14,6 +14,17 @@ Current version: **2.40**
 ### Why
 
 A code change isn't done when it lands — it's done when the person who owns it can explain the problem, defend the design, and trace the edge cases. `/grok` turns the session's own context into a structured, mastery-gated lesson so that understanding is verified, not assumed.
+
+## [2.40] — 2026-06-02
+
+### Fixed
+
+- **`--claim` and `--reconcile` now stamp the registered target name when run against a worktree.** Both derived the `_origin` value from the directory basename (`deriveTargetName`), so claiming a file inside a *worktree* of a registered target — e.g. `/tmp/cs-wt-museli/.claude/skills/review/checklist.md` — stamped `_origin: cs-wt-museli` instead of `_origin: museli`. A later `--sync` of the real checkout then computed the basename as `museli`, saw a foreign owner, and skipped the file for the wrong reason. A new `resolveTargetName()` resolves the target through git-repo identity (the same `findMatchingTarget` path #113 added for `--sync`), falling back to the basename only for files outside any registered target (one-off claims, fresh clones with no `targets.json`).
+- **`/verify` guards the `evidenceDir` fallback when `jq` is absent or the config is malformed.** The `jq -r '.evidenceDir // ".context/verify"'` default only covers a missing key in *valid* JSON; if `jq` isn't installed or `verify-config.json` is unparseable, the command substitution returns empty and `VERIFY_DIR` would root at `/`. Added an explicit `EVIDENCE_BASE=${EVIDENCE_BASE:-.context/verify}` guard. Narrow trigger and it fails loudly, hence non-blocking — found independently by all three PR-review agents.
+
+### Why
+
+Surfaced while reconciling the `/review` checklist across the downstream targets via worktrees: a `--claim` against a museli worktree stamped `_origin: cs-wt-museli` and had to be hand-corrected before commit. #113 moved `--sync`/install/prune-stale to git-identity matching but left `--claim`/`--reconcile` on the naive basename, so the worktree footgun persisted in exactly the reconcile workflow that most often runs against worktrees.
 
 ## [2.39] — 2026-06-02
 
