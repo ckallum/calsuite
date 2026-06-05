@@ -14,12 +14,24 @@ description: |
   pre-flight checks and rollback support.
 ```
 
-**Bad:**
+**Bad (a prose summary — no activation signal):**
 ```yaml
 description: "This skill helps users deploy their code to various environments."
 ```
 
+**Also bad (describes *what* it does, never *when* to reach for it):**
+```yaml
+description: "Generates a flowchart of the development session showing which skills ran."
+```
+
 Include 5-8 trigger phrases. Include the category name (e.g., "deployment", "code review", "data analysis") so the skill activates on category-level requests too.
+
+**The description must signal WHEN to use the skill, not just what it does.** Use one of two forms (the second "describes what" example above has neither, so it never reliably activates):
+
+1. A **trigger-phrase list** — the natural-language ways a user asks for this (`deploy code, push to production, ship deployment, roll out changes`), or
+2. An explicit **"Use when …" clause** — `Use when asked to verify a PR, confirm a fix works, or test a change manually`.
+
+This is enforced, not just advised: the installer (`configure-claude.js`) runs a `validateSkillTriggers()` guard on every sync and lists any skill whose description carries neither signal under `⚠ skill description validation`. A new skill that fails it surfaces the moment it lands.
 
 ## 2. Do Not State the Obvious
 
@@ -143,3 +155,21 @@ The `allowed-tools` frontmatter field is a whitelist. If you omit a tool, Claude
 | Orchestration skills | All above + Skill, Agent |
 
 When in doubt, include the tool. An overly restrictive tool list causes silent failures that are hard to debug.
+
+## 12. Define `$ARGUMENTS` Inline
+
+If a skill substitutes `$ARGUMENTS` in its body, it must define what that argument holds — a fresh agent has no other source of truth for it. Two acceptable forms:
+
+1. A **`## Arguments` section** (required whenever the skill declares `argument-hint` in frontmatter). Enumerate each argument, whether it's optional, its valid forms, and which workflow step consumes it.
+2. An **inline gloss on the usage line** for simple cases — say what the value is, not just that it exists:
+
+```markdown
+If `$ARGUMENTS` is a PR number (e.g. `#42`), fetch that PR's diff with `gh pr diff`.
+```
+
+**Bad (bare substitution — the reader never learns what it is):**
+```markdown
+Run the report for $ARGUMENTS and summarize the result.
+```
+
+The installer guard flags any skill that uses `$ARGUMENTS` with neither a `## Arguments` section nor a gloss on the usage line, under the same `⚠ skill description validation` block. Prefer the `## Arguments` section for anything beyond a single positional value.

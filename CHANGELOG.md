@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.39**
+Current version: **2.41**
+
+## [2.41] — 2026-06-05
+
+### Added
+
+- **`validateSkillTriggers()` guard in `configure-claude.js`.** A skill-audit (35 Haiku scorers + a synthesis pass) found the weakest dimension across the skill set was trigger quality: descriptions like `new-spec`, `flow`, `guardian`, `session-start`, `lint-rule-gen`, `update-docs` (plus `layman`, `strategic-compact`) describe *what* the skill does but never *when* to reach for it. The new validator runs alongside `validateProfilesConfig()` on every install and `--sync`, and warns — never blocks — when a `SKILL.md` `description` carries no when-to-use signal (neither a trigger-phrase list nor a "Use when …" clause), or when a body substitutes `$ARGUMENTS` with no `## Arguments` section and no inline gloss. The heuristic, tuned against the current set, flags the 8 genuine offenders and zero strong skills; the `$ARGUMENTS` arm flags nothing today (every skill already glosses it) and stands as a drift tripwire.
+- **skill-builder now bakes both standards into the generator.** `references/best-practices.md` §1 gains the explicit when-to-use requirement (with a "describes what, not when" counter-example) and a new §12 on defining `$ARGUMENTS` inline; `SKILL.md` adds authoring rule 8, two tightened Step 6 checklist items, and — practising what it preaches — its own `## Arguments` section. The blank `skill-template.md` description placeholder now spells out the signal. New skills conform by construction, and the guard catches any that don't.
+
+### Why
+
+The audit turned a vague sense that "some skills are easier to discover than others" into a measured list, and the fix follows the "codify on repeat" rule: put the standard where skills are authored (skill-builder) and add a deterministic tripwire where drift would otherwise pass silently (the installer guard). A line-regex `agent-rules.json` lint rule could not express either check — both are absence checks over a YAML frontmatter block — so the guard lives in the installer, the same place `validateProfilesConfig()` already warns about profile/skill drift on every run.
 
 ## [2.39] — 2026-06-02
 

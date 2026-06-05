@@ -587,6 +587,104 @@ function validateProfilesConfig(profilesConfig) {
   }
 }
 
+// --- Skill description / $ARGUMENTS quality guard ---------------------------
+// Enforces the trigger-phrase standard that skill-builder documents but nothing
+// previously checked: a SKILL.md `description` must say WHEN to reach for the
+// skill (an explicit "use ... when" / "when you" clause, or a trigger-phrase
+// list), and any skill that substitutes `$ARGUMENTS` in its body must define
+// what that argument holds (a `## Arguments` section or an inline gloss on the
+// usage line). Warns — never blocks — mirroring validateProfilesConfig: the
+// installer runs on every author-side change (post-commit `--sync`, or a manual
+// `node scripts/configure-claude.js .`), so drift surfaces the moment it lands.
+// Heuristic, not a model judgment; tuned against the calsuite skill set so the
+// flagged list is the genuine "no when-to-use signal" cluster, not noise.
+
+// Pull `description` out of a frontmatter block, handling both inline
+// (`description: text`) and YAML block-scalar (`description: |` + indented
+// lines) forms. Returns the flattened, single-spaced text.
+function extractSkillDescription(rawBody) {
+  if (!rawBody) return '';
+  const lines = rawBody.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^description:\s*(.*)$/);
+    if (!m) continue;
+    const inline = m[1].trim();
+    if (inline && !/^[|>][+-]?$/.test(inline)) return inline;
+    const collected = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (/^[A-Za-z_][\w-]*:/.test(lines[j])) break; // next top-level key
+      if (lines[j].trim() === '' && collected.length === 0) continue;
+      collected.push(lines[j].replace(/^\s+/, ''));
+    }
+    return collected.join(' ').replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+// A description carries a trigger signal if it names when to use the skill or
+// lists trigger phrases. EXPLICIT tolerates words between "use" and "when"
+// ("Use proactively when working with libraries").
+const TRIGGER_EXPLICIT_RE = /\b(use|using|invoke|run|reach\s+for|apply|call\s+(this|it))\b[^.\n]{0,40}\bwhen\b|\bwhen\s+(you|the\s+user|asked|working|writing|making|building|dealing|reviewing|editing)\b|\btrigger\s+phrases\b|\btriggers?\s*[:—-]|\buse\s+(this\s+)?(skill\s+)?for\b/i;
+
+function descriptionHasTriggerSignal(desc) {
+  if (!desc) return false;
+  if (TRIGGER_EXPLICIT_RE.test(desc)) return true;
+  const phrases = desc.split(/[,\n]/).map(p => p.trim()).filter(Boolean);
+  const shortPhrases = phrases.filter(p => p.split(/\s+/).filter(Boolean).length <= 6);
+  return phrases.length >= 5 && shortPhrases.length >= 5;
+}
+
+const ARGS_USE_RE = /\$\{?ARGUMENTS\}?/;
+const ARGS_HEADING_RE = /^#{1,4}\s+Arguments\b/im;
+const ARGS_GLOSS_RE = /\b(is|are|was|contains?|holds?|provided|parse[sd]?|means|refers?|determines?|has|have|positional|subcommand|argument|name|number|spec|workspace|branch|PR|flag|the\s+text|the\s+user)\b|--\w|<[^>]+>/i;
+
+// True when a skill that uses $ARGUMENTS explains it: an `## Arguments` section
+// or at least one usage line that glosses what the argument holds.
+function bodyDefinesArguments(body) {
+  if (ARGS_HEADING_RE.test(body)) return true;
+  return body.split(/\r?\n/).some(line => ARGS_USE_RE.test(line) && ARGS_GLOSS_RE.test(line));
+}
+
+let skillTriggersValidated = false;
+function validateSkillTriggers() {
+  if (skillTriggersValidated) return;
+  skillTriggersValidated = true;
+  if (!fs.existsSync(SKILLS_DIR)) return;
+
+  const noTrigger = [];
+  const bareArgs = [];
+
+  for (const dirent of fs.readdirSync(SKILLS_DIR, { withFileTypes: true })) {
+    if (!dirent.isDirectory() || dirent.name.startsWith('.')) continue;
+    const skillMd = path.join(SKILLS_DIR, dirent.name, 'SKILL.md');
+    let content;
+    try {
+      content = fs.readFileSync(skillMd, 'utf8');
+    } catch {
+      continue; // no SKILL.md (or unreadable) — nothing to validate
+    }
+
+    const parsed = originProtocol.parseFrontmatter(content);
+    if (!parsed.hasFrontmatter) continue;
+
+    const desc = extractSkillDescription(parsed.rawBody);
+    if (!descriptionHasTriggerSignal(desc)) noTrigger.push(dirent.name);
+    if (ARGS_USE_RE.test(parsed.body) && !bodyDefinesArguments(parsed.body)) bareArgs.push(dirent.name);
+  }
+
+  if (!noTrigger.length && !bareArgs.length) return;
+
+  console.log('  ⚠ skill description validation:');
+  if (noTrigger.length) {
+    console.log(`    • ${noTrigger.length} description(s) lack a "when to use"/trigger signal: ${noTrigger.sort().join(', ')}`);
+    console.log('      → add trigger phrases or a "Use when …" clause (see skills/skill-builder)');
+  }
+  if (bareArgs.length) {
+    console.log(`    • ${bareArgs.length} skill(s) use $ARGUMENTS with no \`## Arguments\` section or inline gloss: ${bareArgs.sort().join(', ')}`);
+    console.log('      → add a `## Arguments` section or state what $ARGUMENTS holds on the usage line');
+  }
+}
+
 /**
  * Apply a per-target `skills.exclude` filter to the profile-resolved skill
  * list. The target's entry in `config/targets.json` may carry:
@@ -1940,6 +2038,7 @@ function main() {
       process.exit(1);
     }
     validateProfilesConfig(profilesConfig);
+    validateSkillTriggers();
 
     const divergences = [];
     for (const target of targets.targets) {
@@ -1983,6 +2082,7 @@ function main() {
     process.exit(1);
   }
   validateProfilesConfig(profilesConfig);
+  validateSkillTriggers();
 
   console.log(`\nConfiguring Claude Code for: ${targetDir}\n`);
   const divergences = [];
