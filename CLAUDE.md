@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.41** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.42** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -28,7 +28,59 @@ If the user asks for the same *shape* of thing a second time, propose a skill. T
 
 If the skill is calsuite-internal (lives in calsuite, not distributed — e.g. `sync`, `reconcile`, `customise`, `skill-builder`), skip step 2.
 
+Then add a row to the [Skills inventory](#skills-inventory) below so the index stays current — `config/profiles.json` remains the *functional* source of truth (the installer warns on drift); the inventory is the human-readable index.
+
 Record durable learnings (patterns, pitfalls, preferences) via `/learn save` — they persist across sessions in `.context/learnings/`.
+
+## Skills inventory
+
+`config/profiles.json` is the allowlist that decides what distributes; this table is the by-name index the routing table points at. Keep them in sync.
+
+**Distributed** (in `config/profiles.json` → installed into targets):
+
+| Skill | Purpose |
+|---|---|
+| `/babysit-pr` | Drive a PR to green and merge |
+| `/context7` | Fetch version-specific library docs |
+| `/customise` | Fork a skill locally and claim it so `--sync` won't revert |
+| `/debug` | Systematic four-phase debugging loop |
+| `/execute` | Implement from conversation context, a spec, or an issue |
+| `/flow` | Mermaid diagram of the session's skill/agent workflow |
+| `/grok` | Tutor the learner until deep understanding is demonstrated |
+| `/guardian` | Autonomous-mode rules, audit log, mode switching |
+| `/humanize` | Strip AI tells from prose |
+| `/improve-architecture` | Find shallow modules, propose deepening |
+| `/improve-prompt` | Audit and rewrite a prompt |
+| `/layman` | Plain-English summary of a change |
+| `/learn` | Durable per-project learnings across sessions |
+| `/lint-rule-gen` | Generate lint rules from review-feedback patterns |
+| `/new-spec` | Scaffold a spec directory (requirements / design / tasks) |
+| `/plan` | Interview / brainstorm / review / visualize before building |
+| `/plan-ceo` | Founder-mode plan review: scope expansion / hold / reduction |
+| `/prevent` | Add the most deterministic guardrail for a mistake |
+| `/qa` | Systematic web-app QA testing |
+| `/receiving-pr-feedback` | Rigorously handle PR review feedback |
+| `/retro` | Weekly engineering retrospective |
+| `/review` | Multi-agent pre-landing code review |
+| `/session-start` | Load full project-context briefing |
+| `/ship` | Merge main, test, review, push, open PR |
+| `/strategic-compact` | Suggest `/compact` at logical session breakpoints |
+| `/sweep-issues` | Auto-create GitHub issues from session context |
+| `/update-docs` | Update docs / specs / changelog (`monorepo-root` profile only) |
+| `/verify` | Pre-PR end-to-end verification loop |
+| `/worktrees` | Isolated git worktrees with auto-detected setup |
+| `/zoom-out` | Map an unfamiliar area: callers, collaborators, peers |
+
+**Calsuite-internal** (on disk under `skills/`, in no profile, never distributed):
+
+| Skill | Purpose |
+|---|---|
+| `/configure-claude` | Install/sync calsuite config into a project |
+| `/reconcile` | Three-way merge one divergent skill/agent file |
+| `/reconcile-targets` | Reconcile divergences across all targets |
+| `/skill-builder` | Scaffold a new skill |
+| `/sync` | Run the mechanical `--sync` across every target |
+| `/sync-preview` | Read-only `--sync` dry run |
 
 ## Fresh-clone test
 

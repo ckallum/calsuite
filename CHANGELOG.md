@@ -2,9 +2,9 @@
 
 All notable changes to this repository.
 
-Current version: **2.41**
+Current version: **2.42**
 
-## [2.41] — 2026-06-05
+## [2.42] — 2026-06-05
 
 ### Added
 
@@ -14,6 +14,28 @@ Current version: **2.41**
 ### Why
 
 The audit turned a vague sense that "some skills are easier to discover than others" into a measured list, and the fix follows the "codify on repeat" rule: put the standard where skills are authored (skill-builder) and add a deterministic tripwire where drift would otherwise pass silently (the installer guard). A line-regex `agent-rules.json` lint rule could not express either check — both are absence checks over a YAML frontmatter block — so the guard lives in the installer, the same place `validateProfilesConfig()` already warns about profile/skill drift on every run.
+
+## [2.41] — 2026-06-04
+
+### Added
+
+- **`/grok` — an incremental tutor that makes the learner deeply understand the session.** It reconstructs the work (diff, decisions, surrounding code) into a tiered understanding checklist — *the problem* (what, why it existed, the branches considered), *the solution* (what changed, why this way, the edge cases), *the broader context* (why it matters, what it impacts) — written to `.context/grok/<slug>.md`. The skill calibrates by having the learner restate their understanding first, then teaches and quizzes one item at a time, ticking a box only once that item is *demonstrated* (restated in their own words **and** answered correctly), never just heard. Quizzing uses `AskUserQuestion` with mixed open-ended / multiple-choice questions, randomized correct-answer position, and answers revealed only after submission. The session does not end until every box is ticked. Supports `eli5` / `eli14` / `elii` depth on request and shows real code / debugger output rather than describing it abstractly.
+- **`CLAUDE.md` gains a Skills inventory.** Until now CLAUDE.md only pointed at `skills/<name>/SKILL.md` generically and never listed skills by name; the routing table now points at a by-name index (distributed skills + calsuite-internal ones, each with a one-line purpose). `config/profiles.json` stays the functional source of truth — the inventory is the human-readable index, and the two-edit rule now notes keeping it current.
+
+### Why
+
+A code change isn't done when it lands — it's done when the person who owns it can explain the problem, defend the design, and trace the edge cases. `/grok` turns the session's own context into a structured, mastery-gated lesson so that understanding is verified, not assumed.
+
+## [2.40] — 2026-06-02
+
+### Fixed
+
+- **`--claim` and `--reconcile` now stamp the registered target name when run against a worktree.** Both derived the `_origin` value from the directory basename (`deriveTargetName`), so claiming a file inside a *worktree* of a registered target — e.g. `/tmp/cs-wt-museli/.claude/skills/review/checklist.md` — stamped `_origin: cs-wt-museli` instead of `_origin: museli`. A later `--sync` of the real checkout then computed the basename as `museli`, saw a foreign owner, and skipped the file for the wrong reason. A new `resolveTargetName()` resolves the target through git-repo identity (the same `findMatchingTarget` path #113 added for `--sync`), falling back to the basename only for files outside any registered target (one-off claims, fresh clones with no `targets.json`).
+- **`/verify` guards the `evidenceDir` fallback when `jq` is absent or the config is malformed.** The `jq -r '.evidenceDir // ".context/verify"'` default only covers a missing key in *valid* JSON; if `jq` isn't installed or `verify-config.json` is unparseable, the command substitution returns empty and `VERIFY_DIR` would root at `/`. Added an explicit `EVIDENCE_BASE=${EVIDENCE_BASE:-.context/verify}` guard. Narrow trigger and it fails loudly, hence non-blocking — found independently by all three PR-review agents.
+
+### Why
+
+Surfaced while reconciling the `/review` checklist across the downstream targets via worktrees: a `--claim` against a museli worktree stamped `_origin: cs-wt-museli` and had to be hand-corrected before commit. #113 moved `--sync`/install/prune-stale to git-identity matching but left `--claim`/`--reconcile` on the naive basename, so the worktree footgun persisted in exactly the reconcile workflow that most often runs against worktrees.
 
 ## [2.39] — 2026-06-02
 

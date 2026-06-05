@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.41**
+**Version: 2.42**
 
 ## Getting started
 
@@ -184,6 +184,7 @@ Skills are invoked as `/<name>`. Bucketed by how often you'll reach for them.
 - **`/lint-rule-gen`** — generate lint rules from review feedback patterns.
 - **`/prevent`** — analyse a mistake and add the most deterministic guardrail.
 - **`/plan-ceo`** — founder-mode plan review: scope expansion / hold / reduction.
+- **`/grok`** — incremental tutor that makes you deeply understand the session: builds a tiered problem → solution → context checklist, calibrates against your current understanding, then teaches and quizzes one item at a time until every box is demonstrably ticked.
 
 ### Calsuite-internal
 Live in this repo, never distributed to targets:

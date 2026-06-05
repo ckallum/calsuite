@@ -130,6 +130,10 @@ EVIDENCE_BASE=.context/verify
 if [ -f .claude/verify-config.json ]; then
   EVIDENCE_BASE=$(jq -r '.evidenceDir // ".context/verify"' .claude/verify-config.json 2>/dev/null)
 fi
+# jq's `// default` only fires for a missing key in valid JSON; if jq is absent
+# or the config is malformed the command substitution is empty, which would root
+# VERIFY_DIR at `/`. Guard the empty case explicitly.
+EVIDENCE_BASE=${EVIDENCE_BASE:-.context/verify}
 VERIFY_DIR=${EVIDENCE_BASE%/}/${VERIFY_TS}
 mkdir -p "${VERIFY_DIR}/screenshots" "${VERIFY_DIR}/responses"
 
