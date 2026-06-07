@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.43** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.44** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -146,7 +146,7 @@ templates/   # spec / doc / changelog templates
 - Hook scripts are **not** copied or symlinked into target repos. Hook commands in `settings.local.json` reference `$CALSUITE_DIR/scripts/hooks/*.cjs` directly. `$CALSUITE_DIR` is resolved **at install time** into an absolute path — Claude Code's hook runner does NOT shell-expand hook commands at runtime.
 - `hooks/hooks.json` template uses `${CALSUITE_DIR}` placeholder. Installer substitutes via `substituteCalsuiteDir()` in `scripts/configure-claude.js`.
 - Hook command entries use **exec form**: `"command": "node", "args": ["${CALSUITE_DIR}/scripts/hooks/x.cjs"]` — not a shell string. Each `args[]` element is passed to the spawned process as-is (no shell interpretation, no quoting needed for paths with spaces). `substituteCalsuiteDir()` resolves `${CALSUITE_DIR}` in both `command` and `args` because it operates on the JSON-stringified form. Inline scripts use `"command": "node", "args": ["-e", "<script>"]`. Sibling fields (`async`, `timeout`) sit alongside `command`/`args` on the same object.
-- Calsuite location resolves in this order: `$CALSUITE_DIR` env var → `~/Projects/calsuite` default → installer's own parent dir.
+- Calsuite location resolves in this order (`resolveCalsuiteDir()`): `$CALSUITE_DIR` env var → `git rev-parse --git-common-dir` (canonical checkout, resolves from any worktree) → installer's own parent dir (`__dirname/..`). No hardcoded `~/Projects/calsuite` fallback — that was removed (see Fresh-clone test).
 - Skills and agents use the `_origin` safe-overwrite protocol — frontmatter marker `_origin: calsuite@<short-sha>`. Decision matrix lives in `scripts/lib/origin-protocol.cjs` (`decideFileAction`). Migration for pre-protocol files happens automatically per-file (byte-identical → auto-stamp, differs → skip + log).
 - Content comparison is LF-normalized and strips the `_origin` line from both sides. Source files never carry `_origin`; target files always do once stamped. Comparing raw bytes would false-positive every time.
 - `_origin` protocol applies **only to markdown** under `skills/` and `agents/`. Non-markdown files (rare; e.g. `skills/strategic-compact/scripts/suggest-compact.cjs`) are copy-no-overwrite. JSON configs stay on copy-no-overwrite (can't host frontmatter).

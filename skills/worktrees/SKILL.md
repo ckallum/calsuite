@@ -24,10 +24,10 @@ If `$ARGUMENTS` has a branch name, use it. Otherwise, use AskUserQuestion:
 
 ## Step 2: Choose worktree directory
 
-Check these locations in order:
+Check these locations in order — the goal is to match whatever convention the repo already uses, not to impose one:
 
-1. **CLAUDE.md** — look for a `worktree-dir` or similar convention.
-2. **Existing worktrees** — run `git worktree list` to see where previous worktrees live. Use the same parent directory.
+1. **Existing worktrees** — run `git worktree list`. If the repo already has worktrees, create the new one under the same parent directory.
+2. **`.claude/worktrees/` convention** — if that directory exists (or is listed in `.gitignore`), use `.claude/worktrees/<branch-name>`.
 3. **Default** — `../worktrees/<branch-name>` (sibling to the repo root).
 
 If none of the above resolve clearly, ask via AskUserQuestion:
