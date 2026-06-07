@@ -1,6 +1,10 @@
 ---
 name: layman
-description: Summarise a code change in plain, non-technical language with real-life analogies and a clear flow
+description: |
+  explain this in plain English, layman's terms, explain to a non-technical stakeholder,
+  what does this PR do for a PM, ELI5 this change, non-technical summary.
+  Use when you need to explain a code change to someone non-technical.
+  Summarise a code change in plain, non-technical language with real-life analogies and a clear flow.
 user-invocable: true
 arguments: Optional PR number (#123), commit hash, branch, or file path. Defaults to current branch's PR, then staged/unstaged changes, then most recent commit.
 ---

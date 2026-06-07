@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.42**
+Current version: **2.43**
+
+## [2.43] — 2026-06-07
+
+### Changed
+
+- **Eight skill descriptions now signal *when* to use them, not just what they do.** `flow`, `guardian`, `layman`, `lint-rule-gen`, `new-spec`, `session-start`, and `update-docs` gained a leading trigger-phrase list plus a "Use when …" clause; each keeps its original what-it-does sentence. This clears the `validateSkillTriggers()` guard (added in 2.42), which had flagged all eight. Closes #123.
+- **The trigger guard now exempts `user-invocable: false` skills.** `strategic-compact` is hook-driven — it fires from a PreToolUse hook and is never selected by its description — so a "Use when" clause would be a trigger the user can't act on. The guard skips the trigger check for non-invocable skills; `strategic-compact`'s description was rewritten to lead with the mechanism and state it fires automatically. `skills/skill-builder/references/best-practices.md` §1 documents the exemption.
+
+### Why
+
+Wave 2 of the skill-audit follow-up (#123), surfaced by the guard shipped in 2.42. Pre-landing review caught that bolting a "Use when" clause onto a non-invocable hook skill is misleading — the fix was to make the guard's standard match reality (description-matching only applies to skills the model can actually pick) rather than force every skill into a user-facing shape.
 
 ## [2.42] — 2026-06-05
 

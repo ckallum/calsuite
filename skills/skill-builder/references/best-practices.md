@@ -31,7 +31,7 @@ Include 5-8 trigger phrases. Include the category name (e.g., "deployment", "cod
 1. A **trigger-phrase list** — the natural-language ways a user asks for this (`deploy code, push to production, ship deployment, roll out changes`), or
 2. An explicit **"Use when …" clause** — `Use when asked to verify a PR, confirm a fix works, or test a change manually`.
 
-This is enforced, not just advised: the installer (`configure-claude.js`) runs a `validateSkillTriggers()` guard on every sync and lists any skill whose description carries neither signal under `⚠ skill description validation`. A new skill that fails it surfaces the moment it lands.
+This is enforced, not just advised: the installer (`configure-claude.js`) runs a `validateSkillTriggers()` guard on every sync and lists any skill whose description carries neither signal under `⚠ skill description validation`. A new skill that fails it surfaces the moment it lands. Skills marked `user-invocable: false` (hook-driven, never selected by their description) are exempt — describe the mechanism instead, and don't bolt on a "Use when" clause the user can't act on.
 
 ## 2. Do Not State the Obvious
 
