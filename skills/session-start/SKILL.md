@@ -1,6 +1,11 @@
 ---
 name: session-start
-description: Load full project context — reads all .md files, specs, changelog, and git history to produce a prioritized project briefing
+description: |
+  start session, get me up to speed, project briefing, onboard me on this repo,
+  what's the state of this project, load full context, catch me up before planning.
+  Use when starting a session or picking up unfamiliar work and you need orientation.
+  Load full project context — reads all .md files, specs, changelog, and git history
+  to produce a prioritized project briefing.
 user-invocable: true
 arguments: Optional workspace name to scope context loading e.g. "backend"
 ---

@@ -2,6 +2,9 @@
 name: lint-rule-gen
 version: 1.0.0
 description: |
+  generate a lint rule, make a lint rule, ban console.log in src, encode this review nit as a rule,
+  catch this pattern automatically, enforce a convention, turn recurring review feedback into a rule.
+  Use when a review keeps catching the same pattern and you want it enforced automatically.
   Generate lint rules from review feedback patterns.
   Aliases: /lint-rule-gen, /generate-lint-rule
 argument-hint: "[description of pattern to catch]"

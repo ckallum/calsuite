@@ -691,8 +691,13 @@ function validateSkillTriggers() {
     const parsed = originProtocol.parseFrontmatter(content);
     if (!parsed.hasFrontmatter) continue;
 
+    // Hook-driven skills (`user-invocable: false`) are never selected by their
+    // description, so the trigger-phrase standard doesn't apply — exempt them
+    // from the trigger check rather than forcing a meaningless "Use when" clause.
+    const userInvocable = parsed.frontmatter['user-invocable'] !== 'false';
+
     const desc = extractSkillDescription(parsed.rawBody);
-    if (!descriptionHasTriggerSignal(desc)) noTrigger.push(dirent.name);
+    if (userInvocable && !descriptionHasTriggerSignal(desc)) noTrigger.push(dirent.name);
     if (ARGS_USE_RE.test(parsed.body) && !bodyDefinesArguments(parsed.body)) bareArgs.push(dirent.name);
   }
 

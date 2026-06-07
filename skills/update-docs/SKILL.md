@@ -1,6 +1,10 @@
 ---
 name: update-docs
-description: Update project documentation, specs, and changelog based on recent changes
+description: |
+  update the docs, update documentation, sync the docs after a change, update the changelog,
+  refresh the specs, keep docs current, document what changed.
+  Use after implementing features or fixing bugs to keep docs in sync with the code.
+  Update project documentation, specs, and changelog based on recent changes.
 user-invocable: true
 arguments: Optional spec name to focus on e.g. "auth-system"
 ---
