@@ -25,6 +25,13 @@ Read `skills/skill-builder/references/best-practices.md` before generating any s
 
 Read `skills/skill-builder/references/category-templates.md` after the user selects a category — it contains category-specific guidance for folder structure, tools, and sections.
 
+## Arguments
+
+`$ARGUMENTS` is the text typed after `/skill-builder`. Both parts are optional:
+
+- `[skill-name]` — first positional token; becomes the slash command and directory name (lowercase kebab-case). If omitted, Step 0 prompts for it.
+- `[--category <type>]` — one of the nine category names; when present, Step 1 skips the category interview and uses it directly. If omitted, Step 1 asks.
+
 ## Step 0: Determine Skill Name and Target Directory
 
 Parse `$ARGUMENTS` for a skill name (first positional arg) and optional `--category <type>`.
@@ -93,7 +100,7 @@ Read `skills/skill-builder/templates/skill-template.md` as the starting skeleton
 
 **SKILL.md authoring rules** (from `references/best-practices.md`):
 
-1. **Description field is for the model, not the user.** Write 5-8 trigger phrases that describe when this skill should activate. Include the category name. Do not write a paragraph summary.
+1. **Description field is for the model, not the user.** Write 5-8 trigger phrases that describe when this skill should activate. Include the category name. Do not write a paragraph summary. The description must signal *when* to reach for the skill — either a trigger-phrase list or an explicit "Use when …" clause — not just *what* it does. The installer runs a `validateSkillTriggers()` guard that warns on every sync if the description carries neither signal (see `references/best-practices.md` §1).
 
 2. **Do not state the obvious.** Only include instructions that push Claude out of its defaults. Never tell Claude how to read files, use git, or write code — it already knows. Focus on domain-specific knowledge, ordering constraints, and non-obvious decisions.
 
@@ -106,6 +113,8 @@ Read `skills/skill-builder/templates/skill-template.md` as the starting skeleton
 6. **Flexibility over rigidity.** Use "prefer" and "consider" for style guidance. Use "must" and "never" only for correctness constraints (things that would break if violated). Give Claude goals and context, not mechanical step-by-step scripts.
 
 7. **Memory and data storage.** If the skill produces data between runs (logs, history, state), store it in a stable location: the skill directory, `${CLAUDE_PLUGIN_DATA}`, or `.context/<skill-name>/` in the project root.
+
+8. **Define `$ARGUMENTS` inline.** If the skill body substitutes `$ARGUMENTS`, define what it holds — a `## Arguments` section (required when `argument-hint` is set) or a gloss on the usage line (`If $ARGUMENTS is a PR number …`). Never leave a bare substitution. The installer guard flags undefined `$ARGUMENTS` usage (see `references/best-practices.md` §12).
 
 ## Step 5: Register the Skill
 
@@ -122,9 +131,10 @@ After creating all files:
 
 Before finalizing, verify the skill against this checklist. Each item is non-negotiable — if any fails, fix before reporting completion.
 
-- [ ] **Description has triggers.** Frontmatter `description` includes 5-8 trigger phrases (verbs + objects users actually say). Not a paragraph summary.
+- [ ] **Description signals when to use it.** Frontmatter `description` carries a *when-to-use* signal — a 5-8 phrase trigger list (verbs + objects users actually say) or an explicit "Use when …" clause. Not a paragraph summary, not a what-it-does sentence. The installer's `validateSkillTriggers()` guard fails this item on the next sync if it's missing.
 - [ ] **Description names the modes.** If the skill has multiple modes (e.g. RAW / SPEC / ISSUE), the description names them so the model knows when to invoke which.
 - [ ] **Has `## Arguments`.** If the skill declares `argument-hint:` in frontmatter, SKILL.md contains a `## Arguments` section enumerating each argument, whether it's optional, valid values or formats, and how it maps to the skill's main process. Skills with no parameters can omit this section.
+- [ ] **`$ARGUMENTS` is defined.** If the body substitutes `$ARGUMENTS`, it has a `## Arguments` section or an inline gloss on the usage line — never a bare substitution. The installer guard flags undefined usage.
 - [ ] **SKILL.md is reasonably tight.** Body excluding frontmatter is under 300 lines for simple skills, under 600 for multi-mode. If longer, content moves to `references/` or `templates/`.
 - [ ] **No time-sensitive info.** No "as of November 2025", no "the new version of X" — that rots. State invariants, not snapshots.
 - [ ] **Consistent terminology.** One word per concept. If the skill switches between "task", "step", and "operation" for the same thing, pick one and use it everywhere.

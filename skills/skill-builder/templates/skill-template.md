@@ -2,7 +2,9 @@
 name: {{SKILL_NAME}}
 version: 1.0.0
 description: |
-  {{TRIGGER_PHRASES}}
+  {{TRIGGER_PHRASES — 5-8 phrases users actually say, OR a "Use when …" clause.
+  Must signal WHEN to reach for the skill, not just what it does. The installer
+  guard warns if this carries no when-to-use signal.}}
 argument-hint: {{ARGUMENT_HINT}}
 allowed-tools:
   - {{TOOL_1}}
