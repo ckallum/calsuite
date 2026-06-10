@@ -2,9 +2,9 @@
 
 All notable changes to this repository.
 
-Current version: **2.44**
+Current version: **2.48**
 
-## [2.44] — 2026-06-07
+## [2.48] — 2026-06-07
 
 ### Fixed
 
@@ -15,6 +15,12 @@ Current version: **2.44**
 ### Why
 
 Wave 1 of the skill-audit follow-up (#124) — the fresh-clone test: a non-maintainer cloning calsuite should get working skills with no maintainer-only paths. The hardcoded paths and stale `~/Projects/calsuite` doc were exactly the assumptions that test exists to catch. Markdown-only.
+
+## [2.47] — 2026-06-05
+
+### Changed
+
+- **`/sync` no longer restates the action-semantics table — it links to `/sync-preview`'s canonical copy.** The `write-new` / `write-update` / `migrate` / `skip-diverged` / `skip-unknown` / `skip-claimed` table appeared verbatim in both `skills/sync/SKILL.md` Step 3 and `skills/sync-preview/SKILL.md` Step 3. `/sync-preview` is the read-only preview, so that table is its load-bearing artefact; it now owns the canonical version, and `/sync` Step 3 points at it (`../sync-preview/SKILL.md#step-3-interpret-the-output`). `/sync` keeps its own follow-up dispatch — the situation→recommendation table in Step 4 — but stops re-explaining what each action type *means*. Reduces the drift surface: when one table tightens, the other no longer lags. (#105)
 
 ## [2.43] — 2026-06-07
 
