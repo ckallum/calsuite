@@ -15,129 +15,125 @@ allowed-tools:
 
 # /babysit-pr: PR Babysitter
 
-Monitors a PR from creation to merge. Runs autonomously in the background — you only hear from it when something needs your attention.
+Monitors a PR from creation to merge. The watching happens in a detached background daemon (`scripts/hooks/babysit-pr-daemon.cjs`); this skill only spawns it and reads the files it writes. You hear from the daemon only when something needs your attention.
 
-## Setup
+## How the daemon behaves
 
-On first run, check for `.claude/skills/babysit-pr/config.json`. If missing, ask the user with AskUserQuestion:
+The daemon takes `<owner/repo> <pr-number>` and runs a fixed loop — there is no per-user config to set. On every invocation it:
 
-1. **Notification style** — "How do you want to be notified?"
-   - A) macOS native notifications (recommended)
-   - B) Terminal bell only
-   - C) Silent (status file only)
+1. **Polls CI checks** every 30s via the GitHub REST API with an `If-None-Match` ETag (a `304` response costs zero rate limit).
+2. **Retries flaky CI once** — on a failed check it runs `gh run rerun <id> --failed` for the failed workflow runs at the current head SHA. One retry per push; the counter resets when you push new commits.
+3. **Notifies when green** — fires a macOS notification (`osascript display notification`) when all checks pass. Merging is always manual; the daemon never merges.
+4. **Detects merge conflicts** — when the PR's `mergeable_state` is `dirty`, writes `conflict` and notifies.
+5. **Watches until merged** — notifies and exits when the PR merges, closes, or after the 60-minute cap.
 
-Save to `.claude/skills/babysit-pr/config.json`:
+Notifications are macOS-only (`osascript`). On non-macOS hosts the `osascript` call is a no-op, but the status and log files are still written.
+
+### Files the daemon writes
+
+- **Status** — `/tmp/claude-babysit-<pr>.json` (overwritten each poll)
+- **Log** — `/tmp/claude-babysit-<pr>.log` (appended)
+
+Both live in `os.tmpdir()` and are cleared on reboot.
+
+Status file schema (from `writeStatus` in the daemon):
+
 ```json
 {
-  "notification": "macos"
+  "pr": 123,
+  "repo": "owner/name",
+  "url": "https://github.com/owner/name/pull/123",
+  "pid": 54321,
+  "state": "watching",
+  "detail": "CI running: 2/3 complete",
+  "retriesUsed": 0,
+  "notifiedReady": false,
+  "updatedAt": "2026-06-10T12:00:00.000Z"
 }
 ```
 
-On subsequent runs, load the config silently.
+`state` is one of: `watching`, `retrying`, `ready`, `merged`, `closed`, `conflict`, `checks-failed`, `timeout`, `error`.
 
-## What it does (automatically)
+## Prerequisites
 
-1. **Polls CI checks** — ETag-based conditional requests (304 = zero API cost)
-2. **Retries flaky CI** — reruns failed workflow runs once via `gh run rerun --failed`
-3. **Notifies when ready** — sends macOS notification when all checks pass (merge is always human)
-4. **Detects merge conflicts** — notifies you if the PR becomes unmergeable
-5. **Monitors until merged** — sends macOS notification when PR lands, then exits
+- **`gh` must be authenticated.** The daemon pulls the API token from `gh auth token`; if that fails it writes `state: "error"` and exits immediately. Confirm with `gh auth status` before spawning.
 
-## Notifications
+## Auto-trigger
 
-- macOS native notifications via `osascript`
-- Status file: `/tmp/claude-babysit-<pr>.json`
-- Log file: `/tmp/claude-babysit-<pr>.log`
-
-## Usage
-
-### Auto-triggered (no action needed)
-The PostToolUse hook on `gh pr create` automatically spawns the daemon. You don't need to do anything.
-
-### Manual invocation
-
-**Check status of a babysitter:**
-```bash
-/babysit-pr 123 --status
-# or just
-/babysit-pr --status
-```
-
-**Start babysitting an existing PR:**
-```bash
-/babysit-pr 123
-```
-
-**View logs:**
-```bash
-/babysit-pr 123 --logs
-```
-
-**Stop a running babysitter:**
-```bash
-/babysit-pr 123 --stop
-```
-
----
+You usually don't invoke this manually. The `ci-monitor.cjs` PostToolUse hook (wired in `hooks/hooks.json`) matches `gh pr create`, extracts the PR URL from the command output, and spawns the daemon detached. No action needed.
 
 ## Workflow
 
-### If `$ARGUMENTS` contains `--status` (or no PR number given)
+Parse `$ARGUMENTS` and dispatch on the flag. The PR number is the first bare argument; if omitted, treat it as `--status` over all babysitters.
 
-Show status of all active babysitters:
+### `--status` (or no PR number, no flag)
 
-```bash
-ls /tmp/claude-babysit-*.json 2>/dev/null
-```
+List every active babysitter and report its state.
 
-For each status file, read and display:
-- PR number and URL
-- Current state (watching, ready, retrying, merged, conflict, checks-failed, error)
-- Detail message
-- Last updated timestamp
+1. Find the status files:
+   ```bash
+   ls /tmp/claude-babysit-*.json 2>/dev/null
+   ```
+2. If the listing is empty, report "No active babysitters." and stop.
+3. For each file, read the relevant fields:
+   ```bash
+   jq -r '"PR #\(.pr) [\(.state)] \(.detail) — \(.url) (updated \(.updatedAt))"' /tmp/claude-babysit-<pr>.json
+   ```
+4. Summarise each PR's number, state, detail, URL, and `updatedAt`. Flag any in `conflict`, `checks-failed`, or `error` as needing the user's attention (see States table).
 
-If no status files found, say "No active babysitters."
+### `<pr> --logs`
 
-### If `$ARGUMENTS` contains `--logs`
+Print the daemon's log for that PR.
 
-Read and display the log file:
-```bash
-cat /tmp/claude-babysit-<pr>.log
-```
+1. ```bash
+   cat /tmp/claude-babysit-<pr>.log 2>/dev/null
+   ```
+2. If the file is missing, report that no log exists for PR #<pr> (the daemon may never have started, or `/tmp` was cleared on reboot).
 
-### If `$ARGUMENTS` contains `--stop`
+### `<pr> --stop`
 
-Read the PID from the status file and kill it:
-```bash
-# Read PID from status file
-cat /tmp/claude-babysit-<pr>.json | jq '.pid'
+Kill the daemon for that PR and clean up its files.
 
-# Verify it's actually the daemon before killing
-ps -p <pid> -o command= | grep babysit-pr-daemon
+1. Read the PID from the status file:
+   ```bash
+   jq -r '.pid' /tmp/claude-babysit-<pr>.json 2>/dev/null
+   ```
+   If the file is missing or `.pid` is `null`, report "No babysitter running for PR #<pr>." and stop.
+2. Verify the PID is actually this daemon before killing anything (PIDs get recycled):
+   ```bash
+   ps -p <pid> -o command= | grep babysit-pr-daemon
+   ```
+   If that grep finds nothing, the process is gone or is something else — skip the `kill`, just remove the stale files.
+3. Kill it and clean up:
+   ```bash
+   kill <pid>
+   rm -f /tmp/claude-babysit-<pr>.json /tmp/claude-babysit-<pr>.log
+   ```
+4. Confirm "Stopped babysitter for PR #<pr>."
 
-# Kill it
-kill <pid>
+### `<pr>` (no flag) — start watching
 
-# Clean up
-rm /tmp/claude-babysit-<pr>.json /tmp/claude-babysit-<pr>.log 2>/dev/null
-```
-
-### If a PR number is given (no flags)
-
-1. Check if a babysitter is already running for this PR (status file exists and state is not terminal).
-2. If already running, show current status.
-3. If not running, determine `owner/repo` from the current git remote:
+1. Check whether a babysitter is already live for this PR:
+   ```bash
+   jq -r '.state' /tmp/claude-babysit-<pr>.json 2>/dev/null
+   ```
+   If the file exists and its state is non-terminal (`watching`, `retrying`, `ready`, `conflict`, or `checks-failed`), don't spawn a second one — show its current status (run the `--status` step for this PR) and stop. Terminal states (`merged`, `closed`, `timeout`, `error`) mean the old run finished, so proceed.
+2. Confirm `gh` auth, since the daemon needs a token:
+   ```bash
+   gh auth status
+   ```
+   If this fails, tell the user to run `gh auth login` and stop — spawning now would just write `state: "error"`.
+3. Resolve `owner/repo` from the current checkout:
    ```bash
    gh repo view --json nameWithOwner --jq '.nameWithOwner'
    ```
-4. Spawn the daemon:
+4. Spawn the daemon detached. The daemon lives in calsuite, not in the target repo — reference it through `$CALSUITE_DIR`, which the installer resolves to an absolute path:
    ```bash
-   node .claude/scripts/hooks/babysit-pr-daemon.js <owner/repo> <pr-number> &
+   node "$CALSUITE_DIR/scripts/hooks/babysit-pr-daemon.cjs" <owner/repo> <pr-number> &
    disown
    ```
-5. Confirm: "Babysitter started for PR #<n>. You'll get a notification when something needs attention."
-
----
+   If `$CALSUITE_DIR` isn't exported in the shell, substitute the absolute path to your calsuite checkout's `scripts/hooks/babysit-pr-daemon.cjs` (the `ci-monitor.cjs` hook locates it via `__dirname`, so the auto-trigger path never depends on the env var).
+5. Confirm "Babysitter started for PR #<n>. You'll get a notification when something needs attention."
 
 ## States
 
@@ -146,23 +142,24 @@ rm /tmp/claude-babysit-<pr>.json /tmp/claude-babysit-<pr>.log 2>/dev/null
 | `watching` | Polling CI checks | None — daemon is working |
 | `retrying` | Flaky CI detected, rerunning | None — daemon is retrying |
 | `ready` | All CI green | **You can merge the PR** |
-| `merged` | PR merged! | Done — daemon has exited |
+| `merged` | PR merged | Done — daemon has exited |
+| `closed` | PR closed without merge | Done — daemon has exited |
 | `conflict` | Merge conflicts detected | **You need to resolve conflicts** |
 | `checks-failed` | CI failed after retry | **You need to fix the failure** |
-| `timeout` | Daemon hit 60-min limit | Re-run `/babysit-pr <n>` to restart |
-| `error` | Something went wrong | Check logs with `/babysit-pr <n> --logs` |
+| `timeout` | Daemon hit the 60-min cap | Re-run `/babysit-pr <n>` to restart |
+| `error` | Daemon couldn't run (e.g. no `gh` token) | Check logs with `/babysit-pr <n> --logs` |
 
-## Important Rules
+## Important rules
 
-1. **Never block the user.** The daemon runs in the background. The skill only reads status.
-2. **Notifications are for action items only.** Don't notify on routine state changes.
-3. **One retry per push.** Don't retry more than once — persistent failures need human attention.
-4. **Keep watching after conflicts/failures.** The user might push a fix — don't exit prematurely.
+1. **Never block the user.** The daemon runs detached in the background; the skill only spawns it and reads its files.
+2. **Notifications are for action items.** The daemon notifies on ready, conflict, failure, and merge — not on routine `watching` ticks.
+3. **One retry per push.** The daemon retries failed CI once, then writes `checks-failed`. Persistent failures need a human.
+4. **Keep watching after conflicts/failures.** The daemon stays in the loop so it picks up your fix push without you restarting it.
 
 ## Gotchas
 
-- **Daemon writes to `/tmp/`** which is cleared on reboot. Status and logs will be lost after a restart.
-- **Max 1 retry per push.** Persistent CI failures need human attention — don't loop.
-- **Merging is always human.** The daemon never merges, even if auto-merge is enabled on the repo. It only notifies.
-- **ETag polling requires `gh` auth.** If `gh auth status` fails, the daemon will error out immediately.
-- **Multiple babysitters for the same PR** can conflict. The skill checks for existing status files before spawning.
+- **`/tmp/` is cleared on reboot.** Status and log files don't survive a restart; re-run `/babysit-pr <n>` to start fresh.
+- **Merging is always human.** The daemon never merges, even with auto-merge enabled on the repo — it only notifies.
+- **ETag polling needs `gh` auth.** If `gh auth token` fails, the daemon writes `error` and exits at once.
+- **No notification config.** The daemon always uses macOS `osascript` plus the status/log files — there is no terminal-bell or silent mode to choose.
+- **One daemon per PR.** Before spawning, the skill checks for a non-terminal status file so two daemons don't poll the same PR.
