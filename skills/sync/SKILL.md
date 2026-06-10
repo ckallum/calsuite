@@ -70,7 +70,9 @@ Stream output directly to the user. Capture the last ~40 lines for Step 3 (the e
 `--sync` prints a divergence summary when files were skipped pending reconciliation. Look for the block delimited by `───────────` separators — inside it:
 
 - `N file(s) skipped pending reconciliation:` — overall count
-- Per-file lines: `• <target>/.claude/skills/ship/SKILL.md` + reason (`skip-diverged: user-modified since <sha>` OR `skip-unknown: no _origin marker and content diverges`)
+- Per-file lines: `• <target>/.claude/skills/ship/SKILL.md` + reason
+
+For what each action and skip reason means (`write-new`, `skip-diverged`, `skip-unknown`, etc.), see the canonical action-semantics table in [`/sync-preview` Step 3](../sync-preview/SKILL.md#step-3-interpret-the-output). Don't restate it here — `/sync`'s job is to turn those reasons into follow-up commands (Step 4).
 
 If no summary block appeared, sync ran clean — say so and stop.
 
@@ -84,8 +86,8 @@ Pick the smallest-viable follow-up and propose exact commands. Rules of thumb:
 | 1–3 skipped, concentrated on one target | Suggest `--reconcile <path>` (or `--claim`/`--force-adopt`) for each specific file. Paste the exact commands. |
 | 4–10 skipped across multiple targets | Suggest `/reconcile-targets` for the agentic pass. Offer `/sync preview` first if the user wants the full picture before committing. |
 | 10+ skipped | Strongly recommend `/sync preview` then `/reconcile-targets`. Don't paste individual commands — the volume is not hand-fixable. |
-| Any `skip-diverged` files | Note that these are `_origin`-stamped + user-edited. Usually want `--reconcile` (merge) or `--claim` (keep local). |
-| Any `skip-unknown` files | Pre-protocol edits or stale copies — indistinguishable. `/reconcile-targets` can reason about each; blunt `--force-adopt` loses any intentional edits. |
+| Any `skip-diverged` files | Usually want `--reconcile` (merge) or `--claim` (keep local). |
+| Any `skip-unknown` files | `/reconcile-targets` can reason about each; blunt `--force-adopt` loses any intentional edits. |
 
 When suggesting commands, always use absolute paths so the user can copy-paste without re-resolving:
 

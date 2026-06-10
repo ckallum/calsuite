@@ -77,7 +77,7 @@ Human output has three sections:
 2. **Per-target breakdown** — for each target: counts per action, then detail lists for `skip-diverged`, `skip-unknown`, `skip-claimed`, and up to 8 `write-new` files.
 3. **Grand total** — summed across all targets, plus a one-liner pointing to resolution commands.
 
-Action semantics (copy-paste into your summary if useful):
+Action semantics (canonical — `/sync` links here rather than restating; copy-paste into your summary if useful):
 
 | Action | Meaning | Action needed |
 |---|---|---|
