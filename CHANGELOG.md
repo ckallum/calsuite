@@ -2,7 +2,19 @@
 
 All notable changes to this repository.
 
-Current version: **2.48**
+Current version: **2.49**
+
+## [2.49] — 2026-06-07
+
+### Changed
+
+- **Salvaged the still-relevant work from the stale PR #99 onto current main** (that PR was pinned at v2.35, 38 files, and half-superseded by #122/#125/#126 — closed in favor of this). The three skill splits — its heart — land here: `plan` (503→139 lines), `review` (864→414), `ship` (583→440), each moving modes / agent prompts / gate logic into `references/*.md` via progressive disclosure, clearing the 500-line ceiling. Plus `plan-ceo`'s 10×-repeated STOP block collapsed into one section.
+- **`strategic-compact` stale script paths fixed** — three `.js` references (`suggest-compact.js` ×2, `pre-compact.js`) corrected to the real `.cjs` files.
+- **Richer trigger-phrase descriptions for `humanize`, `context7`, `sweep-issues`** — each gained a user-utterance trigger list while keeping its existing summary.
+
+### Why
+
+PR #99 was a real audit that never landed; rather than rebase a 38-file, 9-day-stale branch into a conflict swamp, its live parts were re-derived onto current main and verified. The `review` split was 3-way reconciled: main's Agent I "exact-match, no-fallback" spec-gating wording (the [2.39] fix) was preserved over #99's older prose, the #114 "Cross-cutting patterns" framing in `review/checklist.md` was left untouched, and the "Be terse" rule #99's split had dropped was restored.
 
 ## [2.48] — 2026-06-07
 
