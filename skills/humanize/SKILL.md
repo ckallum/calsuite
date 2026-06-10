@@ -1,6 +1,12 @@
 ---
 name: humanize
-description: Audit and rewrite prose to remove AI tells. Use for blog posts, external docs, READMEs, long-form PR bodies, public-facing copy. Not for code, terse status updates, or routine commit messages — sterile is correct there.
+description: |
+  humanize this, audit this prose, remove AI tells, is this writing AI-sounding,
+  polish this post, sand off the LLM voice, make this sound human,
+  rewrite this to not sound like ChatGPT, voice check.
+  Audit and rewrite prose to remove AI tells. Use for blog posts, external docs,
+  READMEs, long-form PR bodies, public-facing copy. Not for code, terse status
+  updates, or routine commit messages — sterile is correct there.
 user-invocable: true
 arguments: Optional path to a file, "above" for the most recent assistant output, or paste text inline. Defaults to asking what to humanize.
 ---
