@@ -34,10 +34,10 @@ The post-commit hook already auto-syncs on every calsuite commit. This skill is 
 ## Step 0: Pre-flight
 
 ```bash
-calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+calsuite_dir="${CALSUITE_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 if [ ! -f "$calsuite_dir/scripts/configure-claude.js" ]; then
   echo "✗ Calsuite installer not found at $calsuite_dir/scripts/configure-claude.js"
-  echo "  Set \$CALSUITE_DIR to your calsuite checkout, or clone it to ~/Projects/calsuite"
+  echo "  Run /sync from the calsuite repo, or set \$CALSUITE_DIR to your calsuite checkout"
   exit 1
 fi
 ```
@@ -46,7 +46,7 @@ fi
 
 `$ARGUMENTS` is optional. Two modes:
 
-- **Preview mode** — if the first word is `preview`, delegate entirely to `/sync-preview` and stop here. Pass remaining arguments through:
+- **Preview mode** — if the first word is `preview`, run the `scripts/sync-preview.cjs` script directly and stop here. This is the same read-only script the `/sync-preview` skill is built around (`/sync-preview` Step 2 runs the identical command) — there's no separate skill-to-skill dispatch; "delegates to `/sync-preview`" in the description just means it shares that script. Pass remaining arguments through:
   ```bash
   # user invoked /sync preview --target verity
   node "$calsuite_dir/scripts/sync-preview.cjs" --target verity
@@ -113,3 +113,8 @@ node "$calsuite_dir/scripts/configure-claude.js" --reconcile "/Users/me/Projects
 - **`--sync` only skips; it never destroys.** Whatever's flagged in the summary is still on disk exactly as it was. Resolving via `--claim` preserves content; `--force-adopt` is the only loss path and it's explicit.
 - **The post-commit hook runs this same command.** If you manually `/sync` immediately after a calsuite commit, the second run will be a no-op for everything the hook already wrote — that's fine.
 - **Target basename matters for `_origin: <target-name>`.** Under the hood, `--sync` uses each target's basename (e.g. `verity`). If you renamed a target directory, the next sync will see `_origin: old-name` as "claimed by a different target" and skip it. Use `--force-adopt` or `--claim` with the new name to recover.
+- **Branch posture in the target affects what survives.** Calsuite forces `.claude/settings.local.json` into the target's `.gitignore` (hook wiring always persists), but it does **not** gitignore `.claude/skills/`, `.claude/agents/`, or `.claude/scripts/hooks/`. What happens when you sync on dev and switch back to main depends on whether the target tracks those paths:
+  - **Target gitignores `.claude/`** (most common) → synced files are untracked; `git checkout` doesn't touch them; **they persist** across branches.
+  - **Target tracks `.claude/` and you didn't commit on dev** → sync's writes are uncommitted modifications. `git checkout main` either carries them over (if main's tracked version matches dev's) or refuses with "Your local changes would be overwritten" (if main's version differs).
+  - **Target tracks `.claude/` and you committed on dev** → those edits live on the dev branch's tip. `git checkout main` resets the working tree to main's version, so synced changes disappear from the working tree (still recoverable from the dev commit).
+  Rule of thumb: if the target tracks `.claude/`, sync on the branch that should own the canonical version and commit there. Syncing on dev "just to try" then switching back to main is the footgun.
