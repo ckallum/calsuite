@@ -2,7 +2,19 @@
 
 All notable changes to this repository.
 
-Current version: **2.47**
+Current version: **2.48**
+
+## [2.48] — 2026-06-07
+
+### Fixed
+
+- **`configure-claude` skill body no longer hardcodes the maintainer's checkout path.** Three `/Users/callumke/Projects/calsuite` references became `$CALSUITE_DIR`-relative, and the "am I in the calsuite repo?" check now keys off marker files (`config/profiles.json` + `scripts/configure-claude.js`) instead of matching that literal path. Also corrected a stale `${CLAUDE_CONFIG_DIR}` placeholder to `${CALSUITE_DIR}` (the only name the installer and `hooks/hooks.json` actually use). Closes #124.
+- **`worktrees` Step 2 dropped a stale, unsupported convention lookup.** It told the agent to "look in CLAUDE.md for a `worktree-dir` convention" that no repo defines. Since `worktrees` is a *distributed* skill (installed into target repos), Step 2 now leads with `git worktree list` detection and a `.claude/worktrees/` convention — no dependency on calsuite-internal files like `config/targets.json`.
+- **`CLAUDE.md` resolution-order note corrected.** It described the middle fallback as `~/Projects/calsuite`, but `resolveCalsuiteDir()` uses `git rev-parse --git-common-dir` (the hardcoded home-dir fallback was removed in #95). The note now matches the code and the Fresh-clone test guidance.
+
+### Why
+
+Wave 1 of the skill-audit follow-up (#124) — the fresh-clone test: a non-maintainer cloning calsuite should get working skills with no maintainer-only paths. The hardcoded paths and stale `~/Projects/calsuite` doc were exactly the assumptions that test exists to catch. Markdown-only.
 
 ## [2.47] — 2026-06-05
 
