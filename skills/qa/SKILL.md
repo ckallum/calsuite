@@ -179,7 +179,7 @@ agent-browser --session qa snapshot
 agent-browser --session qa screenshot "$REPORT_DIR/screenshots/page-name.png"
 ```
 
-Then follow the **per-page exploration checklist** (see `.claude/skills/qa/references/issue-taxonomy.md`):
+Then follow the **per-page exploration checklist** below. The seven steps here are the condensed version; `references/issue-taxonomy.md` (ships with this skill, alongside `SKILL.md` — installed at `.claude/skills/qa/references/issue-taxonomy.md`) carries the full reference: severity definitions (critical/high/medium/low), seven issue categories with concrete examples (Visual, Functional, UX, Content, Performance, Console, Accessibility), and the long-form checklist. Read it for the severity rubric you use when documenting issues. If the file is missing, the inlined steps below are enough to run a session.
 
 1. **Visual scan** — Look at the screenshot for layout issues
 2. **Interactive elements** — Click buttons, links, controls. Do they work?

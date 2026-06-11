@@ -2,7 +2,25 @@
 
 All notable changes to this repository.
 
-Current version: **2.49**
+Current version: **2.50**
+
+## [2.50] — 2026-06-07
+
+### Changed
+
+- **Wave 5 — four skills that delegated to external files/agents without explaining the dependency now ground it inline.**
+  - `qa` — documents the `references/issue-taxonomy.md` it points at (that it ships with the skill, installs at `.claude/skills/qa/references/`, and what it contains) instead of a bare reference.
+  - `receiving-pr-feedback` — Step 4.5 (PR-body update) grounded against the documented `pr-body-parser.cjs` / shared template rather than unexplained reference-impl details.
+  - `reconcile` — Step 1's picker now shows the real `sync-preview` JSON shape (the `files` object's `skip-diverged` / `skip-unknown` arrays) so a fresh agent doesn't guess field names.
+  - `sync` — clarifies whether preview invokes the `/sync-preview` skill vs `scripts/sync-preview.cjs`, and gains PR #99's branch-posture gotcha (what survives when you sync on a dev branch then switch back to main, across three target-tracking cases).
+
+### Fixed
+
+- **`sync` Step 0 pre-flight no longer hardcodes `$HOME/Projects/calsuite`** — resolves the calsuite dir via `${CALSUITE_DIR:-$(git rev-parse --show-toplevel)}`, removing the maintainer-path assumption the fresh-clone test flags (same class as #124).
+
+### Why
+
+Wave 5 of the skill-audit follow-up: bodies that hand off to an external file or agent without naming what it is or where it lives assume context a fresh agent lacks. The `sync` distributability fix rode along since the file was already open.
 
 ## [2.49] — 2026-06-07
 
