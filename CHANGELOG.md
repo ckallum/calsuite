@@ -17,6 +17,36 @@ Current version: **2.51**
 
 Wave 6 of the skill-audit follow-up: the lowest-clarity skills made a reader infer the command form or reverse-engineer design intent. `babysit-pr` was grounded against the actual daemon source so its documented states and paths match what the code really emits.
 
+## [2.50] — 2026-06-07
+
+### Changed
+
+- **Wave 5 — four skills that delegated to external files/agents without explaining the dependency now ground it inline.**
+  - `qa` — documents the `references/issue-taxonomy.md` it points at (that it ships with the skill, installs at `.claude/skills/qa/references/`, and what it contains) instead of a bare reference.
+  - `receiving-pr-feedback` — Step 4.5 (PR-body update) grounded against the documented `pr-body-parser.cjs` / shared template rather than unexplained reference-impl details.
+  - `reconcile` — Step 1's picker now shows the real `sync-preview` JSON shape (the `files` object's `skip-diverged` / `skip-unknown` arrays) so a fresh agent doesn't guess field names.
+  - `sync` — clarifies whether preview invokes the `/sync-preview` skill vs `scripts/sync-preview.cjs`, and gains PR #99's branch-posture gotcha (what survives when you sync on a dev branch then switch back to main, across three target-tracking cases).
+
+### Fixed
+
+- **`sync` Step 0 pre-flight no longer hardcodes `$HOME/Projects/calsuite`** — resolves the calsuite dir via `${CALSUITE_DIR:-$(git rev-parse --show-toplevel)}`, removing the maintainer-path assumption the fresh-clone test flags (same class as #124).
+
+### Why
+
+Wave 5 of the skill-audit follow-up: bodies that hand off to an external file or agent without naming what it is or where it lives assume context a fresh agent lacks. The `sync` distributability fix rode along since the file was already open.
+
+## [2.49] — 2026-06-07
+
+### Changed
+
+- **Salvaged the still-relevant work from the stale PR #99 onto current main** (that PR was pinned at v2.35, 38 files, and half-superseded by #122/#125/#126 — closed in favor of this). The three skill splits — its heart — land here: `plan` (503→139 lines), `review` (864→414), `ship` (583→440), each moving modes / agent prompts / gate logic into `references/*.md` via progressive disclosure, clearing the 500-line ceiling. Plus `plan-ceo`'s 10×-repeated STOP block collapsed into one section.
+- **`strategic-compact` stale script paths fixed** — three `.js` references (`suggest-compact.js` ×2, `pre-compact.js`) corrected to the real `.cjs` files.
+- **Richer trigger-phrase descriptions for `humanize`, `context7`, `sweep-issues`** — each gained a user-utterance trigger list while keeping its existing summary.
+
+### Why
+
+PR #99 was a real audit that never landed; rather than rebase a 38-file, 9-day-stale branch into a conflict swamp, its live parts were re-derived onto current main and verified. The `review` split was 3-way reconciled: main's Agent I "exact-match, no-fallback" spec-gating wording (the [2.39] fix) was preserved over #99's older prose, the #114 "Cross-cutting patterns" framing in `review/checklist.md` was left untouched, and the "Be terse" rule #99's split had dropped was restored.
+
 ## [2.48] — 2026-06-07
 
 ### Fixed

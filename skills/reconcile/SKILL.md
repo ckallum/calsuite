@@ -80,7 +80,38 @@ Run the sync preview in JSON, extract skip-diverged + skip-unknown candidates ac
 node "$calsuite_dir/scripts/sync-preview.cjs" --json
 ```
 
-Parse the output: for each target, concatenate `files["skip-diverged"]` and `files["skip-unknown"]`. Build a picker list like:
+The `--json` output has this shape (verified against `scripts/sync-preview.cjs`):
+
+```json
+{
+  "calsuiteSha": "a49a827",
+  "targetCount": 2,
+  "targets": [
+    {
+      "label": "verity",
+      "targetPath": "/abs/path/to/verity",
+      "totals": { "skip-diverged": 1, "skip-unknown": 1, "skip-claimed": 0 },
+      "files": {
+        "write-new": [],
+        "write-update": [],
+        "migrate": [],
+        "no-op": [],
+        "skip-diverged": [
+          { "path": ".claude/skills/review/SKILL.md", "reason": "user-modified since a49a827" }
+        ],
+        "skip-unknown": [
+          { "path": ".claude/skills/ship/SKILL.md", "reason": "no _origin marker and content diverges" }
+        ],
+        "skip-claimed": []
+      }
+    }
+  ]
+}
+```
+
+Extract the candidates: for each entry in `targets`, skip any that carry `"missing": true` (target dir not found — it has no `files`/`totals`), then concatenate `files["skip-diverged"]` and `files["skip-unknown"]`. Each element is `{ path, reason }`, where `path` is **relative to that target's** `targetPath`. Join `targetPath` + `path` to get the absolute path you'll hand to `--reconcile`. Carry `label` and `reason` for the picker label and the bucket name (`skip-diverged` / `skip-unknown`) for the parenthetical.
+
+Build a picker list like:
 
 ```
 A) verity/.claude/skills/ship/SKILL.md (skip-unknown — no _origin)

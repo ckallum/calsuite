@@ -1,6 +1,12 @@
 ---
 name: context7
-description: "Look up current, version-specific library documentation using Context7. Use proactively when working with libraries or explicitly via /context7."
+description: |
+  check Prisma docs, look up Next.js app router, version-specific API,
+  how do I use X in <library v14>, fetch up-to-date docs for <library>,
+  what does <library> recommend, current docs for <framework>,
+  is this the right way to call <API>, has <library> changed since my training cutoff.
+  Look up current, version-specific library documentation using Context7.
+  Use proactively when working with libraries or explicitly via /context7.
 user-invocable: true
 arguments: "Optional library name and query (e.g., 'next.js app router', 'react useEffect cleanup')"
 argument-hint: "[library] [query]"

@@ -183,13 +183,19 @@ gh pr view <number> --json body --jq '.body'
 
 **b. Parse into sections:**
 
-Split the body on `^## ` at line start (regex). This yields:
-- **Preamble**: any text before the first `## ` header
-- **Sections**: each `## Header` + content until the next `## ` or EOF
+Don't split the body by hand — use the shared parser. It exports `parsePrBody(body)` → `{ preamble, sections: [{ name, content }] }` and `assemblePrBody(parsed)` (the inverse). Splitting is by level-2 `## ` headers; the preamble is any text before the first header; unknown sections are preserved in place. Edit `parsed.sections` in steps c–e, then `assemblePrBody` it in step f.
 
-Identify sections by header name. Known sections: Summary, How It Works, Important Files, Test Results, Pre-Landing Review, Development Flow, Doc Completeness, Revision History. Unknown sections are preserved in their original position.
+```bash
+node -e '
+  const { parsePrBody, assemblePrBody } = require("./.claude/scripts/lib/pr-body-parser.cjs");
+  const body = require("fs").readFileSync(0, "utf8");
+  const parsed = parsePrBody(body);
+  // inspect parsed.sections.map(s => s.name), edit as needed, then:
+  process.stdout.write(assemblePrBody(parsed));
+' <<<"$(gh pr view <number> --json body --jq '.body')"
+```
 
-Reference implementation: `.claude/scripts/lib/pr-body-parser.cjs` (parsePrBody / assemblePrBody). Path is relative to the target project's `.claude/` directory — the installer places calsuite's `scripts/lib/` there. In calsuite itself, the source file lives at `scripts/lib/pr-body-parser.cjs`.
+The module path is `.claude/scripts/lib/pr-body-parser.cjs` inside a target project (the installer places calsuite's `scripts/lib/` under `.claude/`); in calsuite itself it lives at `scripts/lib/pr-body-parser.cjs`. The known section names live in the module's `KNOWN_SECTIONS` export — match against those rather than hardcoding the list here.
 
 **c. Regenerate dynamic sections:**
 
@@ -222,14 +228,14 @@ Round number = count of lines in the Revision History section matching the ancho
 
 **f. Update the PR:**
 
-Reassemble the body from the parsed/modified sections, then write it to a temp file and update the PR. Use the `Write` tool to write the assembled body — this avoids heredoc sentinel collisions (a PR body can legitimately contain a line that is literally `EOF`, which would terminate a `<<'EOF'` heredoc early):
+Reassemble the body with `assemblePrBody(parsed)` (step b), then write it to a temp file and update the PR from that file. Use the `Write` tool to write the assembled body — this avoids heredoc sentinel collisions (a PR body can legitimately contain a line that is literally `EOF`, which would terminate a `<<'EOF'` heredoc early):
 
 ```bash
 # 1. Create the temp file path
 tmp_body="$(mktemp)"
 trap 'rm -f "$tmp_body"' EXIT
 
-# 2. Write the reassembled body to $tmp_body using the Write tool
+# 2. Write the assembled body (from assemblePrBody) to $tmp_body using the Write tool
 #    (not a shell heredoc — sentinels can collide with body content)
 
 # 3. Update the PR from the file
