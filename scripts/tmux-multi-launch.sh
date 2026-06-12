@@ -91,8 +91,12 @@ TARGET="$(tmux display-message -p '#S:#I' 2>/dev/null)" \
 for id in "${PARSED[@]}"; do
   pane_prompt="${PROMPT//\{ID\}/$id}"
   pane_label="${LABEL//\{ID\}/$id}"
+  # Shell-escape before interpolating into the snippet tmux runs in the new pane —
+  # a quote or metacharacter in the prompt/label would otherwise break or hijack it.
+  printf -v esc_prompt '%q' "$pane_prompt"
+  printf -v esc_msg '%q' "--- ${pane_label}. Press Enter to close. ---"
   tmux split-window -t "$TARGET" -h \
-    "claude --dangerously-skip-permissions --print '${pane_prompt}' 2>&1; echo '--- ${pane_label}. Press Enter to close. ---'; read"
+    "claude --dangerously-skip-permissions --print $esc_prompt 2>&1; printf '%s\n' $esc_msg; read -r"
   tmux select-layout -t "$TARGET" tiled
 done
 

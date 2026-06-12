@@ -46,7 +46,7 @@ Telemetry (Step 13) and the learning loop (Step 14) feed into the narrative writ
 ### Skill Usage
 Top 5: /ship (12), /review (8), /debug (5), /plan (4), /context7 (3)
 Heavy use → consider automating: /babysit-pr (7× — run via /loop?)
-Never used in window: /plan-ceo, /retro — keep or drop from profile?
+Never used in window (excluding the current /retro run): /plan-ceo — keep or drop from profile?
 ```
 
 ### Step 14 — Learning loop proposals

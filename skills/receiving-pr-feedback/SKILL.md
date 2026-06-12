@@ -33,6 +33,11 @@ Handle PR review feedback with technical rigor. Verify suggestions before implem
 
 ```bash
 calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+if [ ! -f "$calsuite_dir/scripts/tmux-multi-launch.sh" ]; then
+  echo "✗ Launcher not found at $calsuite_dir/scripts/tmux-multi-launch.sh" >&2
+  echo "  Set \$CALSUITE_DIR to your calsuite checkout, or clone it to ~/Projects/calsuite" >&2
+  exit 1
+fi
 bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
   --mode pr --ids "323,324,325" \
   --prompt 'Run /receiving-pr-feedback {ID}. Process all review feedback, apply fixes, and reply to comments on the PR.' \

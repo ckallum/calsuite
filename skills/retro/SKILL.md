@@ -213,7 +213,7 @@ Fix ratio:          54%    →    30%         ↓24pp (improving)
 mkdir -p .context/retros
 ```
 
-Save the JSON snapshot to `.context/retros/<date>.json`. The full schema is in `references/report-template.md § "JSON snapshot schema"` — this is the only file `/retro` writes.
+Save the JSON snapshot to `.context/retros/<date>.json`. The full schema is in `references/report-template.md § "JSON snapshot schema"` — this is the only runtime output file `/retro` writes.
 
 ### Step 13: Skill Usage Telemetry
 
@@ -229,7 +229,7 @@ Output a short section using the `### Skill Usage` template in `references/repor
 
 ### Step 14: Learning Loop (opt-in)
 
-For each item in **3 Things to Improve** (Step 13's narrative), propose one concrete rule update to the most likely-responsible skill file. Use the `### Proposed Skill Updates` format in `references/report-template.md § "Step 14 — Learning loop proposals"`.
+For each item in **3 Things to Improve** (Step 15's narrative), propose one concrete rule update to the most likely-responsible skill file. Use the `### Proposed Skill Updates` format in `references/report-template.md § "Step 14 — Learning loop proposals"`.
 
 Do **not** apply the edits automatically. Print the proposals and ask (AskUserQuestion) whether to apply each one. Learning loop is opt-in — this is where the skills self-improve from lived evidence.
 

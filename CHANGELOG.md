@@ -4,7 +4,7 @@ All notable changes to this repository.
 
 Current version: **2.52**
 
-## [2.52] — 2026-06-05
+## [2.52] — 2026-06-12
 
 ### Changed
 

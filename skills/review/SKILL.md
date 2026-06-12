@@ -54,6 +54,11 @@ If `docs/adr/` exists and the diff touches an area covered by an ADR, include "r
 
 ```bash
 calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+if [ ! -f "$calsuite_dir/scripts/tmux-multi-launch.sh" ]; then
+  echo "✗ Launcher not found at $calsuite_dir/scripts/tmux-multi-launch.sh" >&2
+  echo "  Set \$CALSUITE_DIR to your calsuite checkout, or clone it to ~/Projects/calsuite" >&2
+  exit 1
+fi
 bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
   --mode pr --ids "123,124,125" \
   --prompt 'Run /review pr {ID}. Post your full findings as a PR comment. Do not make any code changes.' \
