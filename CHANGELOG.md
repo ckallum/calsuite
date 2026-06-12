@@ -2,7 +2,13 @@
 
 All notable changes to this repository.
 
-Current version: **2.50**
+Current version: **2.51**
+
+## [2.51] — 2026-06-05
+
+### Changed
+
+- **`/learn` and `/improve-architecture` now defer to the canonical `skills/plan/references/context-and-adr-formats.md` for the CONTEXT.md and ADR templates instead of carrying their own copies.** `/improve-architecture` still inlined the full CONTEXT.md glossary block and ADR template; `/learn` claimed both skills "carry the format inline," which stopped being true once `/plan` extracted its copy into the shared reference (#127). Both now link to the single canonical file, so the formats can't drift apart. Closes the remaining duplication from #100 — the bulk of the consolidation already landed via the `/plan` split. (#100)
 
 ## [2.50] — 2026-06-07
 
