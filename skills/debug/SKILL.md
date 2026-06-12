@@ -24,6 +24,10 @@ allowed-tools:
 
 Four mandatory phases. Do not skip ahead to fixing — understand first.
 
+## Arguments
+
+`[error-description]` — optional. A short description of the failure to investigate (e.g. `test_discount_applies failing`, `API returns 500 on POST /orders`, `race condition in the counter`). If omitted, the skill derives the issue from conversation context.
+
 ## Domain awareness (before Phase 1)
 
 If the repo has a `CONTEXT.md` (or a `CONTEXT-MAP.md` pointing to per-module `CONTEXT.md` files), read it for the area you're debugging — getting the right mental model of the modules in play often shortens Phase 1 dramatically. If `docs/adr/` exists and an ADR covers the area, read it: many "weird" behaviors are deliberate decisions an ADR explains, and the bug is somewhere else.
@@ -52,9 +56,19 @@ Don't skim. Read the full error output, stack trace, and surrounding logs. Extra
 9. **Differential loop.** Run the same input through old-version vs new-version (or two configs) and diff outputs.
 10. **HITL bash script.** Last resort. If a human must click, drive the loop with a script and capture output — keep the loop structured even when it's not headless.
 
+Narrow the invocation to the single failing case so the loop runs in seconds, not minutes. Match the runner to the stack:
+
 ```bash
-# Run the failing command/test
-<reproduce command>
+# Run only the failing test — pick the line that matches your stack:
+pytest tests/test_orders.py::test_discount_applies -x -q      # Python
+npm test -- -t "applies discount"                             # Jest / Vitest
+go test ./orders -run TestDiscountApplies -v                  # Go
+cargo test discount_applies -- --nocapture                    # Rust
+
+# No test seam yet? Reproduce against a running dev server instead:
+curl -s -X POST localhost:3000/api/orders \
+  -H 'content-type: application/json' \
+  -d '{"item":"abc","coupon":"SAVE10"}' | jq .
 ```
 
 ### Iterate on the loop itself
@@ -102,7 +116,9 @@ Add temporary logging if needed to narrow down the boundary — but tag every lo
 Find code that does something similar and works:
 
 ```bash
-# Search for similar patterns
+# Find analogous code paths and their tests — e.g. another caller of the failing function:
+rg -n "applyDiscount\(" --type ts
+rg -l "applyDiscount" test/ tests/ spec/
 ```
 
 Use Grep/Glob to find analogous code paths, test cases, or previous implementations.
@@ -149,13 +165,25 @@ Run the reproduction again. If the fix works, proceed to Phase 4. If not, go bac
 
 ### Create a failing test case
 
-Before applying the fix permanently, write a test that captures the bug:
+Before applying the fix permanently, write a test that captures the bug. Assert on the exact symptom from Phase 1 so a regression fails loudly. Adapt to your test framework:
 
-```
-# Test that reproduces the exact failure
+```python
+# pytest — asserts the specific behavior the bug violated
+def test_discount_applies_to_subtotal():
+    order = Order(items=[Item(price=100)], coupon="SAVE10")
+    # Bug: discount was applied after tax instead of before — total came out wrong.
+    assert order.total() == 99.0  # 100 - 10% discount, no tax in this fixture
 ```
 
-This ensures the bug doesn't regress.
+```javascript
+// Jest / Vitest equivalent
+test("applies discount to subtotal", () => {
+  const order = makeOrder({ items: [{ price: 100 }], coupon: "SAVE10" });
+  expect(order.total()).toBe(99.0);
+});
+```
+
+Run it first and watch it **fail for the right reason** before you fix anything. This ensures the bug doesn't regress.
 
 ### Implement a single fix
 

@@ -2,7 +2,20 @@
 
 All notable changes to this repository.
 
-Current version: **2.50**
+Current version: **2.51**
+
+## [2.51] — 2026-06-12
+
+### Changed
+
+- **Wave 6 — clarity pass on the three skills the audit scored lowest on executability.**
+  - `babysit-pr` (was clarity 2, the worst in the set) — rewritten from design-intent pseudocode into concrete imperative steps. The body now names the real background daemon (`scripts/hooks/babysit-pr-daemon.cjs`) and the `ci-monitor.cjs` hook that spawns it, documents the actual status-file schema (the daemon's real `writeStatus` states), and gives exact `--status` / `--logs` / `--stop` dispatch including the PID-recycle safety check. No invented tools or stale `.js` paths remain.
+  - `debug` — the empty placeholder code blocks (Phase 1 feedback loop, Phase 4 fix template) replaced with concrete, copyable examples.
+  - `execute` — a `## Quick Start` section added near the top showing the three invocations (`/execute`, `/execute spec <slug>`, `/execute issue <n>`) so a fresh agent gets oriented before the dense step-by-step.
+
+### Why
+
+Wave 6 of the skill-audit follow-up: the lowest-clarity skills made a reader infer the command form or reverse-engineer design intent. `babysit-pr` was grounded against the actual daemon source so its documented states and paths match what the code really emits.
 
 ## [2.50] — 2026-06-07
 

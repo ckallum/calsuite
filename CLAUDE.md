@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.50** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.51** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 

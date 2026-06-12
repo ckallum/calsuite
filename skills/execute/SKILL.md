@@ -25,6 +25,28 @@ allowed-tools:
 
 Flexible execution skill with three modes plus a parallel multi-pane launcher. All modes share the same execution engine — the only difference is how tasks are sourced and what the compliance reviewer checks against.
 
+## Quick Start
+
+The three common invocations, with what each one does and what "done" looks like:
+
+| Invocation | Mode | What it does | Expected outcome |
+|---|---|---|---|
+| `/execute` | RAW | Derives a task list from the current conversation context, then implements it. | Tasks from the conversation are built, reviewed, and committed on a feature branch — no spec or issue needed. |
+| `/execute spec <slug>` | SPEC | Reads `.claude/specs/<slug>/` and works through `tasks.md` task-by-task against the spec. | Every task in `tasks.md` is checked off, implemented, and compliance-reviewed against `requirements.md` + `design.md`. |
+| `/execute issue <n>` | ISSUE | Fetches GitHub issue `#<n>`, derives tasks from its body, and implements them. | Issue tasks are built and committed (with `Refs #<n>`) on a `feat/<n>-...` branch; the issue is commented on, never auto-closed. |
+
+For parallel work across panes, see Step 0M (`--multi issue:1,2,3` or `--multi spec:foo,bar`). Everything below is the detailed engine these invocations drive.
+
+## Arguments
+
+`$ARGUMENTS` selects the mode (parsed in Step 0; `--multi` routes to Step 0M):
+
+- *(no arguments)* — **RAW**: derive tasks from conversation context.
+- `spec <slug>` — **SPEC**: read `.claude/specs/<slug>/` and work through `tasks.md`. Omit `<slug>` to use the most recent spec.
+- `issue <number>` — **ISSUE**: fetch GitHub issue `#<number>` and implement it.
+- `--multi issue:<n>,<n>,...` — **MULTI**: one tmux pane per issue (requires an active tmux session).
+- `--multi spec:<slug>,<slug>,...` — **MULTI**: one tmux pane per spec.
+
 ## AFK vs HITL handling (shared)
 
 See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). At this layer:
