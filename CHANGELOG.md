@@ -2,7 +2,21 @@
 
 All notable changes to this repository.
 
-Current version: **2.50**
+Current version: **2.52**
+
+## [2.52] — 2026-06-05
+
+### Changed
+
+- **Extracted the duplicated tmux multi-pane launcher into `scripts/tmux-multi-launch.sh`.** The same block — parse comma-separated ids, reject shell metacharacters, capture the tmux window, spawn one `tmux split-window` pane per id, print a summary — lived verbatim in `/execute` Step 0M and `/receiving-pr-feedback` Step 0, with a near-identical copy in `/review` Step 0. All three skills now shell out to the shared script, passing `--mode {issue|pr|spec}`, `--ids`, a `--prompt` template, and a `--label` template (`{ID}` is substituted per pane). The control-flow text (mode parsing, the STOP that prevents falling through to Step 1) stays inline in each skill.
+
+### Fixed
+
+- **`/receiving-pr-feedback --multi` now validates PR numbers against `^[0-9]+$`.** Only `/review` carried the shell-injection guard; `/execute` and `/receiving-pr-feedback` interpolated raw ids straight into the double-quoted tmux command. Routing all three through the shared launcher closes that gap — a value containing `$(...)` or backticks is rejected (exit `2`) before any pane is spawned. `spec` ids are slugs, so they validate against `^[A-Za-z0-9._-]+$` instead.
+
+### Why
+
+Identified in the harness-wide skill audit (PR #99) and tracked as #103. Three skills carried the same launch mechanism, so a fix to one (the injection guard) had to be hand-ported to the others or silently drift. A single script makes the validation, tmux-session check, and exit-code contract one thing to reason about — and the inconsistency it surfaced (two skills missing the guard) is exactly the kind of bug duplication hides.
 
 ## [2.50] — 2026-06-07
 

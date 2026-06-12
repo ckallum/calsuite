@@ -50,33 +50,20 @@ If `docs/adr/` exists and the diff touches an area covered by an ADR, include "r
 `--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance for unbiased review.
 
 1. Parse PR numbers from arguments (single number like `123` or comma-separated like `123,124,125`).
-2. **Validate each parsed value matches `^[0-9]+$`.** Reject anything else before touching tmux — a value containing `$(...)`, backticks, or other shell metacharacters would fire command substitution inside the double-quoted tmux command in step 4.
-   ```bash
-   for pr in "${PRS[@]}"; do
-     [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid PR number: $pr"; exit 1; }
-   done
-   ```
-3. Get the current tmux window: `tmux display-message -p '#S:#I'`
-4. For each validated PR number, create a new tmux pane and launch a Claude Code instance:
+2. Hand the parsed PR numbers to the shared launcher. It validates each value against `^[0-9]+$` before touching tmux — a value containing `$(...)`, backticks, or other shell metacharacters would otherwise fire command substitution inside the double-quoted tmux command. It then confirms an active tmux session, spawns one pane per PR, and prints the summary. Pass `{ID}` through unexpanded — the script substitutes it per pane.
 
 ```bash
-# For each validated PR number in the list:
-tmux split-window -t "$SESSION:$WINDOW" -h "claude --dangerously-skip-permissions --print 'Run /review pr <NUMBER>. Post your full findings as a PR comment. Do not make any code changes.' 2>&1; echo '--- Review of PR #<NUMBER> complete. Press Enter to close. ---'; read"
-tmux select-layout -t "$SESSION:$WINDOW" tiled
+calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+  --mode pr --ids "123,124,125" \
+  --prompt 'Run /review pr {ID}. Post your full findings as a PR comment. Do not make any code changes.' \
+  --label 'Review of PR #{ID} complete' \
+  --summary-label 'Multi-PR review'
 ```
 
-4. Output:
-```text
-Multi-PR review launched:
-  PRs: #123, #124, #125
-  Panes: 3 new tmux panes created
-  Mode: context-free — each instance reviews independently
+The script exits non-zero on a validation failure (`2`), no tmux session (`3`), or missing tmux (`4`). Relay its stderr message to the user and STOP — do not fall back to spawning panes by hand. Each pane posts its findings as a comment on the respective PR.
 
-Each instance will post its findings as a comment on the respective PR.
-Watch progress in the tmux panes. This instance is done.
-```
-
-5. **STOP.** Do not proceed to Step 1 — the tmux instances handle the reviews.
+3. **STOP.** Do not proceed to Step 1 — the tmux instances handle the reviews.
 
 ---
 

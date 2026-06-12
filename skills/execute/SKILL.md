@@ -96,40 +96,29 @@ Otherwise, parse `$ARGUMENTS`:
 
    If neither form matches (or no identifiers follow), STOP and tell the user: "`--multi` requires `issue:<numbers>` or `spec:<slugs>`. Raw prompts are not supported."
 
-2. Verify tmux is available and we're inside a tmux session:
-   ```bash
-   tmux display-message -p '#S:#I' 2>/dev/null
-   ```
-   If this fails, STOP and tell the user: "`--multi` requires an active tmux session. Start tmux first, then re-run."
-
-3. Capture the current session and window (e.g. `mysession:0`).
-
-4. For each identifier in the comma-separated list, create a new tmux pane and launch a Claude Code instance:
+2. Hand the parsed mode and identifiers to the shared launcher. It validates each id, confirms an active tmux session, spawns one pane per id, and prints the summary. Pass the `{ID}` placeholder through unexpanded — the script substitutes it per pane.
 
    ```bash
+   calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+
    # For ISSUE mode — each issue gets its own pane:
-   tmux split-window -t "$SESSION:$WINDOW" -h \
-     "claude --dangerously-skip-permissions --print 'Run /execute issue <NUMBER>. Implement the issue fully — derive tasks, execute, commit, and report when done.' 2>&1; echo '--- Execution of issue #<NUMBER> complete. Press Enter to close. ---'; read"
-   tmux select-layout -t "$SESSION:$WINDOW" tiled
+   bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+     --mode issue --ids "1,2,3" \
+     --prompt 'Run /execute issue {ID}. Implement the issue fully — derive tasks, execute, commit, and report when done.' \
+     --label 'Execution of issue #{ID} complete' \
+     --summary-label 'Multi execution'
 
    # For SPEC mode — each spec gets its own pane:
-   tmux split-window -t "$SESSION:$WINDOW" -h \
-     "claude --dangerously-skip-permissions --print 'Run /execute spec <SLUG>. Execute the spec fully — work through all tasks, commit, and report when done.' 2>&1; echo '--- Execution of spec <SLUG> complete. Press Enter to close. ---'; read"
-   tmux select-layout -t "$SESSION:$WINDOW" tiled
+   bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+     --mode spec --ids "foo,bar" \
+     --prompt 'Run /execute spec {ID}. Execute the spec fully — work through all tasks, commit, and report when done.' \
+     --label 'Execution of spec {ID} complete' \
+     --summary-label 'Multi execution'
    ```
 
-5. Output:
-   ```text
-   Multi execution launched:
-     Mode: [issue | spec]
-     Items: #1, #2, #3  (or foo, bar, baz)
-     Panes: N new tmux panes created
-     Each instance executes independently with full review cycles.
+   The script exits non-zero on a validation failure (`2`), no tmux session (`3`), or missing tmux (`4`). Relay its stderr message to the user and STOP — do not fall back to spawning panes by hand.
 
-   Watch progress in the tmux panes. This instance is done.
-   ```
-
-6. **STOP.** Do not proceed to Step 1 — the tmux instances handle the execution.
+3. **STOP.** Do not proceed to Step 1 — the tmux instances handle the execution.
 
 ---
 
@@ -361,4 +350,4 @@ If creating a PR directly (instead of handing off to `/ship`):
 - **RAW mode depends on conversation context.** If the conversation has no clear task, ask the user to describe what they want.
 - **Issue checklist parsing:** If the issue body has `- [ ]` items, use them as tasks directly. If prose only, derive tasks like RAW mode.
 - **`--multi` only works with `issue:` and `spec:`** — raw prompts have no identifier to split on. If the user passes `--multi` without an `issue:` or `spec:` list, abort and ask them to specify identifiers.
-- **`--multi` requires an active tmux session.** It uses `tmux split-window` to spawn panes — outside tmux there's nowhere to put them. Check `tmux display-message` before spawning.
+- **`--multi` requires an active tmux session.** The shared launcher (`scripts/tmux-multi-launch.sh`) spawns panes via `tmux split-window` — outside tmux there's nowhere to put them. The script checks for an active session and exits `3` if there isn't one; relay its message rather than re-implementing the check.
