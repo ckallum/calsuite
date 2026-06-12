@@ -2,7 +2,20 @@
 
 All notable changes to this repository.
 
-Current version: **2.50**
+Current version: **2.53**
+
+## [2.53] — 2026-06-05
+
+### Changed
+
+- **Progressive-disclosure pass on three mid-size skills.** Following the same pattern as PR #99 (which split plan, review, ship), the verbatim reference material in `execute`, `retro`, and `plan-ceo` moved into per-skill `references/` files; each SKILL.md now describes the dispatch in a few lines and links to the shape. Control flow stays inline.
+  - `skills/execute/SKILL.md`: the three execution-loop agent prompts (Steps 3a/3b/3c) → `references/agent-prompts.md`.
+  - `skills/retro/SKILL.md`: the three Step 1 data-gathering agent prompts → `references/agent-prompts.md`; the Step 12 JSON snapshot schema and the Steps 13-15 narrative report template → `references/report-template.md`.
+  - `skills/plan-ceo/SKILL.md`: the ten section templates (Dream State, Error Map, Data Flow / Interaction tables, Test diagram, Failure Modes Registry, Completion Summary) → `references/section-templates.md`; the background system-audit agent prompt → `references/system-audit-prompt.md`.
+
+### Why
+
+The PR #99 audit flagged these three skills (200-400 lines) as the next tier to thin out after the over-500-line trio. Moving long agent prompts and ASCII templates out of the dispatch path keeps each SKILL.md focused on control flow and matches the established `references/` convention (verify, qa, skill-builder). The installer distributes the new files and auto-prepends `_origin:` frontmatter on first install, verified against a fresh target. (#104)
 
 ## [2.50] — 2026-06-07
 

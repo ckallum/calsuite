@@ -65,35 +65,7 @@ Step 0 > System audit > Error map > Test diagram > Failure modes > Opinionated r
 
 Before doing anything else, dispatch a **background system audit agent** while you begin Step 0. This runs the audit concurrently with the initial scope challenge conversation.
 
-Launch this agent with `run_in_background: true`:
-
-```
-prompt: "You are auditing a project's state before a CEO-level plan review.
-
-1. Run these commands:
-   git log --oneline -30
-   git diff origin/main --stat
-   git stash list
-   git branch -a | head -20
-
-2. Read these files: CLAUDE.md, TODO.md, SPECLOG.md
-
-3. List all spec directories in .claude/specs/ and read any that overlap with the plan being reviewed.
-
-4. Retrospective check: check the git log for the current branch. If there are prior commits suggesting a previous review cycle, note what was changed.
-
-5. Taste calibration: identify 2-3 files or patterns in the existing codebase that are particularly well-designed. Also note 1-2 anti-patterns.
-
-Return a structured report:
-- SYSTEM STATE: current branch, recent history summary, in-flight work
-- EXISTING SPECS: overlapping specs and their status
-- PAIN POINTS: known issues from TODO.md relevant to the plan
-- RETROSPECTIVE: prior review cycle findings (if any)
-- TASTE CALIBRATION: style references and anti-patterns
-- EXISTING CODE: code that already partially solves problems in this plan"
-description: "System audit"
-run_in_background: true
-```
+Launch this agent with `run_in_background: true` using the prompt in `references/system-audit-prompt.md`. It gathers git state, reads CLAUDE.md / TODO.md / SPECLOG.md, scans overlapping specs, runs a retrospective check, and calibrates on taste — returning a structured report (system state, existing specs, pain points, retrospective, taste calibration, existing code).
 
 **Do NOT wait for this agent.** Proceed immediately to Step 0. When the agent completes, incorporate its findings into the review. If the agent hasn't returned by Section 1, check for its results then.
 
@@ -109,11 +81,7 @@ run_in_background: true
 2. Is this plan rebuilding anything that already exists? If yes, explain why rebuilding is better than refactoring.
 
 ### 0C. Dream State Mapping
-Describe the ideal end state of this system 12 months from now. Does this plan move toward that state or away from it?
-```text
-  CURRENT STATE                  THIS PLAN                  12-MONTH IDEAL
-  [describe]          --->       [describe delta]    --->    [describe target]
-```
+Describe the ideal end state of this system 12 months from now. Does this plan move toward that state or away from it? Use the `## Step 0C: Dream State Mapping` template in `references/section-templates.md`.
 
 ### 0D. Mode-Specific Analysis
 **For SCOPE EXPANSION** — run all three:
@@ -163,15 +131,7 @@ Evaluate and diagram:
 Required ASCII diagram: full system architecture showing new components and their relationships.
 
 ### Section 2: Error Map
-For every new API route, service function, or background job step that can fail, fill in:
-```text
-  METHOD/CODEPATH          | WHAT CAN GO WRONG           | ERROR TYPE
-  -------------------------|-----------------------------|-----------------
-  POST /api/foo            | Auth failure                | 401 Unauthorized
-                           | Resource not found          | 404 Not Found
-                           | DB constraint violation     | 409 Conflict
-                           | Query error                 | 500 Internal
-```
+For every new API route, service function, or background job step that can fail, fill in the `## Section 2: Error Map` table in `references/section-templates.md`.
 
 Rules:
 * Generic `catch (e)` is ALWAYS a smell. Name the specific error conditions.
@@ -188,26 +148,7 @@ Evaluate:
 * File upload security. MIME type validation, size limits, path traversal.
 
 ### Section 4: Data Flow & Interaction Edge Cases
-For every new data flow, diagram:
-```text
-  INPUT --> VALIDATION --> TRANSFORM --> PERSIST --> OUTPUT
-    |            |              |            |           |
-    v            v              v            v           v
-  [nil?]    [invalid?]    [exception?]  [conflict?]  [stale?]
-  [empty?]  [too long?]   [timeout?]    [dup key?]   [partial?]
-```
-
-For every new user-visible interaction:
-```text
-  INTERACTION          | EDGE CASE              | HANDLED?
-  ---------------------|------------------------|----------
-  Form submission      | Double-click submit    | ?
-  Async operation      | User navigates away    | ?
-  List/table view      | Zero results           | ?
-                       | 10,000 results         | ?
-  Background job       | Job fails mid-batch    | ?
-                       | Job runs twice (dup)   | ?
-```
+For every new data flow, diagram the four shadow paths; for every new user-visible interaction, map the edge cases. Both shapes are in `references/section-templates.md § "Section 4: Data Flow & Interaction Edge Cases"`.
 
 ### Section 5: Code Quality Review
 Evaluate:
@@ -218,14 +159,7 @@ Evaluate:
 * Under-engineering check. Anything fragile or happy-path-only?
 
 ### Section 6: Test Review
-Diagram every new thing this plan introduces:
-```text
-  NEW UX FLOWS:        [list each]
-  NEW API ROUTES:      [list each]
-  NEW DATA FLOWS:      [list each]
-  NEW BACKGROUND JOBS: [list each]
-  NEW ERROR PATHS:     [list each, cross-reference Section 2]
-```
+Diagram every new thing this plan introduces using the `## Section 6: Test Review` template in `references/section-templates.md`.
 For each: what type of test covers it? (unit / integration / E2E)
 Test ambition check: What's the test that would make you confident shipping at 2am on a Friday?
 
@@ -271,10 +205,7 @@ Where this plan leaves us relative to the 12-month ideal.
 Complete table of every method that can fail, every error type, handled status, action, user impact.
 
 ### Failure Modes Registry
-```text
-  CODEPATH | FAILURE MODE   | HANDLED? | TEST? | USER SEES?     | LOGGED?
-```
-Any row with HANDLED=N, TEST=N, USER SEES=Silent -> **CRITICAL GAP**.
+Fill in the `## Required Output: Failure Modes Registry` table in `references/section-templates.md`. Any row with HANDLED=N, TEST=N, USER SEES=Silent -> **CRITICAL GAP**.
 
 ### TODO.md updates
 Present each potential TODO as its own individual AskUserQuestion. One per question. For each: What, Why, Pros, Cons, Context, Effort (S/M/L/XL), Priority (P1/P2/P3).
@@ -291,23 +222,4 @@ At least 5 "bonus chunk" opportunities (<30 min each). Each as its own AskUserQu
 5. Deployment sequence
 
 ### Completion Summary
-```text
-  +====================================================================+
-  |            CEO PLAN REVIEW — COMPLETION SUMMARY                     |
-  +====================================================================+
-  | Mode selected        | EXPANSION / HOLD / REDUCTION                |
-  | Section 1  (Arch)    | ___ issues found                            |
-  | Section 2  (Errors)  | ___ error paths mapped, ___ GAPS            |
-  | Section 3  (Security)| ___ issues found                            |
-  | Section 4  (Data/UX) | ___ edge cases mapped, ___ unhandled        |
-  | Section 5  (Quality) | ___ issues found                            |
-  | Section 6  (Tests)   | Diagram produced, ___ gaps                  |
-  | Section 7  (Perf)    | ___ issues found                            |
-  | Section 8  (Observ)  | ___ gaps found                              |
-  | Section 9  (Deploy)  | ___ risks flagged                           |
-  | Section 10 (Future)  | Reversibility: _/5, debt items: ___         |
-  | TODO.md updates      | ___ items proposed                          |
-  | Diagrams produced    | ___ (list types)                            |
-  | Unresolved decisions | ___                                         |
-  +====================================================================+
-```
+Produce the summary box from `references/section-templates.md § "Required Output: Completion Summary"`, filling in the per-section counts.
