@@ -2,7 +2,13 @@
 
 All notable changes to this repository.
 
-Current version: **2.50**
+Current version: **2.54**
+
+## [2.54] — 2026-06-05
+
+### Changed
+
+- **`/execute` links to `/guardian` for the AFK/HITL definitions instead of redefining them.** The skill said "see `/guardian`'s section for authoritative definitions" and then redefined AFK, HITL, and the unlabelled default anyway — a copy that drifts from `guardian/SKILL.md` over time. Cut the redefinition; kept execute's own contribution (the `MODE` compute and the AskUserQuestion gating-rule table). A short bridge sentence still names the three label sources that feed the compute, so execute drives its mode logic without re-reading guardian inline. Mirrors the pattern `/sweep-issues` already follows. (#107)
 
 ## [2.50] — 2026-06-07
 

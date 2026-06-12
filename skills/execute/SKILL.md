@@ -27,11 +27,9 @@ Flexible execution skill with three modes plus a parallel multi-pane launcher. A
 
 ## AFK vs HITL handling (shared)
 
-See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). At this layer:
+See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions of AFK and HITL and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). The rest of this section is execute's own contribution: how to resolve the mode for a run and how each AskUserQuestion call site behaves under it.
 
-- **AFK-labelled task** (issue carries `afk`, or spec/conversation marks it AFK): proceed end-to-end through the execution loop without pausing for confirmation between phases.
-- **HITL-labelled task**: pause at each decision point and ask via AskUserQuestion before proceeding.
-- **Unlabelled**: behave as HITL — only escalate to AFK when explicitly marked or when the user is running under `/guardian mode autonomous`.
+The label reaches this layer from one of three sources — an issue's `afk`/`hitl` label (ISSUE mode), an explicit spec/conversation marker (SPEC/RAW mode), or a session-wide `/guardian mode autonomous`. When none is present, treat the run as HITL. The compute below folds these into a single `MODE` value.
 
 ### Resolving the mode (compute once, use everywhere)
 
