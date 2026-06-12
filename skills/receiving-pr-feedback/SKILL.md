@@ -29,26 +29,20 @@ Handle PR review feedback with technical rigor. Verify suggestions before implem
 `--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance with a fresh context window.
 
 1. Parse PR numbers from arguments (single number like `323` or comma-separated like `323,324,325`).
-2. Get the current tmux window: `tmux display-message -p '#S:#I'`
-3. For each PR number, create a new tmux pane and launch a Claude Code instance:
+2. Hand the parsed PR numbers to the shared launcher. It validates each number against `^[0-9]+$` (rejecting shell metacharacters before they reach the tmux command), confirms an active tmux session, spawns one pane per PR, and prints the summary. Pass `{ID}` through unexpanded — the script substitutes it per pane.
 
 ```bash
-# For each PR number in the list:
-tmux split-window -t "$SESSION:$WINDOW" -h "claude --dangerously-skip-permissions --print 'Run /receiving-pr-feedback <NUMBER>. Process all review feedback, apply fixes, and reply to comments on the PR.' 2>&1; echo '--- PR #<NUMBER> feedback complete. Press Enter to close. ---'; read"
-tmux select-layout -t "$SESSION:$WINDOW" tiled
+calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+  --mode pr --ids "323,324,325" \
+  --prompt 'Run /receiving-pr-feedback {ID}. Process all review feedback, apply fixes, and reply to comments on the PR.' \
+  --label 'PR #{ID} feedback complete' \
+  --summary-label 'Multi-PR feedback'
 ```
 
-4. Output:
-```text
-Multi-PR feedback launched:
-  PRs: #323, #324, #325
-  Panes: 3 new tmux panes created
-  Mode: context-free — each instance handles feedback independently
+The script exits non-zero on a validation failure (`2`), no tmux session (`3`), or missing tmux (`4`). Relay its stderr message to the user and STOP — do not fall back to spawning panes by hand.
 
-Watch progress in the tmux panes. This instance is done.
-```
-
-5. **STOP.** Do not proceed to Step 1 — the tmux instances handle the feedback.
+3. **STOP.** Do not proceed to Step 1 — the tmux instances handle the feedback.
 
 ---
 

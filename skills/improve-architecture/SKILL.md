@@ -124,44 +124,14 @@ Once the user picks a candidate, drop into a `/plan --grill`-style conversation.
 - **Naming a deepened module after a concept not in `CONTEXT.md`?** Add the term to `CONTEXT.md` right there using the format below. Same discipline as `/plan --grill`.
 - **Sharpening a fuzzy term during the conversation?** Update `CONTEXT.md` inline.
 - **User rejects the candidate?** Persist the rejection **immediately, here, at rejection time** — don't defer to `/sweep-issues` (it may never run, and the next audit will re-suggest the same candidate). Two paths:
-  1. **Durable reason that meets all three ADR criteria** (hard to reverse, surprising without context, real trade-off): write `docs/adr/NNNN-kebab-title.md` now using the format below. Frame the offer as: *"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"*
+  1. **Durable reason that meets all three ADR criteria** (hard to reverse, surprising without context, real trade-off): write `docs/adr/NNNN-kebab-title.md` now using the [canonical ADR format](../plan/references/context-and-adr-formats.md). Frame the offer as: *"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"*
   2. **Durable reason that doesn't meet all three** (e.g. "we'd revisit if we add multi-tenancy"): write `.out-of-scope/<kebab-slug>.md` now (format documented in `/sweep-issues` SKILL.md — `slug`, `rejected`, `related-issues` frontmatter, plus "Why we rejected it" and "What would change our minds" body sections). The next audit reads this and skips the candidate.
 
   Only skip persistence entirely if the user explicitly marks the rejection **ephemeral** (e.g. "not worth it right now", "ask me again next quarter") — those don't need durable records because the reasoning won't apply later.
 
-### `CONTEXT.md` format (when adding terms inline)
+### Artifact formats (CONTEXT.md and ADR)
 
-```md
-**{Term}**:
-{One-sentence definition.}
-_Avoid_: {alias 1}, {alias 2}
-```
-
-Be opinionated, one canonical word per concept. Group under `## Language`, with `## Relationships`, `## Example dialogue`, and `## Flagged ambiguities` sections. Domain-only — no general programming concepts.
-
-### ADR format (at `docs/adr/NNNN-kebab-title.md`)
-
-```md
-# ADR-{NNNN}: {Verb-led title}
-
-**Status:** Accepted
-**Date:** YYYY-MM-DD
-
-## Context
-{What forced the decision.}
-
-## Decision
-{What we decided.}
-
-## Consequences
-**Positive:** {what gets easier}
-**Negative:** {what gets harder}
-
-## Alternatives considered
-- **{Alternative}** — rejected because {reason}
-```
-
-Filename zero-padded sequential, verb-led title. Immutable once accepted — supersede with a new ADR rather than editing.
+Both templates — the `CONTEXT.md` glossary format and the ADR format (`docs/adr/NNNN-kebab-title.md`, immutable once accepted; supersede with a new ADR rather than editing) — live in one canonical place: **[../plan/references/context-and-adr-formats.md](../plan/references/context-and-adr-formats.md)**, the same file `/plan` and `/learn` defer to, so the formats can't drift apart. Read it before writing either artifact.
 - **User accepts the candidate and wants to implement?** Stop here — do **not** start coding inside `/improve-architecture`. Hand off: *"Run `/plan review` on this candidate, then `/execute`. I'll keep audit notes in CONTEXT.md / docs/adr/."* The skill is a surfacing-and-deciding tool, not an implementation tool.
 
 ### Step 6: Write audit notes
