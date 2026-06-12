@@ -75,6 +75,10 @@ Not unified here: the ordering / atomicity family (TOCTOU re-reads under *SQL & 
 
 ### Pass 2 — INFORMATIONAL
 
+#### Distributability & Fresh-Clone
+- **Maintainer-path fallbacks must be guarded.** A `${CALSUITE_DIR:-$HOME/Projects/calsuite}` fallback — or any `~/<dir>` / `$HOME/<dir>` default — in a skill body or shell script is only safe when the **next lines** check the target exists and fail with actionable guidance (the `customise` / `sync` pattern). Read the surrounding lines, not just the matched line: flag any such fallback that's invoked directly (e.g. `bash "$calsuite_dir/scripts/x.sh"`) with no intervening existence guard — on a fresh clone without the env var it silently points at a nonexistent path. Distributed skills (those that ship to target repos) should prefer resolving via the env var only.
+- **Resolver/installer code must not hardcode the maintainer's layout.** New path resolution should use `git rev-parse --git-common-dir`, `__dirname`, or an explicit env var — not `path.join(HOME_DIR, 'Projects', 'calsuite')`. Reviewers are historically blind to distributability (PR #95, PR #103 both slipped through internal review); check it explicitly when a diff touches path resolution or shells out to another repo.
+
 #### React 19 State Patterns
 - **Derive-during-render must also sync state**: When a component computes an `effectiveX` during render to mask a stale `x` state (e.g., "filter falls back to a default if the selected option disappears from the props"), the derivation alone hides the bug — it doesn't fix it. The underlying `x` state stays stale and can snap back to the displayed-but-not-stored value when that value reappears in the props. Look for the pattern `const effectiveX = condition ? fallback : x` and check whether `setX(effectiveX)` is also called (via prev-prop tracking) so the stored state matches what the user sees.
 - **`useEffect(() => setX(...), [prop])` is forbidden**: The `react-hooks/set-state-in-effect` rule catches this, but new instances can slip through. When state needs to reset because a prop changed, use prev-prop tracking with `useState` and adjust during render — not an effect.
