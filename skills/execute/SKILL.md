@@ -37,6 +37,16 @@ The three common invocations, with what each one does and what "done" looks like
 
 For parallel work across panes, see Step 0M (`--multi issue:1,2,3` or `--multi spec:foo,bar`). Everything below is the detailed engine these invocations drive.
 
+## Arguments
+
+`$ARGUMENTS` selects the mode (parsed in Step 0; `--multi` routes to Step 0M):
+
+- *(no arguments)* — **RAW**: derive tasks from conversation context.
+- `spec <slug>` — **SPEC**: read `.claude/specs/<slug>/` and work through `tasks.md`. Omit `<slug>` to use the most recent spec.
+- `issue <number>` — **ISSUE**: fetch GitHub issue `#<number>` and implement it.
+- `--multi issue:<n>,<n>,...` — **MULTI**: one tmux pane per issue (requires an active tmux session).
+- `--multi spec:<slug>,<slug>,...` — **MULTI**: one tmux pane per spec.
+
 ## AFK vs HITL handling (shared)
 
 See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). At this layer:

@@ -24,6 +24,10 @@ allowed-tools:
 
 Four mandatory phases. Do not skip ahead to fixing — understand first.
 
+## Arguments
+
+`[error-description]` — optional. A short description of the failure to investigate (e.g. `test_discount_applies failing`, `API returns 500 on POST /orders`, `race condition in the counter`). If omitted, the skill derives the issue from conversation context.
+
 ## Domain awareness (before Phase 1)
 
 If the repo has a `CONTEXT.md` (or a `CONTEXT-MAP.md` pointing to per-module `CONTEXT.md` files), read it for the area you're debugging — getting the right mental model of the modules in play often shortens Phase 1 dramatically. If `docs/adr/` exists and an ADR covers the area, read it: many "weird" behaviors are deliberate decisions an ADR explains, and the bug is somewhere else.

@@ -17,6 +17,15 @@ allowed-tools:
 
 Monitors a PR from creation to merge. The watching happens in a detached background daemon (`scripts/hooks/babysit-pr-daemon.cjs`); this skill only spawns it and reads the files it writes. You hear from the daemon only when something needs your attention.
 
+## Arguments
+
+`$ARGUMENTS` is the PR number plus an optional flag. The PR number is the first bare argument; the flag selects the mode (parsed in the Workflow section below).
+
+- `<pr-number>` — spawn the babysitter for that PR (or report on it if one is already running).
+- `--status` — list all active babysitters and their current state. With no PR number and no flag, this is the default.
+- `--logs` — print the daemon's log for `<pr-number>`.
+- `--stop` — kill the daemon for `<pr-number>` and clean up its status/log files.
+
 ## How the daemon behaves
 
 The daemon takes `<owner/repo> <pr-number>` and runs a fixed loop — there is no per-user config to set. On every invocation it:
