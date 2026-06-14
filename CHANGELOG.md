@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.51**
+Current version: **2.52**
+
+## [2.52] — 2026-06-12
+
+### Changed
+
+- **Skill-audit follow-ups (#100, #103, #104, #107) — dedup and progressive disclosure across several skills.**
+  - **#100** — `/learn` and `/improve-architecture` now defer to the canonical `skills/plan/references/context-and-adr-formats.md` for the CONTEXT.md and ADR templates instead of carrying their own copies. (The bulk of this consolidation already landed when `/plan` was split out, #127.)
+  - **#103** — the tmux multi-pane launch logic is extracted to `scripts/tmux-multi-launch.sh`; `/execute`, `/receiving-pr-feedback`, and `/review` shell out to it instead of re-implementing the parse-validate-spawn block.
+  - **#104** — progressive-disclosure pass on `/execute`, `/retro`, and `/plan-ceo`: long agent prompts and section templates moved to `references/`, with each skill linking to them.
+  - **#107** — `/execute` links to `/guardian` for the authoritative AFK/HITL definitions instead of redefining them, keeping only its own MODE compute.
+- **Distributability guardrails (from this PR's review).** Added a "Distributability & Fresh-Clone" item to the `/review` checklist and clarified `CLAUDE.md`'s fresh-clone section: a `${CALSUITE_DIR:-$HOME/Projects/calsuite}` fallback is the sanctioned pattern for skill bodies **only when guarded** by an existence check; the unguarded form (caught by CodeRabbit here) is the bug.
 
 ## [2.51] — 2026-06-12
 

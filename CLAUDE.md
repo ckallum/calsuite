@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.51** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.52** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -88,7 +88,16 @@ Calsuite is a personal harness for the maintainer, but the source is distributab
 
 Two failure modes that have happened, both of which the fresh-clone test catches:
 
-- **Hardcoded directory layouts under `HOME_DIR`.** A `path.join(HOME_DIR, 'Projects', 'calsuite')` fallback assumes the maintainer's repo location. Use `git rev-parse --git-common-dir` (works for any git checkout) or `__dirname` (works for any installer invocation) or an env var (explicit override). Never bake a user-directory convention into a fallback.
+- **Hardcoded directory layouts under `HOME_DIR` in resolver/installer code.** A `path.join(HOME_DIR, 'Projects', 'calsuite')` fallback assumes the maintainer's repo location. Use `git rev-parse --git-common-dir` (works for any git checkout) or `__dirname` (works for any installer invocation) or an env var (explicit override). Never bake a user-directory convention into a fallback here.
+- **Unguarded `$CALSUITE_DIR` fallbacks in skill bodies / shell snippets.** Skills that shell out to a calsuite script reference it via `${CALSUITE_DIR:-$HOME/Projects/calsuite}` — the sanctioned house pattern (see `customise`, `sync`, `reconcile`). The `~/Projects/calsuite` default is acceptable here, but **only when the next lines guard it** with an existence check that fails loudly with actionable guidance:
+  ```bash
+  calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+  if [ ! -f "$calsuite_dir/scripts/<name>" ]; then
+    echo "✗ Not found at $calsuite_dir/scripts/<name> — set \$CALSUITE_DIR or clone to ~/Projects/calsuite" >&2
+    exit 1
+  fi
+  ```
+  An **unguarded** fallback — invoking `$calsuite_dir/...` with no existence check — silently points at a nonexistent path on a fresh clone (the bug CodeRabbit caught in PR #103). Distributed skills (`/execute`, `/review`, `/receiving-pr-feedback`) run where `$CALSUITE_DIR` may be unset, so the guard is what turns a confusing "no such file" into a fixable error.
 - **Tribal knowledge that isn't tracked.** A git hook installed manually on the maintainer's machine doesn't survive `git clone`. Anything required for the install to work must be either tracked in the repo (templates + an installer that copies them) or documented as a one-line setup step the user runs explicitly.
 
 The deterministic check: run `scripts/setup.cjs` against a checkout that's not the maintainer's — a clean `~/Stuff/calsuite/`, `/tmp/calsuite-test/`, anywhere. The setup script + smoke test must produce a working install with no manual fix-ups. If anything fails, fix the source, not the user's environment.

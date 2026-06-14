@@ -49,11 +49,9 @@ For parallel work across panes, see Step 0M (`--multi issue:1,2,3` or `--multi s
 
 ## AFK vs HITL handling (shared)
 
-See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). At this layer:
+See `/guardian`'s "How AFK/HITL composes across skills" section for the authoritative definitions of AFK and HITL and how the label cascades from `/sweep-issues` (classification) through here (execution) to `/guardian` (permissions). The rest of this section is execute's own contribution: how to resolve the mode for a run and how each AskUserQuestion call site behaves under it.
 
-- **AFK-labelled task** (issue carries `afk`, or spec/conversation marks it AFK): proceed end-to-end through the execution loop without pausing for confirmation between phases.
-- **HITL-labelled task**: pause at each decision point and ask via AskUserQuestion before proceeding.
-- **Unlabelled**: behave as HITL — only escalate to AFK when explicitly marked or when the user is running under `/guardian mode autonomous`.
+The label reaches this layer from one of three sources — an issue's `afk`/`hitl` label (ISSUE mode), an explicit spec/conversation marker (SPEC/RAW mode), or a session-wide `/guardian mode autonomous`. When none is present, treat the run as HITL. The compute below folds these into a single `MODE` value.
 
 ### Resolving the mode (compute once, use everywhere)
 
@@ -118,40 +116,34 @@ Otherwise, parse `$ARGUMENTS`:
 
    If neither form matches (or no identifiers follow), STOP and tell the user: "`--multi` requires `issue:<numbers>` or `spec:<slugs>`. Raw prompts are not supported."
 
-2. Verify tmux is available and we're inside a tmux session:
-   ```bash
-   tmux display-message -p '#S:#I' 2>/dev/null
-   ```
-   If this fails, STOP and tell the user: "`--multi` requires an active tmux session. Start tmux first, then re-run."
-
-3. Capture the current session and window (e.g. `mysession:0`).
-
-4. For each identifier in the comma-separated list, create a new tmux pane and launch a Claude Code instance:
+2. Hand the parsed mode and identifiers to the shared launcher. It validates each id, confirms an active tmux session, spawns one pane per id, and prints the summary. Pass the `{ID}` placeholder through unexpanded — the script substitutes it per pane.
 
    ```bash
+   calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+   if [ ! -f "$calsuite_dir/scripts/tmux-multi-launch.sh" ]; then
+     echo "✗ Launcher not found at $calsuite_dir/scripts/tmux-multi-launch.sh" >&2
+     echo "  Set \$CALSUITE_DIR to your calsuite checkout, or clone it to ~/Projects/calsuite" >&2
+     exit 1
+   fi
+
    # For ISSUE mode — each issue gets its own pane:
-   tmux split-window -t "$SESSION:$WINDOW" -h \
-     "claude --dangerously-skip-permissions --print 'Run /execute issue <NUMBER>. Implement the issue fully — derive tasks, execute, commit, and report when done.' 2>&1; echo '--- Execution of issue #<NUMBER> complete. Press Enter to close. ---'; read"
-   tmux select-layout -t "$SESSION:$WINDOW" tiled
+   bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+     --mode issue --ids "1,2,3" \
+     --prompt 'Run /execute issue {ID}. Implement the issue fully — derive tasks, execute, commit, and report when done.' \
+     --label 'Execution of issue #{ID} complete' \
+     --summary-label 'Multi execution'
 
    # For SPEC mode — each spec gets its own pane:
-   tmux split-window -t "$SESSION:$WINDOW" -h \
-     "claude --dangerously-skip-permissions --print 'Run /execute spec <SLUG>. Execute the spec fully — work through all tasks, commit, and report when done.' 2>&1; echo '--- Execution of spec <SLUG> complete. Press Enter to close. ---'; read"
-   tmux select-layout -t "$SESSION:$WINDOW" tiled
+   bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+     --mode spec --ids "foo,bar" \
+     --prompt 'Run /execute spec {ID}. Execute the spec fully — work through all tasks, commit, and report when done.' \
+     --label 'Execution of spec {ID} complete' \
+     --summary-label 'Multi execution'
    ```
 
-5. Output:
-   ```text
-   Multi execution launched:
-     Mode: [issue | spec]
-     Items: #1, #2, #3  (or foo, bar, baz)
-     Panes: N new tmux panes created
-     Each instance executes independently with full review cycles.
+   The script exits non-zero on a validation failure (`2`), no tmux session (`3`), or missing tmux (`4`). Relay its stderr message to the user and STOP — do not fall back to spawning panes by hand.
 
-   Watch progress in the tmux panes. This instance is done.
-   ```
-
-6. **STOP.** Do not proceed to Step 1 — the tmux instances handle the execution.
+3. **STOP.** Do not proceed to Step 1 — the tmux instances handle the execution.
 
 ---
 
@@ -228,78 +220,23 @@ gh issue view <number> --json title,body,labels,comments,assignees
 
 Execute tasks sequentially, reporting progress in batches of 3. For each task:
 
+The three agent prompts for this loop live in `references/agent-prompts.md` — pass each one verbatim to a fresh agent, substituting the bracketed placeholders.
+
 ### 3a: Dispatch implementer agent
 
-```text
-prompt: "You are implementing a task. Read CLAUDE.md first.
-
-TASK:
-<full task text — never make the agent read a file>
-
-CONTEXT:
-<COMPLIANCE_REFERENCE content — spec sections, issue body, or user summary>
-
-DIAGRAMS:
-<relevant diagrams from diagrams.md, if they exist (SPEC mode only)>
-
-Instructions:
-1. If anything is unclear, list your questions and STOP — do not guess.
-2. Implement exactly what the task specifies. Nothing more, nothing less.
-3. Write tests for new functionality.
-4. Run tests to verify they pass.
-5. Commit your changes with a descriptive message.
-   ISSUE mode: include 'Refs #<number>' in commit message.
-6. Self-review: check completeness, code quality, test coverage.
-
-Return: what you implemented, what tests you wrote, test results, any concerns."
-description: "Implement task: <task title>"
-```
+Dispatch the implementer with the full task text plus `COMPLIANCE_REFERENCE` as context (and diagrams in SPEC mode). Use the `## 3a: Implementer agent` prompt in `references/agent-prompts.md`.
 
 **If the agent has questions:** treat as a hard blocker. In `MODE=hitl`, present via AskUserQuestion, answer, then re-dispatch. In `MODE=afk`, the orchestrator does **not** have the user's input — STOP and report: *"Task `<title>` requires HITL clarification: `<questions>`. Re-run as HITL or label the issue `hitl` and re-execute."* Do not guess; do not skip; do not silently stall waiting for input that won't come.
 
 ### 3b: Dispatch compliance reviewer
 
-After the implementer finishes:
-
-```text
-prompt: "You are reviewing an implementation for compliance. Read the actual code changes (git diff), not just the implementer's report.
-
-TASK THAT WAS IMPLEMENTED:
-<full task text>
-
-COMPLIANCE REFERENCE:
-<COMPLIANCE_REFERENCE — spec requirements, issue body, or user summary>
-
-Check:
-- Did the implementer build exactly what was requested?
-- Is anything missing from the requirements?
-- Is there extra/unneeded work beyond the task scope?
-- Do the tests cover the requirements?
-
-Report: ✅ Passes compliance, or ❌ with specific file:line issues."
-description: "Compliance review: <task title>"
-```
+After the implementer finishes, dispatch a reviewer that reads the actual `git diff` and checks it against `COMPLIANCE_REFERENCE`. Use the `## 3b: Compliance reviewer agent` prompt in `references/agent-prompts.md`.
 
 **If issues found:** Re-dispatch the implementer with the specific issues. Re-review after fixes. Max 2 fix cycles — if still failing, escalate to user.
 
 ### 3c: Dispatch code quality reviewer
 
-Only after compliance passes:
-
-```text
-prompt: "You are reviewing code quality. Read CLAUDE.md first, then review the changes.
-
-Run: git diff origin/main --name-only to find changed files. Read each changed file.
-
-Check:
-- Does the code follow project conventions from CLAUDE.md?
-- Are there DRY violations, unnecessary complexity, or missing error handling?
-- Could existing utilities be reused instead of new code?
-- Are there security concerns?
-
-Report: list of issues (Critical/Important/Minor) with file:line references and suggested fixes."
-description: "Quality review: <task title>"
-```
+Only after compliance passes, dispatch a quality reviewer that reads CLAUDE.md and the changed files. Use the `## 3c: Code quality reviewer agent` prompt in `references/agent-prompts.md`.
 
 **If critical issues found:** Fix them (or dispatch implementer to fix). Re-review.
 
@@ -383,4 +320,4 @@ If creating a PR directly (instead of handing off to `/ship`):
 - **RAW mode depends on conversation context.** If the conversation has no clear task, ask the user to describe what they want.
 - **Issue checklist parsing:** If the issue body has `- [ ]` items, use them as tasks directly. If prose only, derive tasks like RAW mode.
 - **`--multi` only works with `issue:` and `spec:`** — raw prompts have no identifier to split on. If the user passes `--multi` without an `issue:` or `spec:` list, abort and ask them to specify identifiers.
-- **`--multi` requires an active tmux session.** It uses `tmux split-window` to spawn panes — outside tmux there's nowhere to put them. Check `tmux display-message` before spawning.
+- **`--multi` requires an active tmux session.** The shared launcher (`scripts/tmux-multi-launch.sh`) spawns panes via `tmux split-window` — outside tmux there's nowhere to put them. The script checks for an active session and exits `3` if there isn't one; relay its message rather than re-implementing the check.
