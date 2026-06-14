@@ -2,7 +2,13 @@
 
 All notable changes to this repository.
 
-Current version: **2.52**
+Current version: **2.53**
+
+## [2.53] — 2026-06-12
+
+### Fixed
+
+- **`/execute` AFK/HITL gating is now self-consistent for ISSUE-mode completion comments.** The gating-rule table listed "post comment" as a user-owned, always-ask action, but Step 5 posted the ISSUE-mode completion status comment unconditionally — a contradiction flagged in PR #130 review. Scoped the rule to *discretionary* comments and classified the completion note as **delegated output** (posted in both AFK and HITL; running `/execute issue <n>` explicitly delegates the issue). No change to execution behavior — the inconsistency was in the documented rule, not the action.
 
 ## [2.52] — 2026-06-12
 

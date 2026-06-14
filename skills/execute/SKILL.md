@@ -72,7 +72,7 @@ Every AskUserQuestion call below falls into one of two categories:
 | Category | AFK behavior | HITL behavior |
 |---|---|---|
 | **Phase confirmation** — "proceed?", "continue?", "raise concerns?" between phases | **Skip** the prompt; proceed automatically and log the auto-decision in the batch report | Ask normally |
-| **User-owned decision** — actions that change shared state outside this run (close issue, post comment, push to remote, send notification) | **Always ask** regardless of mode — AFK does not authorize state changes the user hasn't explicitly delegated | Ask normally |
+| **User-owned decision** — actions that change shared state outside this run (close issue, post a discretionary comment, push to remote, send notification) | **Always ask** regardless of mode — AFK does not authorize state changes the user hasn't explicitly delegated | Ask normally |
 
 Each AskUserQuestion call site below explicitly states which category it belongs to. The default for ambiguous calls is **phase confirmation** (skippable in AFK) — be conservative about marking a call user-owned, but never auto-execute issue-close, force-push, or external-system writes without explicit user confirmation.
 
@@ -279,6 +279,7 @@ After all tasks are done:
      ```bash
      gh issue comment <number> --body "Implementation complete on branch \`$(git branch --show-current)\`. Changes: <summary of files changed and tests written>"
      ```
+     **Delegated output** — post this completion comment in both modes (no prompt): running `/execute issue <n>` explicitly delegates this issue, so the end-of-run status note is the expected output, not a discretionary external write. (A *discretionary* comment would be user-owned per the gating rule.)
      **User-owned decision** — always ask via AskUserQuestion regardless of `MODE`: "Close this issue? (A) Yes (B) No, keep open until PR merges". Closing an issue is a state change visible outside this run; AFK does not authorize it.
    - **RAW:** No external updates.
 3. Report final status:
