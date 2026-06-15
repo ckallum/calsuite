@@ -2,7 +2,17 @@
 
 All notable changes to this repository.
 
-Current version: **2.53**
+Current version: **2.54**
+
+## [2.54] — 2026-06-15
+
+### Added
+
+- **AFK autonomous-loop system — Phase 0 scaffolding.** Groundwork for a set of unattended Desktop-scheduled-task loops (execute → review → fix → merge) that move AFK issues through to merged PRs, coordinated by a GitHub-label state machine. This release lands the validated plumbing only:
+  - `scripts/install-afk-routines.cjs` — symlinks calsuite-owned `afk-*` workflows, skills, and scheduled-task prompts into `~/.claude/` (global) so any repo's Desktop scheduled task resolves them by name. Idempotent; logs and counts every skip/conflict/failure and exits non-zero on any.
+  - New top-level `workflows/` (dynamic-workflow scripts) and `scheduled-tasks/` (Desktop task prompts) directories — distributed by global symlink rather than per-target copy.
+  - `afk-smoke` — a throwaway validation harness (skill + workflow + task prompt) that confirmed the full chain works end to end: Desktop task → custom global skill → global dynamic workflow → agent → `gh`. Phase 0 finding baked into the design: workflow `args` do not propagate to named user workflows, so the loops are cwd-based and coordinate work through labels.
+  - `afk-smoke` added to `INTERNAL_SKILLS` in `configure-claude.js` (globally symlinked, never distributed per-target).
 
 ## [2.53] — 2026-06-12
 
