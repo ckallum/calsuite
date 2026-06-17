@@ -20,7 +20,7 @@ The workflow operates on **the current working directory's repo** (it resolves `
 ## Steps
 
 1. Invoke the **Workflow** tool by name, with no args:
-   ```
+   ```javascript
    Workflow({ name: "afk-smoke" })
    ```
    This resolves the saved workflow from `~/.claude/workflows/afk-smoke.js`.

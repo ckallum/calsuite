@@ -32,7 +32,11 @@ if (typeof a === 'string') {
     a = { repo: a }
   }
 }
-const repo = a && a.repo ? String(a.repo) : ''
+// Only accept a repo override that is a well-formed OWNER/REPO string. Anything
+// else (non-string, wrong shape) is ignored and we fall back to the cwd repo —
+// this guards the `--repo ${repo}` interpolation below if args ever propagate.
+const rawRepo = a && typeof a.repo === 'string' ? a.repo.trim() : ''
+const repo = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(rawRepo) ? rawRepo : ''
 
 phase('Smoke')
 log(`afk-smoke: probing newest open PR (${repo || 'cwd repo'}) via gh, read-only`)
@@ -50,5 +54,12 @@ const result = await agent(
   { label: `smoke:${repo || 'cwd'}`, schema: SCHEMA },
 )
 
-log(`afk-smoke: done — ok=${result ? result.ok : 'null'} repo=${result ? result.repo : '?'} pr=${result ? result.pr : '?'}`)
+if (!result) {
+  // agent() returns null when the subagent is skipped, dies, or fails schema
+  // validation. For a go/no-go probe that is the most important failure to make
+  // loud — return a schema-valid ok:false instead of handing a bare null upward.
+  log('afk-smoke: FAIL — agent returned null (skipped, died, or schema-invalid)')
+  return { repo, pr: 0, title: '(agent returned null)', headSha: '', ok: false, note: 'agent returned null — go/no-go FAIL' }
+}
+log(`afk-smoke: done — ok=${result.ok} repo=${result.repo} pr=${result.pr}`)
 return result

@@ -14,16 +14,38 @@
  * once per machine via the scheduled-tasks MCP (create_scheduled_task) or the
  * Routines UI. This script manages only the prompt / skill / workflow files.
  *
- * Calsuite root resolves from __dirname (works for any checkout — see the
- * fresh-clone test in CLAUDE.md). Node built-ins only; no dependencies.
+ * Calsuite root resolves canonically ($CALSUITE_DIR -> git-common-dir ->
+ * __dirname/..) so the global symlinks point at the real checkout, never an
+ * ephemeral worktree (see the fresh-clone test in CLAUDE.md). Node built-ins only.
  *
  * Usage: node scripts/install-afk-routines.cjs [--dry-run]
  */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('node:child_process');
 
-const CALSUITE = path.resolve(__dirname, '..');
+// Mirror resolveCalsuiteDir() in configure-claude.js. A bare path.resolve(__dirname,
+// '..') would pin the symlinks to a worktree when this is run from one — and these
+// symlinks must outlive any worktree, so resolve the canonical checkout instead.
+function resolveCalsuiteDir() {
+  if (process.env.CALSUITE_DIR) return path.resolve(process.env.CALSUITE_DIR);
+  const here = path.resolve(__dirname, '..');
+  try {
+    const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: here,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const canonical = path.dirname(path.resolve(here, commonDir));
+    if (fs.existsSync(canonical)) return canonical;
+  } catch {
+    // git not on PATH, or not a git tree (tarball) — fall through to __dirname/..
+  }
+  return here;
+}
+
+const CALSUITE = resolveCalsuiteDir();
 const CLAUDE = path.join(os.homedir(), '.claude');
 const DRY = process.argv.includes('--dry-run');
 
@@ -115,8 +137,10 @@ for (const d of listAfk(path.join(CALSUITE, 'skills'))) {
 
 console.log('scheduled-tasks:');
 for (const d of listAfk(path.join(CALSUITE, 'scheduled-tasks'))) {
-  // link() surfaces a missing SKILL.md as a failure — a scheduled-task dir
-  // without one is malformed, so don't pre-skip it silently.
+  // Link only SKILL.md, not the whole dir: the Desktop app owns
+  // ~/.claude/scheduled-tasks/<name>/ (schedule/folder/enabled metadata lives
+  // there) — calsuite owns only the prompt. link() surfaces a missing SKILL.md
+  // as a failure (a task dir without one is malformed), so don't pre-skip silently.
   link(path.join(CALSUITE, 'scheduled-tasks', d, 'SKILL.md'), path.join(CLAUDE, 'scheduled-tasks', d, 'SKILL.md'), `${d}/SKILL.md`);
 }
 
