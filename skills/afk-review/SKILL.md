@@ -1,6 +1,6 @@
 ---
 name: afk-review
-version: 0.2.0
+version: 0.2.1
 description: |
   afk review loop, autonomous PR review loop, run the review loop, review needs-review PRs,
   afk review cycle. The in-session orchestrator for the AFK review loop: select open PRs
@@ -40,8 +40,14 @@ A prior run may have crashed mid-review, leaving a stuck `auto:reviewing` claim.
 ```bash
 cutoff=$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
 for n in $(gh pr list --repo "$REPO" --state open --label auto:reviewing --json number --jq '.[].number'); do
-  applied=$(gh api "repos/$REPO/issues/$n/timeline" --paginate --jq '[.[] | select(.event=="labeled" and .label.name=="auto:reviewing") | .created_at] | last' 2>/dev/null)
-  if [ -z "$applied" ] || [ "$applied" \< "$cutoff" ]; then
+  # --slurp folds all timeline pages into one array so jq runs once (plain
+  # --paginate runs jq per page and emits a `null` per page, corrupting the
+  # comparison on long timelines). On a fetch FAILURE (rate-limit / auth /
+  # network) leave the claim alone — never reclaim on uncertainty, or a claim a
+  # still-running sibling legitimately holds gets yanked.
+  applied=$(gh api "repos/$REPO/issues/$n/timeline" --paginate --slurp --jq 'add | [.[] | select(.event=="labeled" and .label.name=="auto:reviewing") | .created_at] | last') \
+    || { echo "  ~ #$n: timeline fetch failed — leaving claim as-is"; continue; }
+  if [ -z "$applied" ] || [ "$applied" = "null" ] || [ "$applied" \< "$cutoff" ]; then
     gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review || true
   fi
 done
@@ -73,13 +79,13 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    Skill: review
    args: "pr <N>"
    ```
-   PR mode posts ONE consolidated comment and is non-interactive. **It must never prompt you** — if `/review` ever asks a question or appears to wait for input, that is a bug; do **not** answer it. Treat any prompt, hang, or crash as a review failure (escalate, Step 5).
+   PR mode posts ONE consolidated comment and is non-interactive. **It must never prompt you** — if `/review` ever asks a question or appears to wait for input, that is a bug; do **not** answer it. Treat any prompt, hang, or crash as a review failure (escalate, Step 4).
 
-4. **Read the verdict** from `/review`'s final output and branch:
-   - output contains `BLOCKED` → **needs-fixes**
-   - else contains `PASS` → **ready**
-   - else contains `not eligible for review` (draft / closed / trivial PR) → **not a failure**: release the claim back so it's re-checked when it becomes eligible — `gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review` (write **no** SHA marker), record `#N → skipped (not eligible)`, continue.
-   - else (ambiguous / errored / it prompted) → **escalate** (Step 5).
+4. **Read the verdict** from `/review`'s final output. Match its **canonical summary line**, not a bare substring (a findings body can contain the word "BLOCKED"):
+   - a line matching `^Review complete: BLOCKED` → **needs-fixes**
+   - else a line matching `^Review complete: PASS` → **ready**
+   - else if the output contains `not eligible for review` (draft / closed / trivial PR) → **not a failure**: release the claim back so it's re-checked when it becomes eligible — `gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review` (write **no** SHA marker), record `#N → skipped (not eligible)`, continue.
+   - else (no recognizable verdict / it errored / it prompted) → **escalate** (Step 4).
 
 5. **Transition + mark** (ready / needs-fixes):
    ```bash
@@ -92,7 +98,7 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    gh pr comment "$N" --repo "$REPO" --body "<!-- afk-review reviewed sha=$FRESH -->"
    ```
 
-## Step 5 — Escalate on failure
+## Step 4 — Escalate on failure
 
 ```bash
 gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-human
@@ -100,7 +106,7 @@ gh pr comment "$N" --repo "$REPO" --body "afk-review: escalating to needs-human 
 ```
 If either call fails, record the error and continue — Step 1's sweep reclaims the stranded claim next run.
 
-## Step 6 — Report
+## Step 5 — Report
 
 Print one line per PR — `#N → ready | needs-fixes | needs-human | skipped (unchanged|not eligible) | error (...)` — and the totals. An all-skipped or all-error run is still a clean exit, not a failure. Make no other changes.
 

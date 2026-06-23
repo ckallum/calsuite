@@ -32,7 +32,7 @@ if (!repo || repo.startsWith('--')) {
   console.error('usage: node scripts/bootstrap-afk-labels.cjs <owner/repo> [--dry-run]');
   process.exit(2);
 }
-if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+if (!/^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/.test(repo)) {
   console.error(`✗ invalid repo "${repo}" — expected owner/repo`);
   process.exit(2);
 }
