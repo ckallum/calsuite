@@ -77,6 +77,7 @@ const INTERNAL_SKILLS = new Set([
   // AFK autonomous-loop skills: globally symlinked into ~/.claude by
   // install-afk-routines.cjs, not distributed per-target through profiles.
   'afk-smoke',
+  'afk-review',
 ]);
 
 /**

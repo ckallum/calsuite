@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.1.0
+version: 1.1.1
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -245,9 +245,11 @@ Lead with your recommendation and explain WHY.
 
 After presenting your own findings, if Greptile comments were classified in Step 2.5:
 
-1. **VALID & ACTIONABLE:** Already included in CRITICAL findings above — follows the same AskUserQuestion flow.
+**In PR mode: never prompt.** PR mode is non-interactive (it may run unattended, e.g. from `/ship` or `/afk-review`). Fold the Greptile triage into the single consolidated comment (Step 7) — list FALSE POSITIVEs with a one-line reason, include VALID & ACTIONABLE alongside your own findings — and skip every AskUserQuestion below. Items 1–2 are **local mode only**.
 
-2. **FALSE POSITIVE:** Present each via AskUserQuestion:
+1. **VALID & ACTIONABLE:** Already included in CRITICAL findings above — follows the same AskUserQuestion flow (local mode).
+
+2. **FALSE POSITIVE (local mode only):** Present each via AskUserQuestion:
    - Show the comment: file:line + body summary + permalink URL
    - Explain why it's a false positive
    - Options: A) Reply to Greptile explaining why incorrect (recommended), B) Fix it anyway, C) Ignore

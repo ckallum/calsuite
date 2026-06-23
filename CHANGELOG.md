@@ -2,7 +2,20 @@
 
 All notable changes to this repository.
 
-Current version: **2.54**
+Current version: **2.55**
+
+## [2.55] — 2026-06-22
+
+### Added
+
+- **AFK review loop — Phase 1.** The first real autonomous loop, orchestrated entirely through the GitHub-label state machine.
+  - `scripts/bootstrap-afk-labels.cjs` — idempotently creates the nine state-machine labels (`afk`, `afk:building`, `afk:blocked`, `auto:needs-review`, `auto:reviewing`, `auto:needs-fixes`, `auto:fixing`, `auto:ready`, `auto:needs-human`) on a repo.
+  - `/afk-review <owner/repo>` — selects open PRs labelled `auto:needs-review`, claims each (`auto:reviewing`), runs `/review pr`, and transitions to `auto:ready` (clean) or `auto:needs-fixes` (actionable). Headless- and crash-safe: hard cwd/label preconditions, an age-aware stale-claim sweep, per-PR error isolation, SHA-marker idempotency, and escalation to `auto:needs-human` on any failure. Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-review/` Desktop-task prompt.
+  - `docs/afk-loops.html` — a standalone, zero-dependency interactive visualization of the AFK loop system.
+
+### Fixed
+
+- **`/review` no longer prompts in PR mode.** The Greptile false-positive resolution called `AskUserQuestion` gated only on Greptile-comment presence, not on review mode — so `/review pr` could block on a Greptile-enabled repo. The interactive Greptile triage is now local-mode only (PR mode folds it into the single consolidated comment), so unattended callers (`/ship`, `/afk-review`) never hang.
 
 ## [2.54] — 2026-06-15
 
