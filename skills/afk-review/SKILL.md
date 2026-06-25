@@ -1,6 +1,6 @@
 ---
 name: afk-review
-version: 0.2.1
+version: 0.2.2
 description: |
   afk review loop, autonomous PR review loop, run the review loop, review needs-review PRs,
   afk review cycle. The in-session orchestrator for the AFK review loop: select open PRs
@@ -31,7 +31,10 @@ Then run these two **hard preconditions** — both must pass before any label is
    ```
 2. **AFK labels must exist** (`gh pr edit --add-label` errors hard if a label is missing — bootstrap is a required one-time setup):
    ```bash
-   gh label list --repo "$REPO" --json name --jq '.[].name' | grep -qx 'auto:needs-review' || { echo "afk-review: AFK labels missing on $REPO — run: node scripts/bootstrap-afk-labels.cjs $REPO"; exit 1; }
+   have=$(gh label list --repo "$REPO" --limit 200 --json name --jq '.[].name')
+   for L in auto:needs-review auto:reviewing auto:needs-fixes auto:ready auto:needs-human; do
+     echo "$have" | grep -qx "$L" || { echo "afk-review: AFK label '$L' missing on $REPO — run: node scripts/bootstrap-afk-labels.cjs $REPO"; exit 1; }
+   done
    ```
 
 ## Step 1 — Age-aware stale-claim sweep
@@ -92,10 +95,9 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:ready       # PASS
    gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-fixes  # BLOCKED
    ```
-   If the transition `gh pr edit` **fails**, record `#N → error (transition)` and **do not** write the marker (a failed transition + written marker would strand the PR in `auto:reviewing` *and* SHA-skipped forever). Otherwise, write the marker with the **current** head SHA (re-read it, in case the PR moved during review):
+   If the transition `gh pr edit` **fails**, record `#N → error (transition)` and **do not** write the marker (a failed transition + written marker would strand the PR in `auto:reviewing` *and* SHA-skipped forever). Otherwise, write the marker with **`$SHA`** — the revision you actually reviewed (captured at selection). Do **not** re-read the current head: if the PR advanced during the review, marking the newer SHA would make the next run skip commits you never reviewed; marking the reviewed SHA only ever risks a harmless re-review.
    ```bash
-   FRESH=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid)
-   gh pr comment "$N" --repo "$REPO" --body "<!-- afk-review reviewed sha=$FRESH -->"
+   gh pr comment "$N" --repo "$REPO" --body "<!-- afk-review reviewed sha=$SHA -->"
    ```
 
 ## Step 4 — Escalate on failure
