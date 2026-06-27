@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.2.0
+version: 1.2.1
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -157,7 +157,7 @@ F_COUNT=$(grep -cE 'catch|\.catch|fallback|onError|Result<' "$DIFF_FILE" || true
 G_COUNT=$(grep -cE 'interface |type |enum |class |struct ' "$DIFF_FILE" || true)
 # Agent H — cross-module format consistency (any touched source file qualifies).
 # Diff headers have the form "+++ b/path/to/file.ext" — grep those to count touched source files.
-H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|py|go|sql)$' "$DIFF_FILE" || true)
+H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|cjs|cts|mjs|mts|py|go|sql|sh|bash)$' "$DIFF_FILE" || true)
 # Agents J (correctness/logic bugs) and K (reuse & simplification) reuse $H_COUNT —
 # both apply to any source diff, so they gate on the same touched-source signal.
 # Agent I — spec-contract deviation (branch has a matching spec).
@@ -190,7 +190,7 @@ If the respective count is 0 (or `$SPEC_DIR` empty for Agent I), skip that agent
 
 **Agent G — Type design review (signal-gated: `$G_COUNT > 0`):** rates new/modified types on invariant expression, encapsulation, enforcement, and usefulness; flags anemic types, mutable internals, comment-only invariants. Dispatch only if `$G_COUNT > 0` (diff introduces or modifies `interface`, `type`, `enum`, `class`, or `struct`). Prompt in [references/agents.md#agent-g-type-design-review-signal-gated-g_count--0](references/agents.md#agent-g-type-design-review-signal-gated-g_count--0).
 
-**Agent H — Cross-module format consistency (signal-gated: `$H_COUNT > 0`):** greps the whole module around each changed file (not just the diff) for inconsistent datetime writers, SQL `ORDER BY` directions, and snake/camel serialization drift. Dispatch only if `$H_COUNT > 0` (diff touches Rust, TS/JS, Python, Go, or SQL). Prompt in [references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0](references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0).
+**Agent H — Cross-module format consistency (signal-gated: `$H_COUNT > 0`):** greps the whole module around each changed file (not just the diff) for inconsistent datetime writers, SQL `ORDER BY` directions, and snake/camel serialization drift. Dispatch only if `$H_COUNT > 0` (diff touches a source file — Rust, TS/JS incl. `.cjs`/`.cts`/`.mjs`/`.mts`, Python, Go, SQL, shell). Prompt in [references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0](references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0).
 
 **Agent I — Spec-contract deviation (signal-gated: `$SPEC_DIR` non-empty):** reads `$SPEC_DIR/design.md` + `tasks.md` and flags MISSING (spec promises, diff doesn't deliver) and EXTRA (diff builds, spec doesn't describe) items. Dispatch only if `$SPEC_DIR` is non-empty (branch name with standard feature-branch prefixes stripped matches `.claude/specs/<slug>/` **exactly** — no fallback to "first spec"). Prompt in [references/agents.md#agent-i-spec-contract-deviation-signal-gated-spec_dir-non-empty](references/agents.md#agent-i-spec-contract-deviation-signal-gated-spec_dir-non-empty).
 

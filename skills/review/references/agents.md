@@ -174,7 +174,7 @@ description: "Type design review"
 
 ## Agent H: Cross-module format consistency (signal-gated: `$H_COUNT > 0`)
 
-Only dispatch if `$H_COUNT > 0` — the diff touches Rust, TypeScript/JavaScript, Python, Go, or SQL. The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
+Only dispatch if `$H_COUNT > 0` — the diff touches a source file (Rust, TypeScript/JavaScript incl. `.cjs`/`.cts`/`.mjs`/`.mts`, Python, Go, SQL, shell). The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
 
 ```text
 prompt: "Hunt for cross-module format-consistency drift in the target diff.
