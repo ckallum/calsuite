@@ -1,6 +1,6 @@
 ---
 name: afk-review
-version: 0.2.2
+version: 0.2.3
 description: |
   afk review loop, autonomous PR review loop, run the review loop, review needs-review PRs,
   afk review cycle. The in-session orchestrator for the AFK review loop: select open PRs
@@ -43,14 +43,24 @@ A prior run may have crashed mid-review, leaving a stuck `auto:reviewing` claim.
 ```bash
 cutoff=$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
 for n in $(gh pr list --repo "$REPO" --state open --label auto:reviewing --json number --jq '.[].number'); do
-  # --slurp folds all timeline pages into one array so jq runs once (plain
-  # --paginate runs jq per page and emits a `null` per page, corrupting the
-  # comparison on long timelines). On a fetch FAILURE (rate-limit / auth /
-  # network) leave the claim alone — never reclaim on uncertainty, or a claim a
-  # still-running sibling legitimately holds gets yanked.
-  applied=$(gh api "repos/$REPO/issues/$n/timeline" --paginate --slurp --jq 'add | [.[] | select(.event=="labeled" and .label.name=="auto:reviewing") | .created_at] | last') \
+  # Per-page --jq, NOT --slurp: gh >= 2.95 rejects `--slurp` together with
+  # `--jq` and exits 1 — which the `|| continue` below would swallow on every
+  # PR, turning the whole sweep into a silent no-op (so a crashed run's claim is
+  # never reclaimed). Applied per page, the filter streams one created_at per
+  # matching `labeled auto:reviewing` event across all pages in chronological
+  # order; `tail -n1` is the most recent application. Capture gh on its own line
+  # so a real fetch FAILURE (rate-limit / auth / network) still trips `||` —
+  # never reclaim on uncertainty, or a claim a still-running sibling legitimately
+  # holds gets yanked.
+  raw=$(gh api "repos/$REPO/issues/$n/timeline" --paginate \
+    --jq '.[] | select(.event=="labeled" and .label.name=="auto:reviewing") | .created_at') \
     || { echo "  ~ #$n: timeline fetch failed — leaving claim as-is"; continue; }
-  if [ -z "$applied" ] || [ "$applied" = "null" ] || [ "$applied" \< "$cutoff" ]; then
+  applied=$(tail -n1 <<<"$raw")
+  # Lexical timestamp comparison must use [[ < ]] (bash/zsh keyword), not
+  # [ \< ] — POSIX `test`/`[` has no `<` operator, and under zsh `[ "$a" \< ... ]`
+  # errors out and the failed test reads as "leave the claim", so no stale claim
+  # is ever reclaimed. ISO-8601 UTC strings sort lexically == chronologically.
+  if [[ -z "$applied" || "$applied" < "$cutoff" ]]; then
     gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review || true
   fi
 done

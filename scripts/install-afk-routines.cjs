@@ -15,37 +15,21 @@
  * Routines UI. This script manages only the prompt / skill / workflow files.
  *
  * Calsuite root resolves canonically ($CALSUITE_DIR -> git-common-dir ->
- * __dirname/..) so the global symlinks point at the real checkout, never an
- * ephemeral worktree (see the fresh-clone test in CLAUDE.md). Node built-ins only.
+ * __dirname/..) via the shared resolver in scripts/lib/path-helpers.cjs, so the
+ * global symlinks point at the real checkout, never an ephemeral worktree (see
+ * the fresh-clone test in CLAUDE.md).
  *
  * Usage: node scripts/install-afk-routines.cjs [--dry-run]
  */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('node:child_process');
+const { resolveCalsuiteDir } = require('./lib/path-helpers.cjs');
 
-// Mirror resolveCalsuiteDir() in configure-claude.js. A bare path.resolve(__dirname,
-// '..') would pin the symlinks to a worktree when this is run from one — and these
-// symlinks must outlive any worktree, so resolve the canonical checkout instead.
-function resolveCalsuiteDir() {
-  if (process.env.CALSUITE_DIR) return path.resolve(process.env.CALSUITE_DIR);
-  const here = path.resolve(__dirname, '..');
-  try {
-    const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
-      cwd: here,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    const canonical = path.dirname(path.resolve(here, commonDir));
-    if (fs.existsSync(canonical)) return canonical;
-  } catch {
-    // git not on PATH, or not a git tree (tarball) — fall through to __dirname/..
-  }
-  return here;
-}
-
-const CALSUITE = resolveCalsuiteDir();
+// Resolve the canonical checkout (not this possibly-worktree dir) so the global
+// symlinks outlive any ephemeral worktree. The resolution order is a shared,
+// load-bearing fresh-clone-test invariant — see scripts/lib/path-helpers.cjs.
+const CALSUITE = resolveCalsuiteDir(path.resolve(__dirname, '..'));
 const CLAUDE = path.join(os.homedir(), '.claude');
 const DRY = process.argv.includes('--dry-run');
 
@@ -145,4 +129,13 @@ for (const d of listAfk(path.join(CALSUITE, 'scheduled-tasks'))) {
 }
 
 console.log(`\ndone: ${linked} linked, ${already} already-linked, ${conflicts} conflict(s), ${failed} failed.`);
+// Zero artifacts found at all (distinct from "all already linked") is a
+// silent-failure trap: it happens when the canonical checkout's working tree is
+// parked on a branch that lacks the afk-* files (e.g. mid-development). Without
+// this guard the run prints "done: 0 ..." and exits 0 — a clean-looking no-op
+// that masks the real "nothing was installed" outcome. Surface it loudly.
+if (linked + already + conflicts + failed === 0) {
+  console.log(`  ⚠ no afk-* artifacts found under ${CALSUITE} — is its working tree on a branch that has them? Nothing was installed.`);
+  process.exitCode = 1;
+}
 if (conflicts || failed) process.exitCode = 1;
