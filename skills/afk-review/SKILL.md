@@ -1,6 +1,6 @@
 ---
 name: afk-review
-version: 0.2.3
+version: 0.2.4
 description: |
   afk review loop, autonomous PR review loop, run the review loop, review needs-review PRs,
   afk review cycle. The in-session orchestrator for the AFK review loop: select open PRs
@@ -31,7 +31,13 @@ Then run these two **hard preconditions** — both must pass before any label is
    ```
 2. **AFK labels must exist** (`gh pr edit --add-label` errors hard if a label is missing — bootstrap is a required one-time setup):
    ```bash
-   have=$(gh label list --repo "$REPO" --limit 200 --json name --jq '.[].name')
+   # Capture gh's exit status: a bare `have=$(gh ...)` discards it, so on an
+   # auth/rate-limit/network failure $have is empty, the first grep below fails,
+   # and the loop exits claiming `auto:needs-review` is "missing" — pointing the
+   # operator at bootstrap when the real fault is gh connectivity. --limit 1000
+   # (gh's max) avoids truncation on label-heavy repos.
+   have=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') \
+     || { echo "afk-review: could not list labels on $REPO (gh error — not a missing-label condition). No changes made."; exit 1; }
    for L in auto:needs-review auto:reviewing auto:needs-fixes auto:ready auto:needs-human; do
      echo "$have" | grep -qx "$L" || { echo "afk-review: AFK label '$L' missing on $REPO — run: node scripts/bootstrap-afk-labels.cjs $REPO"; exit 1; }
    done
@@ -61,7 +67,8 @@ for n in $(gh pr list --repo "$REPO" --state open --label auto:reviewing --json 
   # errors out and the failed test reads as "leave the claim", so no stale claim
   # is ever reclaimed. ISO-8601 UTC strings sort lexically == chronologically.
   if [[ -z "$applied" || "$applied" < "$cutoff" ]]; then
-    gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review || true
+    gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review \
+      || echo "  ~ #$n: reclaim failed — will retry next sweep"
   fi
 done
 ```

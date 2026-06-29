@@ -13,6 +13,13 @@
  */
 const { execFileSync } = require('node:child_process');
 
+// CANONICAL label set. The consumers are Markdown skill bodies
+// (skills/afk-review/SKILL.md, scheduled-tasks/afk-*/SKILL.md) that hardcode
+// these strings in bash — they cannot import this constant, so a rename here
+// must be mirrored there by hand. A typo'd label degrades to a silent no-op `gh`
+// filter, so keep the names in sync with the skills. The review loop's
+// precondition deliberately checks only the five `auto:*` labels it uses, not
+// all nine — that is correct scoping, not drift.
 const LABELS = [
   { name: 'afk', color: '0E8A16', description: 'AFK: eligible for autonomous execution (issue)' },
   { name: 'afk:building', color: 'FBCA04', description: 'AFK: execute loop is building this — in-flight claim' },
