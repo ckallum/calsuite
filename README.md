@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.53**
+**Version: 2.55**
 
 ## Getting started
 
@@ -52,6 +52,8 @@ skills/      # Markdown skills (invoked as /skill-name)
 agents/      # Agent definitions (invoked as @agent-name)
 templates/   # Spec, doc, and changelog templates (for target projects)
 specs/       # Calsuite's own spec docs
+workflows/        # Dynamic-workflow scripts (afk-*.js); symlinked into ~/.claude/workflows
+scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked into ~/.claude/scheduled-tasks
 ```
 
 ## Distribution model
@@ -137,6 +139,8 @@ Dry-run by default; `--yes` to apply. Category C always prompts per-file regardl
 ### Internal vs distributed skills
 
 Calsuite's own workflow skills (`/sync`, `/sync-preview`, `/reconcile`, `/reconcile-targets`, plus installer wrappers like `/configure-claude` and `/skill-builder`) are listed in `INTERNAL_SKILLS` in `scripts/configure-claude.js` and never ship to targets — they read files that only exist in calsuite (`config/targets.json`, `scripts/configure-claude.js`). Distributed skills appear only in `config/profiles.json`. The two sets are disjoint by design; any skill that reads calsuite-root files belongs in `INTERNAL_SKILLS`.
+
+A third category serves the AFK autonomous-loop system: `afk-*` skills (together with their `workflows/afk-*.js` and `scheduled-tasks/afk-*/SKILL.md`) are **globally symlinked** into `~/.claude/` by `scripts/install-afk-routines.cjs` rather than copied per-target, so any repo's Desktop scheduled task resolves them by name. They are also listed in `INTERNAL_SKILLS` so `--sync` never distributes them per-target.
 
 ## Mono-repo Support
 

@@ -174,7 +174,7 @@ description: "Type design review"
 
 ## Agent H: Cross-module format consistency (signal-gated: `$H_COUNT > 0`)
 
-Only dispatch if `$H_COUNT > 0` — the diff touches Rust, TypeScript/JavaScript, Python, Go, or SQL. The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
+Only dispatch if `$H_COUNT > 0` — the diff touches a source file (Rust, TypeScript/JavaScript incl. `.cjs`/`.cts`/`.mjs`/`.mts`, Python, Go, SQL, shell). The agent greps the **whole module** around each changed file — not just the diff — for consistency contracts and flags any mismatches.
 
 ```text
 prompt: "Hunt for cross-module format-consistency drift in the target diff.
@@ -239,4 +239,54 @@ Skip deviations that are obviously trivial (renaming a helper, moving a file).
 Focus on behavioral contract: commands the system accepts, events it emits,
 data shape it persists, failure modes it handles."
 description: "Spec-contract deviation"
+```
+
+## Agent J: Correctness & logic bugs (signal-gated: `$H_COUNT > 0`)
+
+Only dispatch if `$H_COUNT > 0` — the diff touches source (Rust, TS/JS, Python, Go, or SQL). This is the bug-hunting lens (the `/code-review` correctness half): general functional defects that the security checklist (SQL/race/auth) and the silent-failure pass (error handling) do not cover.
+
+```text
+prompt: "Hunt for correctness and logic bugs in the target diff for this review — defects that make the code do the wrong thing. This is distinct from the security checklist (SQL/race/auth) and the silent-failure pass (error handling); do not re-report those.
+
+Use the same diff source selected in Step 1:
+- local mode: `git diff origin/main`
+- PR mode: the `gh pr diff <number>` output already fetched
+
+Read enough surrounding context to judge intent, then for the changed lines look for:
+
+1. **Boundary & off-by-one:** loop bounds, slice/substring indices, `<` vs `<=`, fencepost errors, empty-collection and single-element edge cases.
+2. **Null / undefined / option handling:** dereferences that can be null, missing guards, unwrap on a value that can be absent, a default that silently masks a real miss.
+3. **Wrong operator or value:** inverted conditionals, `&&` vs `||`, `=` vs `==`, the wrong variable used, sign errors, unit/scale mismatches.
+4. **Control flow:** missing early return/break/continue, unreachable code, unintended fall-through, a branch that can never be taken, a `return` inside a loop that should sit after it.
+5. **Async & concurrency:** missing `await`, an unhandled promise, mutation of shared state across an await point, ordering assumptions that don't hold.
+6. **API / contract misuse:** wrong argument order, ignoring a returned error/Result, mutating an argument the caller still uses, returning an off-contract shape.
+7. **State & resource:** a leaked file/handle/connection, state not reset between iterations, cache/key collisions, a stale read after a write.
+
+Only flag a defect you can name a concrete triggering input or scenario for — 'given Y, this produces wrong behavior X'. Do NOT flag style, naming, or 'could be cleaner' items — that is Agent K's job. Pre-existing bugs outside the diff are out of scope unless the diff newly depends on them.
+
+Return findings with file:line, the triggering scenario, the wrong behavior it causes, severity (CRITICAL/HIGH/MEDIUM), and the fix."
+description: "Correctness & logic bugs"
+```
+
+## Agent K: Reuse & simplification (signal-gated: `$H_COUNT > 0`)
+
+Only dispatch if `$H_COUNT > 0` — the diff touches source. This is the quality lens (the `/simplify` analysis in report-only form): it finds cleanups but **does not apply them** — findings flow through the same confidence scoring as every other agent, so a high-confidence one can block.
+
+```text
+prompt: "Review the target diff for reuse, simplification, efficiency, and altitude cleanups. Quality only — do NOT hunt for correctness bugs (that is Agent J).
+
+Use the same diff source selected in Step 1:
+- local mode: `git diff origin/main`
+- PR mode: the `gh pr diff <number>` output already fetched
+
+For the changed code, look for:
+
+1. **Duplication / reuse:** logic the diff copy-pastes from elsewhere in the diff or the surrounding module when a helper already covers it — grep the module to confirm the reusable function exists before flagging.
+2. **Over-abstraction:** indirection, wrappers, or parameters that add no value — a one-call helper, an interface with a single implementer, a config flag never varied, a layer that only forwards.
+3. **Dead weight:** unused parameters, variables, imports, branches, or returns introduced by the diff; commented-out code shipped in.
+4. **Altitude:** code at the wrong level — a manual loop where one stdlib call is clearer, re-implementing something the language/framework already provides, low-level detail leaking into a high-level function.
+5. **Efficiency:** obvious avoidable work — repeated calls in a loop that hoist out, recomputing an invariant each iteration, building a whole collection to read one element, a quadratic scan where a set/map is natural. Only flag when the simpler form is also clearer — not micro-optimizations.
+
+For each finding give file:line, the cleanup, and the concrete before→after shape. Score by how clearly it improves the code: verified duplication of existing logic or dead code is high-confidence; a subjective 'reads nicer' is low. Skip pure formatting and naming bikeshedding."
+description: "Reuse & simplification"
 ```

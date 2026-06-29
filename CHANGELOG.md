@@ -2,7 +2,36 @@
 
 All notable changes to this repository.
 
-Current version: **2.53**
+Current version: **2.55**
+
+## [2.55] — 2026-06-22
+
+### Added
+
+- **AFK review loop — Phase 1.** The first real autonomous loop, orchestrated entirely through the GitHub-label state machine.
+  - `scripts/bootstrap-afk-labels.cjs` — idempotently creates the nine state-machine labels (`afk`, `afk:building`, `afk:blocked`, `auto:needs-review`, `auto:reviewing`, `auto:needs-fixes`, `auto:fixing`, `auto:ready`, `auto:needs-human`) on a repo.
+  - `/afk-review <owner/repo>` — selects open PRs labelled `auto:needs-review`, claims each (`auto:reviewing`), runs `/review pr`, and transitions to `auto:ready` (clean) or `auto:needs-fixes` (actionable). Headless- and crash-safe: hard cwd/label preconditions, an age-aware stale-claim sweep, per-PR error isolation, SHA-marker idempotency, and escalation to `auto:needs-human` on any failure. Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-review/` Desktop-task prompt.
+  - `docs/afk-loops.html` — a standalone, zero-dependency interactive visualization of the AFK loop system.
+- **`/review` gains two parallel agents — correctness/logic bugs (J) and reuse & simplification (K)** (`skills/review/SKILL.md` v1.2.0, `skills/review/references/agents.md`). Agent J is the `/code-review` correctness lens — logic/boundary/null/control-flow/async/API/state defects the checklist (SQL/race/auth) and silent-failure passes don't cover. Agent K is the `/simplify` lens in report-only form — duplication, over-abstraction, dead code, altitude, avoidable inefficiency. Both are signal-gated on touched source (`$H_COUNT > 0`) and run for **every** `/review` caller (local, `/ship`, `/afk-review`, manual), feeding the same confidence scoring and single consolidated comment as the existing nine agents — a high-confidence finding from either can block. Read-only by construction: they report; `/review` scores and consolidates, so no `--fix`/apply path is ever invoked. This gives the autonomous review loop bug + simplification coverage without `/simplify` ever mutating a PR (mutation stays the fix loop's job).
+
+### Fixed
+
+- **AFK review loop's stale-claim sweep never reclaimed crashed claims** (`skills/afk-review/SKILL.md`, v0.2.3) — two stacked bugs. (1) The sweep fetched the timeline with `gh api --paginate --slurp --jq`, but gh ≥ 2.95 rejects `--slurp` alongside `--jq` and exits 1, so every iteration fell into the "fetch failed, leave claim as-is" branch — reworked to per-page `--jq` (no `--slurp`), with gh captured on its own line so a genuine fetch failure still trips the leave-alone branch. (2) That `--slurp` failure masked a second break: the age check used `[ "$applied" \< "$cutoff" ]`, but POSIX `test`/`[` has no `<` operator and zsh (the runtime shell) errors on it — so even after the fetch worked, a stale 22h-old claim still read as "leave." Switched to `[[ < ]]`. Together these defeated the documented "idempotent + crash-safe" guarantee. **Bug 1 found by the loop reviewing its own PR on a live scheduled run** (missed by the pre-merge 3-agent audit and CodeRabbit); **bug 2 found by actually running the fixed sweep**, which the `--slurp` failure had been hiding.
+- **`install-afk-routines.cjs` reported a clean install when it installed nothing** (`scripts/install-afk-routines.cjs`). When the canonical checkout's working tree is parked on a branch lacking the `afk-*` files (e.g. mid-development), `listAfk()` found nothing, the script printed `done: 0 linked` and exited 0 — a silent no-op indistinguishable from success, so the maintainer would believe the routines installed when `~/.claude/workflows/afk-smoke.js` never got created. Now warns and exits non-zero when zero artifacts are found. **Caught by the new `/review` Agent J (correctness), reproduced live.**
+- **Deduplicated `resolveCalsuiteDir()`** — extracted to `scripts/lib/path-helpers.cjs` and bound by both `configure-claude.js` and `install-afk-routines.cjs` (it was copy-pasted verbatim between them). The resolution order (`$CALSUITE_DIR` → git-common-dir → fallback) is a load-bearing fresh-clone-test invariant, so two hand-synced copies were exactly the drift risk CLAUDE.md warns against. **Caught by the new `/review` Agent K (simplification).**
+- **`/review`'s source-file gate now covers `.cjs`/`.cts`/`.mjs`/`.mts`/`.sh`/`.bash`** (`skills/review/SKILL.md` v1.2.1). The `H_COUNT` signal — shared by Agents H, J, and K — matched `rs|ts|tsx|js|jsx|py|go|sql` but not CommonJS or shell, so a PR whose code is entirely `.cjs`/shell (most of calsuite) scored `H_COUNT=0` and the new correctness/simplification agents never fired. **Caught by Agent J reviewing this very PR.**
+- **AFK review loop precondition + sweep observability** (`skills/afk-review/SKILL.md` v0.2.4) — addressing the loop's own `/review` notes. The label precondition now captures `gh label list`'s exit status, so a gh auth/rate-limit/network failure reports an accurate "gh error" instead of a misleading "label missing" (and `--limit` raised 200 → 1000). The sweep's reclaim `gh pr edit` now logs a breadcrumb on failure rather than `|| true` swallowing it silently. The canonical-label-set coupling is documented in `bootstrap-afk-labels.cjs` (the markdown skill bodies hardcode the strings and can't import the constant — so the suggested export-and-derive fix doesn't reach them).
+- **`/review` no longer prompts in PR mode.** The Greptile false-positive resolution called `AskUserQuestion` gated only on Greptile-comment presence, not on review mode — so `/review pr` could block on a Greptile-enabled repo. The interactive Greptile triage is now local-mode only (PR mode folds it into the single consolidated comment), so unattended callers (`/ship`, `/afk-review`) never hang.
+
+## [2.54] — 2026-06-15
+
+### Added
+
+- **AFK autonomous-loop system — Phase 0 scaffolding.** Groundwork for a set of unattended Desktop-scheduled-task loops (execute → review → fix → merge) that move AFK issues through to merged PRs, coordinated by a GitHub-label state machine. This release lands the validated plumbing only:
+  - `scripts/install-afk-routines.cjs` — symlinks calsuite-owned `afk-*` workflows, skills, and scheduled-task prompts into `~/.claude/` (global) so any repo's Desktop scheduled task resolves them by name. Idempotent; logs and counts every skip/conflict/failure and exits non-zero on any.
+  - New top-level `workflows/` (dynamic-workflow scripts) and `scheduled-tasks/` (Desktop task prompts) directories — distributed by global symlink rather than per-target copy.
+  - `afk-smoke` — a throwaway validation harness (skill + workflow + task prompt) that confirmed the full chain works end to end: Desktop task → custom global skill → global dynamic workflow → agent → `gh`. Phase 0 finding baked into the design: workflow `args` do not propagate to named user workflows, so the loops are cwd-based and coordinate work through labels.
+  - `afk-smoke` added to `INTERNAL_SKILLS` in `configure-claude.js` (globally symlinked, never distributed per-target).
 
 ## [2.53] — 2026-06-12
 

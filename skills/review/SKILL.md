@@ -1,12 +1,13 @@
 ---
 name: review
-version: 1.1.0
+version: 1.2.1
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
-  Up to 9 parallel review agents: conventions, security checklist, git blame history,
+  Up to 11 parallel review agents: conventions, security checklist, git blame history,
   previous PR comments, code comment compliance, silent failure hunting, type design,
-  cross-module format consistency, spec-contract deviation.
+  cross-module format consistency, spec-contract deviation, correctness/logic bugs,
+  reuse & simplification.
   Confidence scoring, Greptile triage, TODO cross-reference, flow diagrams.
   Multi-PR mode: /review pr 123,124,125 --multi spawns separate Claude Code instances per PR.
   Adversarial converse mode: /review pr 123 --converse codex runs Claude's review then debates findings with another model CLI.
@@ -123,7 +124,7 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 ## Step 3: Dispatch Parallel Review Agents
 
-Dispatch **up to 9 parallel agents** in a single message using the Agent tool. Agents A–E always run. Agents F, G, H, and I are signal-gated — only dispatch them if the diff matches the gate.
+Dispatch **up to 11 parallel agents** in a single message using the Agent tool. Agents A–E always run. Agents F, G, H, I, J, and K are signal-gated — only dispatch them if the diff matches the gate.
 
 ### Signal gating (run these greps first)
 
@@ -156,7 +157,9 @@ F_COUNT=$(grep -cE 'catch|\.catch|fallback|onError|Result<' "$DIFF_FILE" || true
 G_COUNT=$(grep -cE 'interface |type |enum |class |struct ' "$DIFF_FILE" || true)
 # Agent H — cross-module format consistency (any touched source file qualifies).
 # Diff headers have the form "+++ b/path/to/file.ext" — grep those to count touched source files.
-H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|py|go|sql)$' "$DIFF_FILE" || true)
+H_COUNT=$(grep -cE '^\+\+\+ b/.*\.(rs|ts|tsx|js|jsx|cjs|cts|mjs|mts|py|go|sql|sh|bash)$' "$DIFF_FILE" || true)
+# Agents J (correctness/logic bugs) and K (reuse & simplification) reuse $H_COUNT —
+# both apply to any source diff, so they gate on the same touched-source signal.
 # Agent I — spec-contract deviation (branch has a matching spec).
 # Strip standard feature-branch prefixes, then require an exact spec directory
 # match. Do NOT fall back to "first spec under .claude/specs/" — for issue-driven
@@ -187,17 +190,21 @@ If the respective count is 0 (or `$SPEC_DIR` empty for Agent I), skip that agent
 
 **Agent G — Type design review (signal-gated: `$G_COUNT > 0`):** rates new/modified types on invariant expression, encapsulation, enforcement, and usefulness; flags anemic types, mutable internals, comment-only invariants. Dispatch only if `$G_COUNT > 0` (diff introduces or modifies `interface`, `type`, `enum`, `class`, or `struct`). Prompt in [references/agents.md#agent-g-type-design-review-signal-gated-g_count--0](references/agents.md#agent-g-type-design-review-signal-gated-g_count--0).
 
-**Agent H — Cross-module format consistency (signal-gated: `$H_COUNT > 0`):** greps the whole module around each changed file (not just the diff) for inconsistent datetime writers, SQL `ORDER BY` directions, and snake/camel serialization drift. Dispatch only if `$H_COUNT > 0` (diff touches Rust, TS/JS, Python, Go, or SQL). Prompt in [references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0](references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0).
+**Agent H — Cross-module format consistency (signal-gated: `$H_COUNT > 0`):** greps the whole module around each changed file (not just the diff) for inconsistent datetime writers, SQL `ORDER BY` directions, and snake/camel serialization drift. Dispatch only if `$H_COUNT > 0` (diff touches a source file — Rust, TS/JS incl. `.cjs`/`.cts`/`.mjs`/`.mts`, Python, Go, SQL, shell). Prompt in [references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0](references/agents.md#agent-h-cross-module-format-consistency-signal-gated-h_count--0).
 
 **Agent I — Spec-contract deviation (signal-gated: `$SPEC_DIR` non-empty):** reads `$SPEC_DIR/design.md` + `tasks.md` and flags MISSING (spec promises, diff doesn't deliver) and EXTRA (diff builds, spec doesn't describe) items. Dispatch only if `$SPEC_DIR` is non-empty (branch name with standard feature-branch prefixes stripped matches `.claude/specs/<slug>/` **exactly** — no fallback to "first spec"). Prompt in [references/agents.md#agent-i-spec-contract-deviation-signal-gated-spec_dir-non-empty](references/agents.md#agent-i-spec-contract-deviation-signal-gated-spec_dir-non-empty).
 
-Wait for all agents to return (5 core + up to 4 signal-gated).
+**Agent J — Correctness & logic bugs (signal-gated: `$H_COUNT > 0`):** the bug-hunting lens (the `/code-review` correctness half) — functional defects the checklist (SQL/race/auth) and silent-failure passes miss: boundary/off-by-one, null/undefined, wrong operator, control-flow, async, API misuse, state/resource. Reports only defects with a concrete triggering scenario. Dispatch only if `$H_COUNT > 0` (diff touches source). Prompt in [references/agents.md#agent-j-correctness--logic-bugs-signal-gated-h_count--0](references/agents.md#agent-j-correctness--logic-bugs-signal-gated-h_count--0).
+
+**Agent K — Reuse & simplification (signal-gated: `$H_COUNT > 0`):** the quality lens (the `/simplify` analysis, report-only — it never applies) — duplication/reuse, over-abstraction, dead params/branches, altitude, avoidable inefficiency, each with a before→after shape. Findings score like any other agent, so a high-confidence one can block. Dispatch only if `$H_COUNT > 0` (diff touches source). Prompt in [references/agents.md#agent-k-reuse--simplification-signal-gated-h_count--0](references/agents.md#agent-k-reuse--simplification-signal-gated-h_count--0).
+
+Wait for all agents to return (5 core + up to 6 signal-gated).
 
 ---
 
 ## Step 4: Merge, Score, and Filter Findings
 
-1. Collect findings from all agents (5-9 depending on which conditional agents ran).
+1. Collect findings from all agents (5-11 depending on which conditional agents ran).
 2. Deduplicate: if multiple agents flag the same file:line for the same issue, keep the one with most detail.
 3. **Confidence score each finding** on a 0-100 scale:
    - **0-25:** Likely false positive — doesn't stand up to scrutiny, or is a pre-existing issue.
@@ -221,7 +228,7 @@ Output all findings:
 ### CRITICAL (blocking) — confidence ≥ 80
 1. [file:line] Problem description (score: 85)
    Fix: suggested fix
-   Source: convention | checklist | blame | prev-PR | comments | silent-failure | type-design | format-consistency | spec-contract | greptile
+   Source: convention | checklist | blame | prev-PR | comments | silent-failure | type-design | format-consistency | spec-contract | correctness | simplification | greptile
 
 ### INFORMATIONAL (advisory) — confidence 60-79
 1. [file:line] Problem description (score: 65)
@@ -245,9 +252,11 @@ Lead with your recommendation and explain WHY.
 
 After presenting your own findings, if Greptile comments were classified in Step 2.5:
 
-1. **VALID & ACTIONABLE:** Already included in CRITICAL findings above — follows the same AskUserQuestion flow.
+**In PR mode: never prompt.** PR mode is non-interactive (it may run unattended, e.g. from `/ship` or `/afk-review`). Fold the Greptile triage into the single consolidated comment (Step 7) — list FALSE POSITIVEs with a one-line reason, include VALID & ACTIONABLE alongside your own findings — and skip every AskUserQuestion below. Items 1–2 are **local mode only**.
 
-2. **FALSE POSITIVE:** Present each via AskUserQuestion:
+1. **VALID & ACTIONABLE:** Already included in CRITICAL findings above — follows the same AskUserQuestion flow (local mode).
+
+2. **FALSE POSITIVE (local mode only):** Present each via AskUserQuestion:
    - Show the comment: file:line + body summary + permalink URL
    - Explain why it's a false positive
    - Options: A) Reply to Greptile explaining why incorrect (recommended), B) Fix it anyway, C) Ignore
@@ -399,7 +408,7 @@ Review findings posted as comment on PR #<number>.
 - **Git blame agent may be slow on large files.** It runs `git blame` per changed file — on files with thousands of lines, this takes time. The parallel agents run simultaneously so it doesn't block the others.
 - **PR mode (`/review pr <number>`)** fetches the diff from GitHub, not the local branch. The review stamp is NOT written in PR mode (there's no local staged diff to hash). Findings are posted as a single consolidated PR comment, not an interactive question loop.
 - **Multi mode spawns independent Claude instances.** Each `--multi` pane runs `/review pr <n>` in a fresh context — they cannot coordinate findings. Use when you want unbiased parallel reviews; use single-instance mode when you want one consolidated summary.
-- **Signal gating uses grep counts, not heuristics.** If `$F_COUNT` / `$G_COUNT` / `$H_COUNT` is 0, the agent does not run. This prevents wasted agent budget on irrelevant diffs. Spec-contract gating uses directory existence rather than a count.
+- **Signal gating uses grep counts, not heuristics.** If `$F_COUNT` / `$G_COUNT` / `$H_COUNT` is 0, the agent does not run. Agents J and K share `$H_COUNT` (the touched-source signal), so they skip docs-/config-only PRs along with H. This prevents wasted agent budget on irrelevant diffs. Spec-contract gating uses directory existence rather than a count.
 - **Stamp script uses `execFileSync` with argv, not a shell-string runner.** Git arguments go in as an array so nothing gets shell-interpolated — no injection surface, and security hooks that block shell-interpolated child-process calls still allow the argv form.
 - **Converse mode requires the adversary CLI installed.** `codex` needs `npm i -g @openai/codex`, `gemini` needs the Google CLI. The skill checks `command -v <cli>` and stops early if missing.
 - **Converse mode uses unquoted heredocs** (`<<PROMPT_EOF`, not `<<'PROMPT_EOF'`) so `$(cat ...)` and `${VAR}` expand. The diff content is read from a temp file via `$(cat "$CONVERSE_TMPDIR/diff.txt")` — never passed as a shell argument.
