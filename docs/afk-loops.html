@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFK Mission Control — the conveyor</title>
+<style>
+  :root {
+    --bg: #0A0E14;
+    --panel-1: #11151F;
+    --panel-2: #161B26;
+    --border-hair: #222A38;
+    --ink: #E6EBF2;
+    --ink-dim: #8A93A6;
+    --cyan: #39D0D8;
+    --shipped: #39D0D8;
+    --active: #39D0D8;
+    --amber: #E8A33D;
+    --planned: #E8A33D;
+    --tokens: #E8A33D;
+    --mint: #3FD68A;
+    --success: #3FD68A;
+    --inbox-red: #E0705E;
+    --inbox-red-deep: #C8503E;
+    --lane-execute: #A99CFF;
+    --lane-review: #39D0D8;
+    --lane-fix: #E8A33D;
+    --lane-merge: #7FC0AC;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --gap: 8px;
+    --radius: 8px;
+    --speed: 1;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  mono, .mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: -0.1px;
+  }
+
+  .board {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 16px 48px;
+  }
+
+  a { color: var(--cyan); }
+
+  :focus-visible {
+    outline: 2px solid var(--cyan);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ---------- HEADER ---------- */
+  .masthead {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(10, 14, 20, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border-hair);
+    padding: 14px 16px 12px;
+    margin: 0 -16px 16px;
+  }
+  .masthead-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+  }
+  .brand { display: flex; flex-direction: column; gap: 3px; min-width: 240px; flex: 1 1 260px; }
+  .brand h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(20px, 2.4vw, 28px);
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 0.5px;
+    color: var(--ink);
+  }
+  .brand .thesis { font-size: 13px; color: var(--ink-dim); margin: 0; }
+
+  .ctrls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+
+  /* segmented build-state toggle */
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--border-hair);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--panel-1);
+  }
+  .seg button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--ink-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 9px 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    transition: background .2s, color .2s;
+  }
+  .seg button .dot {
+    width: 9px; height: 9px; border-radius: 2px; flex: none;
+    border: 1.5px solid currentColor;
+  }
+  .seg button[data-state="shipped"] .dot { background: var(--cyan); border-color: var(--cyan); }
+  .seg button[data-state="planned"] .dot { background: transparent; border-color: var(--amber); border-style: dashed; }
+  .seg button[aria-pressed="true"][data-state="shipped"] { background: rgba(57,208,216,0.14); color: var(--cyan); }
+  .seg button[aria-pressed="true"][data-state="planned"] { background: rgba(232,163,61,0.14); color: var(--amber); }
+  .seg button:hover { color: var(--ink); }
+
+  .transport { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .tbtn {
+    appearance: none;
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    border-radius: var(--radius);
+    padding: 8px 11px;
+    min-height: 40px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: background .15s, border-color .15s;
+  }
+  .tbtn:hover { background: var(--panel-2); border-color: #2e394d; }
+  .tbtn[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+  .speed { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
+  .speed input[type=range] { width: 84px; accent-color: var(--cyan); }
+
+  .readout {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-dim);
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    min-width: 200px;
+  }
+  .readout b { color: var(--cyan); font-weight: 700; }
+
+  .ghost-banner {
+    max-width: 1280px;
+    margin: 0 auto 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--amber);
+    border: 1px dashed rgba(232,163,61,0.5);
+    background: rgba(232,163,61,0.06);
+    border-radius: var(--radius);
+    padding: 9px 13px;
+  }
+  body[data-phase="shipped"] .ghost-banner {
+    color: var(--cyan);
+    border-style: solid;
+    border-color: rgba(57,208,216,0.45);
+    background: rgba(57,208,216,0.06);
+  }
+
+  /* ---------- generic section ---------- */
+  .band { margin-bottom: 18px; }
+  .band > h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 10px;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .band > h2 .kicker {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--ink-dim);
+  }
+
+  .cad-pill, .chip, .badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    border-radius: 5px;
+    padding: 2px 7px;
+    white-space: nowrap;
+  }
+
+  /* ---------- BAND 1: architecture stack ---------- */
+  .stack { display: grid; grid-template-columns: 1fr 200px; gap: var(--gap); }
+  .rails { display: flex; flex-direction: column; gap: var(--gap); }
+  .rail {
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    border-radius: var(--radius);
+    padding: 11px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: opacity .2s, border-color .2s, background .2s;
+    cursor: default;
+  }
+  .rail:focus-within, .rail:hover { border-color: #324054; background: var(--panel-2); }
+  .rails[data-hover="1"] .rail:not(:hover):not(:focus-within) { opacity: 0.4; }
+  .rail .rail-name {
+    flex: 0 0 132px;
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .rail .rail-name small { font-weight: 400; color: var(--ink-dim); font-size: 11px; }
+  .rail .rail-cap { color: var(--ink-dim); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45; }
+  .rail .rail-cap em { color: var(--ink); font-style: normal; }
+  .rail .swap {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    border: 1px dashed var(--border-hair);
+    border-radius: 5px;
+    padding: 1px 6px;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+  .rail.tokens-rail {
+    border-left: 3px solid var(--amber);
+    position: relative;
+  }
+  .tokens-bracket {
+    position: absolute;
+    left: -1px; top: -1px; bottom: -1px;
+    width: 3px;
+    background: var(--amber);
+    border-radius: 3px 0 0 3px;
+  }
+  .tokens-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--amber);
+    border: 1px solid rgba(232,163,61,0.5);
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-left: auto;
+    white-space: nowrap;
+    flex: none;
+  }
+  .spine {
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 8px;
+  }
+  .spine .spine-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--cyan);
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+    height: 100%;
+  }
+  .spine .spine-head { font-size: 11px; color: var(--ink-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ---------- BAND 2 + 3 row ---------- */
+  .midrow { display: grid; grid-template-columns: 1fr 320px; gap: 14px; align-items: start; }
+
+  /* conveyor */
+  .conveyor { display: flex; flex-direction: column; gap: 10px; }
+  figure.conveyor-fig { margin: 0; }
+  .conveyor-body { display: flex; gap: 10px; }
+  .lanes { flex: 1 1 auto; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+  .lane {
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    border-radius: var(--radius);
+    position: relative;
+    transition: opacity .25s, border-color .2s, box-shadow .2s;
+    --accent: var(--ink-dim);
+  }
+  .lane[data-loop="1"] { --accent: var(--lane-execute); }
+  .lane[data-loop="2"] { --accent: var(--lane-review); }
+  .lane[data-loop="3"] { --accent: var(--lane-fix); }
+  .lane[data-loop="4"] { --accent: var(--lane-merge); }
+  .lane.merge-lane { background-image: repeating-linear-gradient(45deg, transparent, transparent 9px, rgba(127,192,172,0.06) 9px, rgba(127,192,172,0.06) 11px); }
+  .lane.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent); }
+  .conveyor-fig.has-active .lane:not(.active) { opacity: 0.35; }
+
+  .lane-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    border-radius: var(--radius);
+    flex-wrap: wrap;
+  }
+  .lane-head:hover { background: var(--panel-2); }
+  .lane-num {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--accent);
+    border: 1.5px solid var(--accent);
+    border-radius: 6px;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
+  }
+  .lane-title { font-weight: 600; font-size: 14px; color: var(--ink); flex: none; }
+  .lane-instr { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
+
+  .cad-pill {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .led {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim);
+  }
+  .led .bulb { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); flex: none; }
+  .led.on .bulb { background: var(--mint); box-shadow: 0 0 6px var(--mint); }
+  .led.off .bulb { background: #3a4252; }
+  .conc {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--ink-dim); border: 1px solid var(--border-hair);
+    border-radius: 5px; padding: 1px 6px;
+  }
+  .owner-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 5px; padding: 1px 7px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .lane-spacer { flex: 1 1 auto; }
+  .chev { color: var(--ink-dim); font-size: 11px; transition: transform .2s; flex: none; }
+  .lane[data-open="1"] .chev { transform: rotate(90deg); }
+
+  .ribbon {
+    position: absolute;
+    top: 0; right: 0;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--bg);
+    background: var(--lane-review);
+    padding: 2px 9px;
+    border-radius: 0 var(--radius) 0 6px;
+  }
+  .iter-badge {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--amber); border: 1px solid var(--amber);
+    border-radius: 5px; padding: 1px 6px;
+  }
+
+  /* track lives under the head */
+  .lane-track {
+    position: relative;
+    height: 30px;
+    margin: 0 12px 10px;
+    border-top: 1px dashed var(--border-hair);
+  }
+  .lane-track::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 14px;
+    height: 2px;
+    background: repeating-linear-gradient(90deg, var(--border-hair), var(--border-hair) 6px, transparent 6px, transparent 12px);
+  }
+  .station {
+    position: absolute;
+    top: 6px;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-dim);
+  }
+  .station.enter { left: 8%; }
+  .station.mid { left: 50%; }
+  .station.exit { left: 92%; }
+
+  /* step detail */
+  .lane-steps {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height .3s ease;
+  }
+  .lane[data-open="1"] .lane-steps { max-height: 520px; }
+  .lane-steps-inner {
+    border-top: 1px solid var(--border-hair);
+    padding: 11px 14px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--panel-2);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+  .step-line { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); line-height: 1.6; }
+  .step-line .lbl { color: var(--accent); }
+  .step-line .arrow { color: var(--ink-dim); }
+  .step-line .fail { color: var(--inbox-red); }
+  .prim-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .prim {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--ink-dim); border: 1px solid var(--border-hair);
+    border-radius: 4px; padding: 1px 6px;
+  }
+  .merge-note {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--lane-merge);
+    border: 1px dashed var(--lane-merge);
+    border-radius: 5px; padding: 3px 8px;
+    margin: 0 12px 10px;
+    display: inline-block;
+  }
+
+  /* the moving token */
+  #token {
+    position: absolute;
+    z-index: 8;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--bg);
+    background: var(--cyan);
+    border-radius: 12px;
+    padding: 3px 9px;
+    box-shadow: 0 0 16px -2px var(--cyan);
+    pointer-events: none;
+    transition: left .7s cubic-bezier(.5,.05,.3,1), top .7s cubic-bezier(.5,.05,.3,1), background .3s;
+    white-space: nowrap;
+  }
+  #token.hidden { opacity: 0; }
+  #token.fail { background: var(--inbox-red); box-shadow: 0 0 16px -2px var(--inbox-red); color: #fff; }
+
+  /* human inbox tray */
+  .inbox {
+    flex: 0 0 156px;
+    align-self: stretch;
+    background: var(--panel-1);
+    border: 1px dashed var(--inbox-red);
+    border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .inbox h3 {
+    margin: 0; font-size: 12px; font-weight: 600; color: var(--inbox-red);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .inbox .cap { font-size: 11px; color: var(--ink-dim); }
+  .inbox .pill {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--inbox-red);
+    border: 1px solid var(--inbox-red);
+    background: rgba(224,112,94,0.07);
+    border-radius: 5px; padding: 3px 7px;
+    text-align: center;
+  }
+  .inbox .count {
+    margin-top: auto;
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim);
+  }
+  .inbox .count b { color: var(--inbox-red); }
+
+  /* ---------- BAND 3 right rail ---------- */
+  .rightrail { display: flex; flex-direction: column; gap: 14px; }
+  .panel {
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    border-radius: var(--radius);
+    padding: 12px 13px;
+  }
+  .panel h3 {
+    margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--ink);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel h3 .hint { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); font-weight: 400; }
+
+  .lblgroup { margin-bottom: 11px; }
+  .lblgroup > .grp-owner {
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;
+  }
+  .lbl-chip {
+    display: flex; align-items: center; gap: 7px;
+    width: 100%; text-align: left;
+    background: var(--panel-2);
+    border: 1px solid var(--border-hair);
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-bottom: 5px;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    color: inherit;
+    transition: border-color .15s, background .15s;
+  }
+  .lbl-chip:hover, .lbl-chip:focus-visible { border-color: var(--accent2, #32404f); background: #1a212e; }
+  .lbl-chip .name {
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--ink);
+    flex: 1 1 auto;
+  }
+  .lbl-chip.lock {
+    border-style: dashed;
+    border-color: var(--ink-dim);
+    animation: lockpulse 2.6s ease-in-out infinite;
+  }
+  @keyframes lockpulse {
+    0%, 100% { border-color: #3a4454; }
+    50% { border-color: #586377; }
+  }
+  .lbl-chip .lock-i { color: var(--amber); font-size: 11px; }
+  .lbl-chip .trans { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-dim); white-space: nowrap; }
+  .lbl-chip .trans .ok { color: var(--mint); }
+  .lbl-chip .trans .no { color: var(--amber); }
+  .lbl-chip.owner-execute .name { color: var(--lane-execute); }
+  .lbl-chip.owner-review .name { color: var(--lane-review); }
+  .lbl-chip.owner-fix .name { color: var(--lane-fix); }
+  .lbl-chip.owner-merge .name { color: var(--lane-merge); }
+  .lbl-chip.owner-human { border-color: var(--inbox-red); }
+  .lbl-chip.owner-human .name { color: var(--inbox-red); }
+  .lbl-chip.glow { border-color: var(--cyan) !important; box-shadow: 0 0 0 1px var(--cyan); }
+
+  .chan-note {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--cyan);
+    border: 1px solid rgba(57,208,216,0.4);
+    background: rgba(57,208,216,0.06);
+    border-radius: 6px;
+    padding: 7px 9px;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .chan-note[hidden] { display: none; }
+
+  /* findings dock */
+  .finding {
+    border: 1px solid var(--border-hair);
+    border-radius: 6px;
+    padding: 9px 10px;
+    margin-bottom: 8px;
+    background: var(--panel-2);
+    transition: opacity .25s, border-color .2s;
+  }
+  .finding h4 {
+    margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: var(--ink);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .finding p { margin: 0; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim); line-height: 1.55; }
+  .ftag {
+    font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 0.4px; border-radius: 4px; padding: 2px 6px; flex: none;
+    white-space: nowrap;
+  }
+  .ftag.validated { color: var(--cyan); border: 1px solid var(--cyan); background: rgba(57,208,216,0.08); }
+  .ftag.rationale { color: var(--amber); border: 1px dashed var(--amber); background: rgba(232,163,61,0.07); }
+  .finding.validated { border-left: 3px solid var(--cyan); border-radius: 0 6px 6px 0; }
+  .finding.rationale { border-left: 3px dashed var(--amber); border-radius: 0 6px 6px 0; }
+
+  /* ---------- PHASE SKINS ---------- */
+  /* PLANNED default: dashed slate, hatched, lowered opacity over the planned system */
+  body[data-phase="planned"] .lane,
+  body[data-phase="planned"] .inbox,
+  body[data-phase="planned"] .lblgroup .lbl-chip {
+    border-style: dashed;
+  }
+  body[data-phase="planned"] .lanes,
+  body[data-phase="planned"] .lblrail-body,
+  body[data-phase="planned"] .inbox {
+    opacity: 0.88;
+  }
+  body[data-phase="planned"] .planned-stamp { display: inline-flex; }
+
+  /* SHIPPED: dim the planned conveyor to ghost; light up only phase-0 reality */
+  body[data-phase="shipped"] .lanes,
+  body[data-phase="shipped"] .inbox,
+  body[data-phase="shipped"] .lblrail-body,
+  body[data-phase="shipped"] .stack {
+    opacity: 0.15;
+    filter: grayscale(0.5);
+    pointer-events: none;
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 10px);
+  }
+  body[data-phase="shipped"] .finding.rationale {
+    opacity: 0.18;
+    filter: grayscale(0.6);
+  }
+  .shipped-panel { display: none; }
+  body[data-phase="shipped"] .shipped-panel { display: block; }
+
+  /* the shipped phase-0 reality module */
+  .shipped-panel {
+    margin: 0 0 18px;
+    border: 1px solid var(--cyan);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(57,208,216,0.05), rgba(57,208,216,0.01));
+    padding: 16px 18px;
+  }
+  .shipped-panel .sp-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .shipped-panel h2 { margin: 0; font-size: 16px; color: var(--cyan); font-weight: 600; }
+  .stamp {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    color: var(--bg); background: var(--cyan);
+    border-radius: 5px; padding: 3px 9px;
+  }
+  .shipped-panel .sp-cap { font-size: 12.5px; color: var(--ink-dim); margin: 0 0 14px; }
+  .symlinks { display: grid; gap: 8px; }
+  .symlink {
+    font-family: var(--font-mono); font-size: 11.5px;
+    background: var(--panel-1);
+    border: 1px solid rgba(57,208,216,0.3);
+    border-radius: 6px;
+    padding: 9px 11px;
+    color: var(--ink);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .symlink .src { color: var(--ink); }
+  .symlink .ar { color: var(--cyan); }
+  .symlink .dst { color: var(--cyan); }
+  .sp-findings { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .sp-finding {
+    border: 1px solid var(--cyan);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 6px 6px 0;
+    background: var(--panel-1);
+    padding: 10px 12px;
+  }
+  .sp-finding h4 { margin: 0 0 4px; font-size: 12.5px; color: var(--cyan); font-weight: 600; }
+  .sp-finding p { margin: 0; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim); line-height: 1.55; }
+  .planned-stamp {
+    display: none;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    color: var(--amber); border: 1px dashed var(--amber);
+    border-radius: 4px; padding: 2px 7px; align-items: center;
+  }
+
+  /* ---------- FOOTER LEGEND ---------- */
+  .legend {
+    margin-top: 20px;
+    border-top: 1px solid var(--border-hair);
+    padding-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: center;
+  }
+  .legend h3 { margin: 0 14px 0 0; font-size: 12px; color: var(--ink-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-dim); }
+  .swatch { width: 26px; height: 14px; border-radius: 3px; flex: none; }
+  .swatch.shipped { border: 2px solid var(--cyan); }
+  .swatch.planned { border: 2px dashed var(--amber); }
+  .swatch.human { background: var(--inbox-red); }
+
+  /* keyboard help overlay */
+  .help-toggle {
+    appearance: none;
+    background: var(--panel-1);
+    border: 1px solid var(--border-hair);
+    color: var(--ink-dim);
+    width: 32px; height: 32px; min-height: 40px; min-width: 40px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 15px;
+  }
+  .help-toggle:hover { color: var(--cyan); border-color: var(--cyan); }
+  .help-scrim {
+    position: absolute;
+    inset: 0;
+    min-height: 100vh;
+    background: rgba(6,9,14,0.78);
+    z-index: 100;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 60px 16px;
+  }
+  .help-scrim[hidden] { display: none; }
+  .help-card {
+    background: var(--panel-1);
+    border: 1px solid var(--cyan);
+    border-radius: 12px;
+    padding: 20px 22px;
+    max-width: 460px;
+    width: 100%;
+  }
+  .help-card h2 { margin: 0 0 14px; font-size: 16px; }
+  .help-card dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 0; }
+  .help-card dt { font-family: var(--font-mono); font-size: 11px; }
+  .help-card dt kbd {
+    background: var(--panel-2); border: 1px solid var(--border-hair);
+    border-radius: 4px; padding: 1px 6px; color: var(--cyan);
+  }
+  .help-card dd { margin: 0; font-size: 12.5px; color: var(--ink-dim); }
+  .help-close {
+    margin-top: 16px;
+    appearance: none; background: transparent; color: var(--ink);
+    border: 1px solid var(--border-hair); border-radius: var(--radius);
+    padding: 8px 14px; cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  }
+  .help-close:hover { border-color: var(--cyan); color: var(--cyan); }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 1023px) {
+    .midrow { grid-template-columns: 1fr; }
+    .rightrail { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    .stack { grid-template-columns: 1fr; }
+    .spine { flex-direction: row; }
+    .spine .spine-label { writing-mode: horizontal-tb; transform: none; height: auto; }
+  }
+  @media (max-width: 760px) {
+    .rightrail { grid-template-columns: 1fr; }
+    .conveyor-body { flex-direction: column; }
+    .inbox { flex-basis: auto; }
+    .sp-findings { grid-template-columns: 1fr; }
+    .brand { min-width: 100%; }
+    .ctrls { width: 100%; }
+    .seg button, .tbtn { flex: 1 1 auto; justify-content: center; min-height: 44px; }
+    .readout { width: 100%; }
+  }
+  @media (max-width: 700px) {
+    .lane-head { gap: 8px; }
+    .lane-instr, .conc { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #token { transition: opacity .2s, background .2s !important; }
+    .lbl-chip.lock { animation: none; }
+    * { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body data-phase="planned">
+
+<h1 class="sr-only">AFK Mission Control — an interactive board showing how four autonomous loops hand a pull request between them through a GitHub-label state machine. Only Phase 0 plumbing has shipped; the four loops and the label state machine are designed but not yet built.</h1>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="brand">
+      <h1>AFK MISSION CONTROL</h1>
+      <p class="thesis">Exactly one loop owns an item at a time — the GitHub label is the handoff.</p>
+    </div>
+    <div class="ctrls">
+      <div class="seg" role="group" aria-label="Build-state view">
+        <button id="seg-shipped" data-state="shipped" aria-pressed="false">
+          <span class="dot" aria-hidden="true"></span>SHIPPED · Phase 0
+        </button>
+        <button id="seg-planned" data-state="planned" aria-pressed="true">
+          <span class="dot" aria-hidden="true"></span>PLANNED · Phases 1–4
+        </button>
+      </div>
+      <div class="transport" role="group" aria-label="Animation transport">
+        <button class="tbtn" id="btn-play" aria-pressed="false" aria-label="Play or pause the lifecycle animation">▶ Play</button>
+        <button class="tbtn" id="btn-step" aria-label="Advance one transition">⏭ Step</button>
+        <button class="tbtn" id="btn-reset" aria-label="Reset the token">↺ Reset</button>
+        <label class="speed">Speed
+          <input type="range" id="speed" min="0.5" max="2" step="0.5" value="1" aria-label="Animation speed multiplier">
+          <span id="speed-out">1×</span>
+        </label>
+      </div>
+      <div class="readout" id="readout" aria-live="polite" aria-atomic="true">Owner loop: —</div>
+      <button class="help-toggle" id="btn-help" aria-label="Keyboard shortcuts" aria-haspopup="dialog">?</button>
+    </div>
+  </div>
+</header>
+
+<div class="ghost-banner" id="ghost-banner">
+  Label namespace is design-only — names illustrative, TBD (issue #133). Phases 1–4 planned.
+</div>
+
+<main class="board">
+
+  <!-- ============ SHIPPED MODULE (only visible in SHIPPED phase) ============ -->
+  <section class="shipped-panel" aria-labelledby="sp-title">
+    <div class="sp-head">
+      <h2 id="sp-title">afk-smoke plumbing — Phase 0 reality</h2>
+      <span class="stamp">SHIPPED · PR #132</span>
+    </div>
+    <p class="sp-cap">This is the foundation poured. The dashed conveyor below is the blueprint. Global symlinks (from <span class="mono">install-afk-routines.cjs</span>) resolve <span class="mono">afk-NAME</span> by name on every machine.</p>
+    <div class="symlinks">
+      <div class="symlink"><span class="src">workflows/afk-NAME.js</span><span class="ar">→</span><span class="dst">~/.claude/workflows/afk-NAME.js</span></div>
+      <div class="symlink"><span class="src">skills/afk-NAME</span><span class="ar">→</span><span class="dst">~/.claude/skills/afk-NAME</span></div>
+      <div class="symlink"><span class="src">scheduled-tasks/afk-NAME/SKILL.md</span><span class="ar">→</span><span class="dst">~/.claude/scheduled-tasks/afk-NAME/SKILL.md</span></div>
+    </div>
+    <div class="sp-findings">
+      <div class="sp-finding">
+        <h4>args don't propagate → cwd + label channel</h4>
+        <p>args don't reach a named workflow (empty across 3 runs) → repo = cwd remote; the claim label is the data channel.</p>
+      </div>
+      <div class="sp-finding">
+        <h4>global symlinks resolve by name</h4>
+        <p>workflows/, skills/afk-*, scheduled-tasks/*/SKILL.md → ~/.claude/ — single source of truth, every repo, auto-updating.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BAND 1 — ARCHITECTURE STACK ============ -->
+  <section class="band stack-band" aria-labelledby="b1-title">
+    <h2 id="b1-title">Layered architecture of a loop <span class="kicker">five layers · tokens spent only in Workflow</span> <span class="planned-stamp">PLANNED</span></h2>
+    <div class="stack">
+      <div class="rails" id="rails">
+        <div class="rail" tabindex="0">
+          <div class="rail-name">Trigger</div>
+          <div class="rail-cap"><em>Desktop scheduled task (per loop)</em> · auto-starts a session on schedule · worktree toggle · per-task permissions <span class="swap">swappable → cloud routine</span></div>
+        </div>
+        <div class="rail" tabindex="0">
+          <div class="rail-name">Session</div>
+          <div class="rail-cap">runs <em>/afk-&lt;loop&gt; &lt;repo&gt;</em> <em>(main agent has Bash)</em></div>
+        </div>
+        <div class="rail" tabindex="0">
+          <div class="rail-name">Skill <small>in-session orchestrator</small></div>
+          <div class="rail-cap">gh selection · SHA-skip · claim/terminal labels <em>(Bash, cheap)</em></div>
+        </div>
+        <div class="rail tokens-rail" tabindex="0">
+          <span class="tokens-bracket" aria-hidden="true"></span>
+          <div class="rail-name">Workflow</div>
+          <div class="rail-cap">~/.claude/workflows/afk-&lt;loop&gt;.js · <em>agent() / parallel() / pipeline()</em> + budget</div>
+          <span class="tokens-tag">TOKENS SPENT HERE</span>
+        </div>
+        <div class="rail" tabindex="0">
+          <div class="rail-name">Work unit</div>
+          <div class="rail-cap">/review pr · /execute · /simplify · /receiving-pr-feedback · /prevent</div>
+        </div>
+      </div>
+      <aside class="spine" aria-label="State spine">
+        <span class="spine-head">State</span>
+        <span class="spine-label">GitHub labels + head-SHA marker comment — the spine</span>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ BAND 2 + 3 ============ -->
+  <div class="midrow">
+
+    <!-- BAND 2 — THE CONVEYOR -->
+    <section class="band" aria-labelledby="b2-title">
+      <h2 id="b2-title">The conveyor <span class="kicker">one #PR token rides the label lifecycle</span></h2>
+      <figure class="conveyor-fig" id="conveyor-fig">
+        <figcaption class="sr-only">
+          A pull request flows through four loops. Execute turns an afk issue into a PR labelled auto:needs-review. Review posts one consolidated comment and sets auto:needs-fixes or auto:ready. Fix runs a convergence cycle of at most three iterations, re-verifying back through auto:needs-review, or escalates to auto:needs-human. Merge/gate is an hourly Node daemon that gate-checks auto:ready PRs and notifies a human to merge — it prepares, it does not merge. Any failure drains to the human inbox: auto:needs-human for PRs, afk:blocked for issues.
+        </figcaption>
+        <div class="conveyor-body">
+          <div class="lanes" id="lanes">
+
+            <!-- LANE 1 — EXECUTE -->
+            <article class="lane" data-loop="1" data-key="execute" data-open="0">
+              <button class="lane-head" aria-expanded="false" aria-controls="steps-execute">
+                <span class="lane-num">1</span>
+                <span class="lane-title">Execute</span>
+                <span class="cad-pill">daily 06:00</span>
+                <span class="led on"><span class="bulb"></span>worktree ON</span>
+                <span class="conc">×3</span>
+                <span class="owner-chip">afk</span>
+                <span class="lane-instr">/afk-execute &lt;repo&gt;</span>
+                <span class="lane-spacer"></span>
+                <span class="chev" aria-hidden="true">▶</span>
+              </button>
+              <div class="lane-track" data-lane="execute">
+                <span class="station enter">issue afk</span>
+                <span class="station mid">afk:building</span>
+                <span class="station exit">PR → needs-review</span>
+              </div>
+              <div class="lane-steps" id="steps-execute" role="region" aria-label="Execute loop steps">
+                <div class="lane-steps-inner">
+                  <div class="step-line"><span class="lbl">gh issue list --label afk</span> <span class="arrow">→</span> claim <span class="lbl">afk:building</span> <span class="arrow">→</span> pipeline( <span class="lbl">/execute issue N --no-close</span> <span class="arrow">→</span> <span class="lbl">/simplify (apply — its home)</span> <span class="arrow">→</span> push + gh pr create + label <span class="lbl">auto:needs-review</span> ) <span class="arrow">→</span> on failure <span class="fail">afk:blocked</span></div>
+                  <div class="prim-tags"><span class="prim">pipeline()</span><span class="prim">agent()</span><span class="prim">budget</span><span class="prim">concurrency 3</span></div>
+                </div>
+              </div>
+            </article>
+
+            <!-- LANE 2 — REVIEW -->
+            <article class="lane" data-loop="2" data-key="review" data-open="1">
+              <span class="ribbon">BUILD FIRST</span>
+              <button class="lane-head" aria-expanded="true" aria-controls="steps-review">
+                <span class="lane-num">2</span>
+                <span class="lane-title">Review</span>
+                <span class="cad-pill">every 6h</span>
+                <span class="led off"><span class="bulb"></span>worktree OFF</span>
+                <span class="conc">×5</span>
+                <span class="owner-chip">auto:needs-review</span>
+                <span class="lane-instr">/afk-review &lt;repo&gt;</span>
+                <span class="lane-spacer"></span>
+                <span class="chev" aria-hidden="true">▶</span>
+              </button>
+              <div class="lane-track" data-lane="review">
+                <span class="station enter">needs-review</span>
+                <span class="station mid">auto:reviewing</span>
+                <span class="station exit">needs-fixes | ready</span>
+              </div>
+              <div class="lane-steps" id="steps-review" role="region" aria-label="Review loop steps">
+                <div class="lane-steps-inner">
+                  <div class="step-line">stale-sweep <span class="arrow">→</span> gh select <span class="lbl">auto:needs-review</span> <span class="arrow">→</span> SHA-skip <span class="arrow">→</span> claim <span class="lbl">auto:reviewing</span> <span class="arrow">→</span> pipeline( triage <span class="arrow">→</span> parallel[ <span class="lbl">/review pr</span> (always) · <span class="lbl">/code-review</span> report (std/deep) · <span class="lbl">/improve-architecture --candidates-only</span> (deep) ] <span class="arrow">→</span> consolidate ) <span class="arrow">→</span> set <span class="lbl">auto:needs-fixes</span> | <span class="lbl">auto:ready</span></div>
+                  <div class="prim-tags"><span class="prim">pipeline()</span><span class="prim">parallel()</span><span class="prim">agent()</span><span class="prim">budget</span><span class="prim">concurrency 5</span></div>
+                </div>
+              </div>
+            </article>
+
+            <!-- LANE 3 — FIX -->
+            <article class="lane" data-loop="3" data-key="fix" data-open="0">
+              <button class="lane-head" aria-expanded="false" aria-controls="steps-fix">
+                <span class="lane-num">3</span>
+                <span class="lane-title">Fix</span>
+                <span class="cad-pill">every 7h (offset)</span>
+                <span class="led on"><span class="bulb"></span>worktree ON</span>
+                <span class="conc">×3</span>
+                <span class="owner-chip">auto:needs-fixes</span>
+                <span class="iter-badge">max 3 iterations</span>
+                <span class="lane-instr">/afk-fix &lt;repo&gt;</span>
+                <span class="lane-spacer"></span>
+                <span class="chev" aria-hidden="true">▶</span>
+              </button>
+              <div class="lane-track" data-lane="fix">
+                <span class="station enter">needs-fixes</span>
+                <span class="station mid">auto:fixing</span>
+                <span class="station exit">↺ needs-review | needs-human</span>
+              </div>
+              <div class="lane-steps" id="steps-fix" role="region" aria-label="Fix loop steps">
+                <div class="lane-steps-inner">
+                  <div class="step-line">claim <span class="lbl">auto:fixing</span> <span class="arrow">→</span> convergence cycle ×3[ <span class="lbl">/receiving-pr-feedback --no-publish</span> <span class="arrow">→</span> <span class="lbl">/review</span> ] <span class="arrow">→</span> <span class="lbl">/prevent</span> <span class="arrow">→</span> <span class="lbl">/receiving-pr-feedback --publish-only</span> <span class="arrow">→</span> set <span class="lbl">auto:needs-review</span> | <span class="fail">auto:needs-human</span></div>
+                  <div class="prim-tags"><span class="prim">pipeline()</span><span class="prim">agent()</span><span class="prim">budget</span><span class="prim">max 3</span><span class="prim">concurrency 3</span></div>
+                </div>
+              </div>
+            </article>
+
+            <!-- LANE 4 — MERGE/GATE -->
+            <article class="lane merge-lane" data-loop="4" data-key="merge" data-open="0">
+              <button class="lane-head" aria-expanded="false" aria-controls="steps-merge">
+                <span class="lane-num">4</span>
+                <span class="lane-title">Merge/gate</span>
+                <span class="cad-pill">hourly</span>
+                <span class="led" aria-label="worktree not applicable"><span class="bulb"></span>worktree —</span>
+                <span class="conc">—</span>
+                <span class="owner-chip">auto:ready</span>
+                <span class="lane-spacer"></span>
+                <span class="chev" aria-hidden="true">▶</span>
+              </button>
+              <span class="merge-note">pure Node daemon · no session · 0 tokens · prepare, don't merge</span>
+              <div class="lane-track" data-lane="merge">
+                <span class="station enter">auto:ready</span>
+                <span class="station mid">gate check</span>
+                <span class="station exit">✅ ready · human merges</span>
+              </div>
+              <div class="lane-steps" id="steps-merge" role="region" aria-label="Merge gate steps">
+                <div class="lane-steps-inner">
+                  <div class="step-line">select <span class="lbl">auto:ready</span> <span class="arrow">→</span> gates[ CI green (gh pr checks) · mergeable · no <span class="lbl">auto:needs-human</span> · no requested-changes · branch protection ] <span class="arrow">→</span> pass: keep <span class="lbl">auto:ready</span> + "✅ ready" + macOS notify (<em>human taps merge</em>) <span class="arrow">→</span> fail: <span class="fail">auto:needs-human</span> + which-gate comment</div>
+                  <div class="prim-tags"><span class="prim">scripts/afk/merge-daemon.cjs</span><span class="prim">reuses babysit-pr-daemon.cjs</span><span class="prim">gh pr merge --squash stubbed</span></div>
+                </div>
+              </div>
+            </article>
+
+            <div id="token" class="hidden" aria-hidden="true">#PR 1842</div>
+          </div>
+
+          <!-- HUMAN INBOX -->
+          <aside class="inbox" aria-label="Human inbox">
+            <h3>⚑ Human inbox</h3>
+            <p class="cap">owned by nobody — daily triage</p>
+            <div class="pill">auto:needs-human</div>
+            <div class="pill">afk:blocked</div>
+            <p class="count" id="inbox-count" aria-live="polite">drained: <b>0</b></p>
+          </aside>
+        </div>
+      </figure>
+    </section>
+
+    <!-- BAND 3 — RIGHT RAIL -->
+    <aside class="rightrail">
+
+      <!-- LABELS LEGEND -->
+      <section class="panel" aria-labelledby="lbl-title">
+        <h3 id="lbl-title">Label state machine <span class="hint">hover a chip</span></h3>
+        <div class="lblrail-body" id="lblrail">
+          <div class="lblgroup">
+            <div class="grp-owner">Execute owns</div>
+            <button class="lbl-chip owner-execute" data-lane="execute" data-label="afk">
+              <span class="name">afk</span>
+              <span class="trans"><span class="ok">→ afk:building</span> · <span class="no">→ afk:blocked</span></span>
+            </button>
+            <button class="lbl-chip lock owner-execute" data-lane="execute" data-label="afk:building" data-lock="1">
+              <span class="lock-i" aria-hidden="true">🔒</span>
+              <span class="name">afk:building <span class="sr-only">lock</span></span>
+              <span class="trans">stale-claim sweep resets</span>
+            </button>
+          </div>
+          <div class="lblgroup">
+            <div class="grp-owner">Review owns</div>
+            <button class="lbl-chip owner-review" data-lane="review" data-label="auto:needs-review">
+              <span class="name">auto:needs-review</span>
+              <span class="trans"><span class="ok">→ fixes | ready</span> · <span class="no">→ needs-human</span></span>
+            </button>
+            <button class="lbl-chip lock owner-review" data-lane="review" data-label="auto:reviewing" data-lock="1">
+              <span class="lock-i" aria-hidden="true">🔒</span>
+              <span class="name">auto:reviewing <span class="sr-only">lock</span></span>
+              <span class="trans">stale-claim sweep resets</span>
+            </button>
+          </div>
+          <div class="lblgroup">
+            <div class="grp-owner">Fix owns</div>
+            <button class="lbl-chip owner-fix" data-lane="fix" data-label="auto:needs-fixes">
+              <span class="name">auto:needs-fixes</span>
+              <span class="trans"><span class="ok">→ needs-review</span> · <span class="no">→ needs-human</span></span>
+            </button>
+            <button class="lbl-chip lock owner-fix" data-lane="fix" data-label="auto:fixing" data-lock="1">
+              <span class="lock-i" aria-hidden="true">🔒</span>
+              <span class="name">auto:fixing <span class="sr-only">lock</span></span>
+              <span class="trans">stale-claim sweep resets</span>
+            </button>
+          </div>
+          <div class="lblgroup">
+            <div class="grp-owner">Merge/gate owns</div>
+            <button class="lbl-chip owner-merge" data-lane="merge" data-label="auto:ready">
+              <span class="name">auto:ready</span>
+              <span class="trans"><span class="ok">→ keep + notify</span> · <span class="no">→ needs-human</span></span>
+            </button>
+          </div>
+          <div class="lblgroup">
+            <div class="grp-owner">Nobody — human inbox</div>
+            <button class="lbl-chip owner-human" data-lane="inbox" data-label="auto:needs-human">
+              <span class="name">auto:needs-human</span>
+              <span class="trans">terminal · daily triage</span>
+            </button>
+            <button class="lbl-chip owner-human" data-lane="inbox" data-label="afk:blocked">
+              <span class="name">afk:blocked</span>
+              <span class="trans">issue escalation terminal</span>
+            </button>
+          </div>
+          <p class="chan-note" id="chan-note" hidden></p>
+        </div>
+      </section>
+
+      <!-- FINDINGS DOCK -->
+      <section class="panel" aria-labelledby="find-title">
+        <h3 id="find-title">Findings dock</h3>
+        <div class="lblrail-body" id="findings">
+          <div class="finding validated">
+            <h4>cwd repo + label is the data channel <span class="ftag validated">PHASE-0 VALIDATED</span></h4>
+            <p>args don't propagate to a named workflow → repo = cwd remote; skill labels auto:reviewing, workflow processes all auto:reviewing in cwd.</p>
+          </div>
+          <div class="finding validated">
+            <h4>Global-symlink distribution <span class="ftag validated">PHASE-0 VALIDATED</span></h4>
+            <p>workflows/, skills/afk-*, scheduled-tasks/*/SKILL.md → ~/.claude/ (resolve by name).</p>
+          </div>
+          <div class="finding rationale">
+            <h4>Subscription billing, ignores API key <span class="ftag rationale">DESIGN RATIONALE</span></h4>
+            <p>Desktop-task sessions bill normal subscription usage limits, OAuth-only (ignore ANTHROPIC_API_KEY) — the pay-as-you-go trap can't occur.</p>
+          </div>
+          <div class="finding rationale">
+            <h4>Overflow disabled = hard ceiling <span class="ftag rationale">DESIGN RATIONALE</span></h4>
+            <p>usage-credit overflow off → an over-budget run stops, never bills metered.</p>
+          </div>
+          <div class="finding rationale">
+            <h4>prepare, don't merge <span class="ftag rationale">DESIGN RATIONALE</span></h4>
+            <p>Loop 4 drives to auto:ready + notifies; a human taps merge (auto-merge stubbed behind a flag).</p>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- FOOTER LEGEND -->
+  <footer class="legend" aria-label="Border-state legend">
+    <h3>Border legend</h3>
+    <span class="legend-item"><span class="swatch shipped" aria-hidden="true"></span>solid cyan = shipped / done</span>
+    <span class="legend-item"><span class="swatch planned" aria-hidden="true"></span>dashed slate = planned</span>
+    <span class="legend-item"><span class="swatch human" aria-hidden="true"></span>amber/red fill = human action required</span>
+  </footer>
+</main>
+
+<!-- keyboard help -->
+<div class="help-scrim" id="help-scrim" hidden role="dialog" aria-modal="true" aria-labelledby="help-title">
+  <div class="help-card">
+    <h2 id="help-title">Keyboard shortcuts</h2>
+    <dl>
+      <dt><kbd>Space</kbd></dt><dd>play / pause</dd>
+      <dt><kbd>→</kbd> <kbd>←</kbd></dt><dd>step forward / back</dd>
+      <dt><kbd>R</kbd></dt><dd>reset the token</dd>
+      <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>expand / focus a loop lane</dd>
+      <dt><kbd>L</kbd></dt><dd>focus the label legend</dd>
+      <dt><kbd>A</kbd></dt><dd>focus the architecture stack</dd>
+      <dt><kbd>F</kbd></dt><dd>cycle findings cards</dd>
+      <dt><kbd>P</kbd></dt><dd>toggle SHIPPED / PLANNED</dd>
+      <dt><kbd>Esc</kbd></dt><dd>collapse / close</dd>
+    </dl>
+    <button class="help-close" id="help-close">Close</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var body = document.body;
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- PHASE TOGGLE ---------- */
+  var segShipped = document.getElementById("seg-shipped");
+  var segPlanned = document.getElementById("seg-planned");
+  function setPhase(phase) {
+    body.setAttribute("data-phase", phase);
+    var shipped = phase === "shipped";
+    segShipped.setAttribute("aria-pressed", String(shipped));
+    segPlanned.setAttribute("aria-pressed", String(!shipped));
+    if (shipped) { stop(); }
+  }
+  segShipped.addEventListener("click", function () { setPhase("shipped"); });
+  segPlanned.addEventListener("click", function () { setPhase("planned"); });
+
+  /* ---------- ARCHITECTURE RAIL HOVER DIM ---------- */
+  var rails = document.getElementById("rails");
+  function railHover(on) { rails.setAttribute("data-hover", on ? "1" : "0"); }
+  Array.prototype.forEach.call(rails.querySelectorAll(".rail"), function (r) {
+    r.addEventListener("mouseenter", function () { railHover(true); });
+    r.addEventListener("mouseleave", function () { railHover(false); });
+    r.addEventListener("focus", function () { railHover(true); });
+    r.addEventListener("blur", function () { railHover(false); });
+  });
+
+  /* ---------- LANE EXPAND ---------- */
+  var lanes = Array.prototype.slice.call(document.querySelectorAll(".lane"));
+  function toggleLane(lane, force) {
+    var open = force != null ? force : lane.getAttribute("data-open") !== "1";
+    lane.setAttribute("data-open", open ? "1" : "0");
+    var btn = lane.querySelector(".lane-head");
+    if (btn) btn.setAttribute("aria-expanded", String(open));
+  }
+  lanes.forEach(function (lane) {
+    var btn = lane.querySelector(".lane-head");
+    btn.addEventListener("click", function () { toggleLane(lane); });
+  });
+
+  /* ---------- LABEL LEGEND HOVER ↔ LANE HIGHLIGHT + CHANNEL NOTE ---------- */
+  var chanNote = document.getElementById("chan-note");
+  var laneByKey = {};
+  lanes.forEach(function (l) { laneByKey[l.getAttribute("data-key")] = l; });
+  function highlightLane(key, on) {
+    var lane = laneByKey[key];
+    if (lane) lane.classList.toggle("active", on);
+    if (on) fig.classList.add("has-active");
+    else if (!playing) fig.classList.remove("has-active");
+  }
+  var fig = document.getElementById("conveyor-fig");
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".lbl-chip"));
+  chips.forEach(function (chip) {
+    var laneKey = chip.getAttribute("data-lane");
+    var isLock = chip.getAttribute("data-lock") === "1";
+    function enter() {
+      if (laneKey !== "inbox") highlightLane(laneKey, true);
+      if (isLock) {
+        chanNote.hidden = false;
+        chanNote.textContent = "30-min stale-claim sweep resets this loop's own claim label (crash guard). Claim is the first action — a later fire finds nothing to grab.";
+      }
+    }
+    function leave() {
+      if (laneKey !== "inbox") highlightLane(laneKey, false);
+      if (isLock) chanNote.hidden = true;
+    }
+    chip.addEventListener("mouseenter", enter);
+    chip.addEventListener("mouseleave", leave);
+    chip.addEventListener("focus", enter);
+    chip.addEventListener("blur", leave);
+    chip.addEventListener("click", function () {
+      chanNote.hidden = false;
+      chanNote.textContent = "Data channel: the skill labels the PR auto:reviewing; the workflow processes all auto:reviewing PRs in cwd — no args.";
+      chip.classList.add("glow");
+      setTimeout(function () { chip.classList.remove("glow"); }, 1400);
+    });
+  });
+
+  /* ---------- THE TOKEN + STATE MACHINE ---------- */
+  var token = document.getElementById("token");
+  var readout = document.getElementById("readout");
+
+  /*
+   * Each stage positions the token at a lane + horizontal anchor and updates
+   * the readout. The happy path cycles Execute → Review → (fork) → Fix →
+   * back up to Review (signature backtrack, convergence 1/3..3/3) → ready.
+   */
+  var STAGES = [
+    { lane: "execute", at: "enter", owner: "Execute", label: "afk", text: "#PR — issue afk" },
+    { lane: "execute", at: "mid",   owner: "Execute", label: "afk:building", text: "issue claimed" },
+    { lane: "execute", at: "exit",  owner: "Execute", label: "auto:needs-review", text: "#PR 1842 opened" },
+    { lane: "review",  at: "enter", owner: "Review",  label: "auto:needs-review", text: "#PR 1842" },
+    { lane: "review",  at: "mid",   owner: "Review",  label: "auto:reviewing", text: "claimed" },
+    { lane: "review",  at: "exit",  owner: "Review",  label: "auto:needs-fixes", text: "actionable findings" },
+    { lane: "fix",     at: "enter", owner: "Fix",     label: "auto:needs-fixes", text: "#PR 1842" },
+    { lane: "fix",     at: "mid",   owner: "Fix",     label: "auto:fixing", text: "converge 1/3" },
+    /* SIGNATURE BACKTRACK: ride back up to Review to re-verify */
+    { lane: "review",  at: "exit",  owner: "Review",  label: "auto:needs-review", text: "re-verify 1/3", backtrack: true },
+    { lane: "review",  at: "mid",   owner: "Review",  label: "auto:reviewing", text: "re-verify 2/3", backtrack: true },
+    { lane: "review",  at: "exit",  owner: "Review",  label: "auto:ready", text: "converged 3/3 → ready" },
+    { lane: "merge",   at: "enter", owner: "Merge/gate", label: "auto:ready", text: "#PR 1842" },
+    { lane: "merge",   at: "mid",   owner: "Merge/gate", label: "gate check", text: "gates green" },
+    { lane: "merge",   at: "exit",  owner: "Merge/gate", label: "auto:ready", text: "✅ ready · human taps merge", done: true }
+  ];
+
+  var idx = -1;
+  var playing = false;
+  var timer = null;
+  var speed = 1;
+
+  function laneEl(key) { return laneByKey[key]; }
+
+  function anchorX(at) {
+    if (at === "enter") return 0.08;
+    if (at === "mid") return 0.50;
+    return 0.92;
+  }
+
+  function placeToken(stage, fail) {
+    var lane = laneEl(stage.lane === "merge" ? "merge" : stage.lane);
+    if (!lane) return;
+    var track = lane.querySelector(".lane-track");
+    var fr = fig.getBoundingClientRect();
+    var tr = track.getBoundingClientRect();
+    var x = tr.left - fr.left + tr.width * anchorX(stage.at);
+    var y = tr.top - fr.top + 2;
+    token.style.left = x + "px";
+    token.style.top = y + "px";
+    token.classList.remove("hidden");
+    token.classList.toggle("fail", !!fail);
+    token.textContent = fail ? "→ human inbox" : stage.text;
+  }
+
+  function activateLane(key) {
+    fig.classList.add("has-active");
+    lanes.forEach(function (l) {
+      l.classList.toggle("active", l.getAttribute("data-key") === key);
+    });
+  }
+
+  function clearActive() {
+    fig.classList.remove("has-active");
+    lanes.forEach(function (l) { l.classList.remove("active"); });
+  }
+
+  function render(stage) {
+    if (!stage) return;
+    activateLane(stage.lane);
+    placeToken(stage, false);
+    var extra = stage.backtrack ? " ↺ re-verify" : "";
+    readout.innerHTML = "Owner loop: <b>" + stage.owner + "</b> · " + stage.label + extra;
+  }
+
+  function goTo(i) {
+    if (i < 0) i = 0;
+    if (i >= STAGES.length) i = STAGES.length - 1;
+    idx = i;
+    render(STAGES[idx]);
+    if (STAGES[idx].done) {
+      stop();
+      readout.innerHTML = "Owner loop: <b>Merge/gate</b> · auto:ready · ✅ a human taps merge";
+    }
+  }
+
+  function next() {
+    if (idx >= STAGES.length - 1) { stop(); return; }
+    goTo(idx + 1);
+  }
+  function prev() { goTo(Math.max(0, idx - 1)); }
+
+  var btnPlay = document.getElementById("btn-play");
+  function play() {
+    if (body.getAttribute("data-phase") === "shipped") return;
+    if (idx >= STAGES.length - 1) { reset(); }
+    playing = true;
+    btnPlay.setAttribute("aria-pressed", "true");
+    btnPlay.textContent = "⏸ Pause";
+    tick();
+  }
+  function stop() {
+    playing = false;
+    btnPlay.setAttribute("aria-pressed", "false");
+    btnPlay.textContent = "▶ Play";
+    if (timer) { clearTimeout(timer); timer = null; }
+  }
+  function tick() {
+    if (!playing) return;
+    next();
+    if (idx >= STAGES.length - 1) { stop(); return; }
+    var dwell = reduceMotion ? 900 : 1500;
+    timer = setTimeout(tick, dwell / speed);
+  }
+  function reset() {
+    stop();
+    idx = -1;
+    clearActive();
+    token.classList.add("hidden");
+    token.classList.remove("fail");
+    readout.innerHTML = "Owner loop: —";
+  }
+
+  btnPlay.addEventListener("click", function () { playing ? stop() : play(); });
+  document.getElementById("btn-step").addEventListener("click", function () {
+    if (body.getAttribute("data-phase") === "shipped") return;
+    stop();
+    if (idx < 0) goTo(0); else next();
+  });
+  document.getElementById("btn-reset").addEventListener("click", reset);
+
+  var speedInput = document.getElementById("speed");
+  var speedOut = document.getElementById("speed-out");
+  speedInput.addEventListener("input", function () {
+    speed = parseFloat(speedInput.value);
+    speedOut.textContent = speed + "×";
+  });
+
+  /* keep token glued to its station on resize */
+  var rzTimer = null;
+  window.addEventListener("resize", function () {
+    if (idx < 0) return;
+    if (rzTimer) clearTimeout(rzTimer);
+    rzTimer = setTimeout(function () { placeToken(STAGES[idx], token.classList.contains("fail")); }, 120);
+  });
+
+  /* ---------- HELP OVERLAY ---------- */
+  var helpScrim = document.getElementById("help-scrim");
+  var btnHelp = document.getElementById("btn-help");
+  function openHelp() { helpScrim.hidden = false; document.getElementById("help-close").focus(); }
+  function closeHelp() { helpScrim.hidden = true; btnHelp.focus(); }
+  btnHelp.addEventListener("click", openHelp);
+  document.getElementById("help-close").addEventListener("click", closeHelp);
+  helpScrim.addEventListener("click", function (e) { if (e.target === helpScrim) closeHelp(); });
+
+  /* ---------- KEYBOARD ---------- */
+  var findingCards = Array.prototype.slice.call(document.querySelectorAll("#findings .finding"));
+  var findingIdx = 0;
+  var board = document.querySelector(".board");
+  document.addEventListener("keydown", function (e) {
+    var tag = (e.target.tagName || "").toLowerCase();
+    // Focus trap: while the modal is open, pin focus to its single button.
+    if (!helpScrim.hidden && e.key === "Tab") { e.preventDefault(); return; }
+    // Focus-scope guard: ignore page-level shortcuts unless focus is on the board,
+    // the body, or the help affordances (btn-help / the open modal), which sit
+    // outside .board but still own the ? / Esc keys.
+    var ae = document.activeElement;
+    var onHelp = ae === btnHelp || (!helpScrim.hidden && helpScrim.contains(ae));
+    if (board && !board.contains(ae) && ae !== document.body && !onHelp) return;
+    if (tag === "input" || tag === "textarea") return;
+    if (!helpScrim.hidden && e.key !== "Escape") return;
+
+    switch (e.key) {
+      case " ":
+        e.preventDefault();
+        playing ? stop() : play();
+        break;
+      case "ArrowRight":
+        e.preventDefault(); stop(); if (idx < 0) goTo(0); else next();
+        break;
+      case "ArrowLeft":
+        e.preventDefault(); stop(); prev();
+        break;
+      case "r": case "R":
+        reset(); break;
+      case "1": case "2": case "3": case "4": {
+        var lane = lanes[parseInt(e.key, 10) - 1];
+        if (lane) { toggleLane(lane, true); lane.querySelector(".lane-head").focus(); }
+        break;
+      }
+      case "l": case "L": {
+        var c = document.querySelector(".lbl-chip");
+        if (c) c.focus();
+        break;
+      }
+      case "a": case "A": {
+        var r = rails.querySelector(".rail");
+        if (r) r.focus();
+        break;
+      }
+      case "f": case "F": {
+        if (!findingCards.length) break;
+        findingCards.forEach(function (c) { c.style.outline = ""; });
+        var card = findingCards[findingIdx % findingCards.length];
+        card.setAttribute("tabindex", "-1");
+        card.focus();
+        card.style.outline = "2px solid var(--cyan)";
+        findingIdx++;
+        break;
+      }
+      case "p": case "P":
+        setPhase(body.getAttribute("data-phase") === "shipped" ? "planned" : "shipped");
+        break;
+      case "Escape":
+        if (!helpScrim.hidden) { closeHelp(); break; }
+        lanes.forEach(function (l) { if (l.getAttribute("data-key") !== "review") toggleLane(l, false); });
+        chanNote.hidden = true;
+        break;
+      case "?":
+        openHelp(); break;
+    }
+  });
+
+  /* place token once layout settles, but keep it hidden until play/step */
+  setPhase("planned");
+})();
+</script>
+</body>
+</html>

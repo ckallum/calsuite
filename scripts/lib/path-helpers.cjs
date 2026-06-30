@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 
 const CLAUDE_MARKER = path.sep + '.claude' + path.sep;
@@ -32,7 +33,40 @@ function deriveTargetName(destPath) {
   return path.basename(targetDir);
 }
 
-module.exports = { destToCalsuiteRel, deriveTargetName };
+/**
+ * Resolve the absolute path to the canonical calsuite checkout on this machine.
+ * Order: $CALSUITE_DIR env var → git-common-dir auto-detect (from baseDir) → baseDir.
+ *
+ * Pass the calling script's calsuite root as `baseDir` — `path.resolve(__dirname, '..')`
+ * from any script under scripts/. The git step is the load-bearing one: from any
+ * worktree, `git rev-parse --git-common-dir` returns the canonical .git directory
+ * (a worktree holds a .git FILE pointing back to it), and its parent is the canonical
+ * checkout root — so the result outlives any ephemeral worktree, with no hardcoded
+ * `~/Projects/calsuite` assumption. The final fallback (baseDir) covers a non-git tree
+ * (tarball) or git missing from PATH. The return value is always absolute.
+ *
+ * Single source of truth: configure-claude.js and install-afk-routines.cjs both bind
+ * this to their own checkout root. The resolution ORDER is a load-bearing
+ * fresh-clone-test invariant (see CLAUDE.md) — keep it here, never hand-duplicated.
+ */
+function resolveCalsuiteDir(baseDir) {
+  if (process.env.CALSUITE_DIR) return path.resolve(process.env.CALSUITE_DIR);
+  try {
+    const { execFileSync } = require('node:child_process');
+    const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: baseDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const canonical = path.dirname(path.resolve(baseDir, commonDir));
+    if (fs.existsSync(canonical)) return canonical;
+  } catch {
+    // git not on PATH, or baseDir isn't a git tree (tarball) — fall through
+  }
+  return baseDir;
+}
+
+module.exports = { destToCalsuiteRel, deriveTargetName, resolveCalsuiteDir };
 
 if (require.main === module) {
   const assert = require('assert');
@@ -97,6 +131,17 @@ if (require.main === module) {
     'local',
     'no .claude returns local'
   );
+
+  // resolveCalsuiteDir: $CALSUITE_DIR env override wins over git/baseDir
+  const prevEnv = process.env.CALSUITE_DIR;
+  process.env.CALSUITE_DIR = j('', 'tmp', 'cal-override');
+  assert.strictEqual(
+    resolveCalsuiteDir(j('', 'anything')),
+    path.resolve(j('', 'tmp', 'cal-override')),
+    'CALSUITE_DIR env override wins'
+  );
+  if (prevEnv === undefined) delete process.env.CALSUITE_DIR;
+  else process.env.CALSUITE_DIR = prevEnv;
 
   console.log('path-helpers.cjs: all tests passed');
 }

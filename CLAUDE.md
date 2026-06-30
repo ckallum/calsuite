@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.54** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.56** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -78,6 +78,8 @@ Record durable learnings (patterns, pitfalls, preferences) via `/learn save` —
 
 | Skill | Purpose |
 |---|---|
+| `/afk-smoke` | Phase 0 validation harness for the AFK autonomous-loop system (throwaway) |
+| `/afk-review` | AFK review loop — review `auto:needs-review` PRs and advance the label state machine |
 | `/configure-claude` | Install/sync calsuite config into a project |
 | `/reconcile` | Three-way merge one divergent skill/agent file |
 | `/reconcile-targets` | Reconcile divergences across all targets |
@@ -136,6 +138,8 @@ skills/      # parameterized slash-commands (SKILL.md each)
 agents/      # agent .md files with YAML frontmatter
 behaviors/   # global behaviour sections merged into user-global ~/.claude/CLAUDE.md
 templates/   # spec / doc / changelog templates
+workflows/        # dynamic-workflow scripts (afk-*.js); symlinked into ~/.claude/workflows
+scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked into ~/.claude/scheduled-tasks
 ```
 
 ## Key file locations
@@ -150,6 +154,7 @@ templates/   # spec / doc / changelog templates
 - `<target>/.claude/settings.local.json` — **per-user** (gitignored by the installer). Installer writes calsuite hook wiring here with literal resolved `$CALSUITE_DIR` paths.
 - `config/targets.json` — repos that `--sync` installs to. Each entry: `{ path, workspaces?, skills? }`. `workspaces: "skip"` restricts monorepo targets to root-only install. `skills: { exclude: ["a", "b"] }` drops the named skills from the profile-resolved install set; unmatched names surface as a ⚠ drift warning. See `config/targets.example.json`.
 - `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config/behaviors change
+- `scripts/install-afk-routines.cjs` — symlinks calsuite-owned `afk-*` workflows, skills, and scheduled-task prompts into `~/.claude/` (global) so Desktop scheduled tasks resolve them by name. Run once per machine; the schedule/folder binding is set separately via the `scheduled-tasks` MCP or the Routines UI.
 - `~/.claude/CLAUDE.md` — user-global memory loaded for every project. Installer merges a marker-delimited block here from `behaviors/*.md`; content outside the markers is preserved.
 - `behaviors/*.md` — global behaviour sections (one concern per file, `README.md` excluded). Concatenated in filename order into the `~/.claude/CLAUDE.md` managed block.
 - `<target>/.claude/verify-config.json` — **optional** per-project config for `/verify` (dev command, ports, log path, DB shell, auth bypass, seed script). Without it the skill auto-discovers from `package.json` / `Makefile` / `docker-compose.yml`; schema lives at `skills/verify/references/config-schema.md`.
