@@ -1,0 +1,43 @@
+# afk-enroll — enrol fresh PRs into the AFK review loop by labelling them
+# `auto:needs-review`. Deterministic + event-driven (zero-token), so no Claude
+# routine is needed for the mechanical enrol-on-open step.
+#
+# The AFK review loop (skills/afk-review) only acts on PRs labelled
+# `auto:needs-review`. This fires the moment a PR opens (or a draft is marked
+# ready) and enrols it — UNLESS it already carries an `auto:*`/`afk` label, in
+# which case it is mid-flow in the state machine and must NOT be re-labelled
+# (that would yank it away from whichever loop currently owns it).
+#
+# Requires: AFK labels bootstrapped on the repo (scripts/bootstrap-afk-labels.cjs)
+# and Actions allowed to write PRs (the permissions block below; if the repo
+# default is read-only, Settings -> Actions -> Workflow permissions may need it).
+# Takes effect once merged to the default branch.
+name: afk-enroll
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  enroll:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Enrol fresh non-draft PRs into the AFK review loop
+        if: github.event.pull_request.draft == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Skip if the PR is already in the AFK state machine — never re-label
+          # one a loop currently owns (auto:reviewing / auto:fixing / auto:ready …).
+          n=$(gh pr view "$PR" -R "$REPO" --json labels \
+            --jq '[.labels[].name] | map(select(startswith("auto:") or startswith("afk"))) | length')
+          if [ "$n" -gt 0 ]; then
+            echo "PR #$PR already in AFK flow ($n AFK label(s)) — skip"
+            exit 0
+          fi
+          echo "Enrolling PR #$PR into the review loop (auto:needs-review)"
+          gh pr edit "$PR" -R "$REPO" --add-label auto:needs-review
