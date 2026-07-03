@@ -2,7 +2,15 @@
 
 All notable changes to this repository.
 
-Current version: **2.55**
+Current version: **2.56**
+
+## [2.56] — 2026-06-29
+
+### Added
+
+- **AFK fix loop — Phase 3.** The third autonomous loop, and the only one that mutates code. `/afk-fix <owner/repo>` selects open PRs labelled `auto:needs-fixes`, claims each (`auto:fixing`), checks out the PR branch in an isolated worktree, and runs a bounded **convergence cycle** (max 3 rounds): `/receiving-pr-feedback --no-publish` → `/improve-architecture` + `/simplify` (non-trivial PRs) → `/review --headless`, addressing every CRITICAL finding plus any relevant / newly-introduced-bug INFORMATIONAL finding each round. On convergence it runs `/prevent`, then `/receiving-pr-feedback --publish-only` to post replies + push **to the PR branch** and move the label to `auto:needs-review`; anything that can't converge (or hits a question / unfixable failure) escalates to `auto:needs-human` with the branch left unpushed. Mirrors the afk-review safety spine (cwd/label preconditions, age-aware `auto:fixing` sweep, per-PR isolation, SHA-marker idempotency) plus mutation guards: PR-branch-only, never `main`, never force-push, publish once. Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-fix/` task prompt (7h, worktree-on).
+  - **`/receiving-pr-feedback` v1.1.0** — `--no-publish` (apply + commit locally, stage replies to `.claude/.rpf-pending-<N>.json`, defer PR-body/push) and `--publish-only` (flush staged replies + PR body + push). Additive; default behavior unchanged, so `/ship` and manual callers are unaffected.
+  - **`/review` v1.3.0** — `--headless`: non-interactive local review (reviews `git diff origin/main`, prints findings + the canonical verdict, with no AskUserQuestion / PR post / stamp) so the fix loop can re-review its unpushed working branch each round.
 
 ## [2.55] — 2026-06-22
 

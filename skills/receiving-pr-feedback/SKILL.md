@@ -1,12 +1,12 @@
 ---
 name: receiving-pr-feedback
-version: 1.0.0
+version: 1.1.0
 description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.
   Rigorous handling of PR review feedback — verify before implementing, push back when wrong.
   Multi-PR mode: /receiving-pr-feedback 323,324,325 --multi spawns separate Claude Code instances per PR.
-argument-hint: "[pr-number[,number,...]] [--multi]"
+argument-hint: "[pr-number[,number,...]] [--multi] [--no-publish|--publish-only]"
 allowed-tools:
   - Bash
   - Read
@@ -48,6 +48,22 @@ bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
 The script exits non-zero on a validation failure (`2`), no tmux session (`3`), or missing tmux (`4`). Relay its stderr message to the user and STOP — do not fall back to spawning panes by hand.
 
 3. **STOP.** Do not proceed to Step 1 — the tmux instances handle the feedback.
+
+---
+
+## Step 0.5: Publish mode — `--no-publish` / `--publish-only` (AFK fix loop)
+
+These flags let the AFK **fix loop** run this skill repeatedly on one PR and publish once at the end, instead of posting replies and rewriting the PR body on every pass. Mutually exclusive; default (neither flag) is the normal behavior.
+
+Per-PR staging file: `PENDING=.claude/.rpf-pending-<number>.json`.
+
+- **default (full)** — unchanged: apply fixes, post replies (Step 4), update the PR body (Step 4.5); the caller commits/pushes as today. Ignore `$PENDING`.
+- **`--no-publish` (defer)** — run Steps 1–4's analysis + code fixes and **commit locally**, but do NOT post any reply, do NOT run Step 4.5, and do NOT push. Instead, in Step 4 **append** each reply you would have posted to `$PENDING` (merge into the existing file — this is meant to run multiple times and accumulate). Safe and idempotent across rounds.
+- **`--publish-only` (flush)** — **skip Steps 1–4 entirely** (no re-analysis, no new fixes). Read `$PENDING`; post each recorded reply; run Step 4.5 once using the accumulated tallies; then push and delete `$PENDING`. If `$PENDING` is missing or empty, print "nothing staged to publish" and stop.
+
+`$PENDING` schema: `{ "replies": [ { "commentId": <id|null>, "path": <str|null>, "body": <str> } ], "tally": { "accepted": <n>, "pushedBack": <n>, "answered": <n> }, "notes": [<str>] }`.
+
+If `$ARGUMENTS` contains **both** flags, print "Choose one of --no-publish / --publish-only, not both." and stop. `--multi` is incompatible with either — the spawned panes run full mode.
 
 ---
 
@@ -139,6 +155,8 @@ Acknowledge with brief, factual statements: "Fixed — the null check was missin
 
 ## Step 4: Apply fixes
 
+> **Publish mode (Step 0.5):** `--publish-only` never reaches this step (Steps 1–4 are skipped). In `--no-publish`, do the fixes + local commit below, but replace every `gh api … /replies` post with an **append to `$PENDING.replies`** and bump `$PENDING.tally` — do not post, do not push. In full (default) mode, post/commit/push as written.
+
 Implement in this order:
 1. **Blocking issues** (breaks, security) — fix first
 2. **Simple fixes** (typos, imports, one-liners) — batch these
@@ -160,6 +178,8 @@ gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body
 ```
 
 ## Step 4.5: Update PR Description
+
+> **Publish mode (Step 0.5):** **skip this step entirely in `--no-publish`** — the PR body is rewritten once, at `--publish-only` time. In `--publish-only` and full mode, run it; in `--publish-only` use the accumulated `$PENDING.tally` for the Revision History round.
 
 After fixes are applied and commits pushed, update the PR description to reflect the current state. Both `/ship` (Step 8) and this skill follow the same PR body structure defined in `.claude/skills/ship/pr-template.md`.
 

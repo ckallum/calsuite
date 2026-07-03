@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.55** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.56** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -77,6 +77,7 @@ Record durable learnings (patterns, pitfalls, preferences) via `/learn save` —
 |---|---|
 | `/afk-smoke` | Phase 0 validation harness for the AFK autonomous-loop system (throwaway) |
 | `/afk-review` | AFK review loop — review `auto:needs-review` PRs and advance the label state machine |
+| `/afk-fix` | AFK fix loop — converge review feedback into committed fixes on `auto:needs-fixes` PRs (the only loop that mutates code) |
 | `/configure-claude` | Install/sync calsuite config into a project |
 | `/reconcile` | Three-way merge one divergent skill/agent file |
 | `/reconcile-targets` | Reconcile divergences across all targets |

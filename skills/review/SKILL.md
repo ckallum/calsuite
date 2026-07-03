@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.2.1
+version: 1.3.0
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -11,7 +11,7 @@ description: |
   Confidence scoring, Greptile triage, TODO cross-reference, flow diagrams.
   Multi-PR mode: /review pr 123,124,125 --multi spawns separate Claude Code instances per PR.
   Adversarial converse mode: /review pr 123 --converse codex runs Claude's review then debates findings with another model CLI.
-argument-hint: "[pr <number>[,number,...]] [greptile] [--multi] [--converse cli[:model]]"
+argument-hint: "[pr <number>[,number,...]] [greptile] [--multi] [--headless] [--converse cli[:model]]"
 allowed-tools:
   - Bash
   - Read
@@ -34,6 +34,7 @@ If `docs/adr/` exists and the diff touches an area covered by an ADR, include "r
 ## Arguments
 
 - `/review` — full review of current branch vs main (default)
+- `/review --headless` — non-interactive local review for programmatic callers (e.g. the AFK fix loop): reviews `git diff origin/main`, prints findings + the canonical verdict, and prompts/posts/stamps nothing
 - `/review greptile` — include Greptile bot comment triage (auto-detected for repos with prior triage history)
 - `/review pr <number>` — review an existing PR by number (fetches diff from GitHub, posts findings as PR comment)
 - `/review pr 123 --multi` — spawn a separate Claude Code instance in a new tmux pane (context-free, unbiased)
@@ -237,7 +238,7 @@ Output all findings:
 
 **Be terse.** One line problem, one line fix. No preamble.
 
-**For each CRITICAL finding (local mode only)**, use AskUserQuestion individually (one issue per call, not batched):
+**For each CRITICAL finding (interactive local mode only — `--headless` skips this)**, use AskUserQuestion individually (one issue per call, not batched):
 - A) Fix it now (recommended)
 - B) Acknowledge and ship anyway
 - C) False positive — skip
@@ -247,6 +248,8 @@ Lead with your recommendation and explain WHY.
 **If user chose A (fix):** Describe the exact fix needed. Do NOT apply it — the skill is read-only. Tell the user to apply the fix and re-run `/review`.
 
 **In PR mode:** skip the AskUserQuestion loop — findings are posted as a single consolidated comment in Step 7 for the PR author to address.
+
+**In `--headless` mode** (local, non-interactive — for programmatic callers like the AFK fix loop): skip the AskUserQuestion loop entirely, skip the Step 5.5 flow-diagram PR post, and skip the Step 6 stamp. Print the findings block above plus the canonical `Review complete: PASS|BLOCKED` line (Step 8) to stdout — nothing else: no prompts, no PR comment, no file writes. `--headless` implies local mode; if combined with `pr <number>`, ignore it (PR mode is already non-interactive).
 
 ### Greptile Comment Resolution
 

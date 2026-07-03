@@ -78,6 +78,7 @@ const INTERNAL_SKILLS = new Set([
   // install-afk-routines.cjs, not distributed per-target through profiles.
   'afk-smoke',
   'afk-review',
+  'afk-fix',
 ]);
 
 /**
