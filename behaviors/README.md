@@ -7,7 +7,7 @@ Each `*.md` file here is one behaviour — a short, high-signal section. The ins
 marker-delimited block in your user-global `~/.claude/CLAUDE.md`, which Claude Code loads
 for every project. Content outside the markers is never touched.
 
-```
+```text
 <!-- BEGIN calsuite global behaviours … -->
   …concatenated behaviour sections…
 <!-- END calsuite global behaviours -->

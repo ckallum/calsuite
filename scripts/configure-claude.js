@@ -1066,10 +1066,15 @@ function buildBehaviorsBlock() {
 }
 
 /**
- * Merge the global-behaviours block into the user-global ~/.claude/CLAUDE.md,
+ * Sync the global-behaviours block into the user-global ~/.claude/CLAUDE.md,
  * which Claude Code loads for every project. Marker-delimited and idempotent:
  * content outside the markers is preserved, and an unchanged block is a no-op
  * (no write, no log) so the post-commit --sync hook stays silent.
+ *
+ * The block mirrors behaviors/ exactly: install/update when behaviours exist,
+ * and REMOVE it when behaviors/ is present but empty (so deleting the last
+ * behaviour propagates). A missing behaviors/ dir is left alone — that's an
+ * unknown/partial checkout, not a deliberate removal.
  *
  * `quiet` suppresses all output (git-hook context). `announceNoop` prints a ✓
  * even when nothing changed — used by the single-target install where the
@@ -1077,7 +1082,6 @@ function buildBehaviorsBlock() {
  */
 function installGlobalBehaviors({ quiet = false, announceNoop = false } = {}) {
   const block = buildBehaviorsBlock();
-  if (!block) return;
 
   const existing = fs.existsSync(HOME_CLAUDE_MD) ? fs.readFileSync(HOME_CLAUDE_MD, 'utf8') : '';
   const beginIdx = existing.indexOf(BEHAVIORS_BEGIN);
@@ -1095,7 +1099,21 @@ function installGlobalBehaviors({ quiet = false, announceNoop = false } = {}) {
 
   let next;
   let verb;
-  if (wellFormed) {
+  if (!block) {
+    // No behaviours defined. If behaviors/ exists but is empty, this is a
+    // deliberate removal — strip the managed block so it propagates. If the dir
+    // is absent (unknown/partial checkout), leave the file untouched.
+    if (!fs.existsSync(BEHAVIORS_DIR) || (!wellFormed && !corrupted)) {
+      if (!quiet && announceNoop) console.log('  ✓ Global behaviours: none defined, ~/.claude/CLAUDE.md untouched');
+      return;
+    }
+    const body = wellFormed
+      ? existing.slice(0, beginIdx) + existing.slice(endIdx + BEHAVIORS_END.length)
+      : existing.split('\n').filter(l => l.trim() !== BEHAVIORS_BEGIN && l.trim() !== BEHAVIORS_END).join('\n');
+    const trimmed = body.replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '');
+    next = trimmed ? trimmed + '\n' : '';
+    verb = 'removed';
+  } else if (wellFormed) {
     next = existing.slice(0, beginIdx) + block + existing.slice(endIdx + BEHAVIORS_END.length);
     verb = 'updated';
   } else if (corrupted) {

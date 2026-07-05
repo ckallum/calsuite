@@ -13,7 +13,7 @@
 # called from a git hook (GIT_DIR is set) and there's no config/targets.json,
 # so a fresh user without targets configured won't see spam on every commit.
 
-CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '^(hooks/|skills/|agents/|scripts/|config/|behaviors/)' | head -1)
+CHANGED=$(git diff-tree --root --no-commit-id --name-only -r HEAD | grep -E '^(hooks/|skills/|agents/|scripts/|config/|behaviors/)' | head -1)
 
 if [ -n "$CHANGED" ]; then
   echo "[post-commit] Syncing calsuite to targets..."

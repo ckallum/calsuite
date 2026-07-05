@@ -216,10 +216,11 @@ function printNextSteps() {
     log('  Next: copy config/targets.example.json to config/targets.json and list your target repos.');
     log('        Then `node scripts/configure-claude.js --sync` will fan out to them.');
   }
-  log('  A real install (per-target or --sync) also seeds the calsuite global');
-  log('  behaviours from behaviors/*.md into ~/.claude/CLAUDE.md; the smoke test');
-  log('  above does not (it runs against a sandboxed HOME). To seed them now');
-  log('  without a target, run `node scripts/configure-claude.js --install-global-behaviors`.');
+  log('  A real install (per-target or --sync) seeds the calsuite global behaviours');
+  log('  from behaviors/*.md into your ~/.claude/CLAUDE.md. The smoke test above seeds');
+  log('  into a throwaway sandboxed HOME instead, so your real ~/.claude/CLAUDE.md is');
+  log('  untouched. To seed it now without a target, run');
+  log('  `node scripts/configure-claude.js --install-global-behaviors`.');
   log('');
 }
 
