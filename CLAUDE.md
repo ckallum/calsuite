@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.55** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.56** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -16,6 +16,7 @@ When the user's intent matches, read the pointed file *before* doing anything el
 | Add/change an agent | `agents/<name>.md` (YAML frontmatter) |
 | MCP server changes | `config/global-settings.json` (empty placeholder keys only) + `~/.mcp.json` (real keys, never committed) |
 | Spec/doc templates | `templates/` — never overwritten on re-install |
+| Add/change a global behaviour | `behaviors/<topic>.md` — installer merges them into user-global `~/.claude/CLAUDE.md` (see Global behaviours below) |
 
 ## Codify on repeat
 
@@ -55,6 +56,7 @@ Record durable learnings (patterns, pitfalls, preferences) via `/learn save` —
 | `/learn` | Durable per-project learnings across sessions |
 | `/lint-rule-gen` | Generate lint rules from review-feedback patterns |
 | `/new-spec` | Scaffold a spec directory (requirements / design / tasks) |
+| `/next-task` | Pick the next task, recommend session strategy, write its prompt + roadmap |
 | `/plan` | Interview / brainstorm / review / visualize before building |
 | `/plan-ceo` | Founder-mode plan review: scope expansion / hold / reduction |
 | `/prevent` | Add the most deterministic guardrail for a mistake |
@@ -62,6 +64,7 @@ Record durable learnings (patterns, pitfalls, preferences) via `/learn save` —
 | `/receiving-pr-feedback` | Rigorously handle PR review feedback |
 | `/retro` | Weekly engineering retrospective |
 | `/review` | Multi-agent pre-landing code review |
+| `/roadmap` | Render a self-contained HTML roadmap (done / next / dependency tree) from the spec(s) |
 | `/session-start` | Load full project-context briefing |
 | `/ship` | Merge main, test, review, push, open PR |
 | `/strategic-compact` | Suggest `/compact` at logical session breakpoints |
@@ -133,6 +136,7 @@ config/      # global-settings.json (manifest), profiles.json (profile→plugin 
 plugins/     # Claude Code plugins
 skills/      # parameterized slash-commands (SKILL.md each)
 agents/      # agent .md files with YAML frontmatter
+behaviors/   # global behaviour sections merged into user-global ~/.claude/CLAUDE.md
 templates/   # spec / doc / changelog templates
 workflows/        # dynamic-workflow scripts (afk-*.js); symlinked into ~/.claude/workflows
 scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked into ~/.claude/scheduled-tasks
@@ -149,8 +153,10 @@ scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked i
 - `<target>/.claude/settings.json` — **team-shared** (committed). Installer writes `enabledPlugins` and `permissions` here. Never hooks, never paths.
 - `<target>/.claude/settings.local.json` — **per-user** (gitignored by the installer). Installer writes calsuite hook wiring here with literal resolved `$CALSUITE_DIR` paths.
 - `config/targets.json` — repos that `--sync` installs to. Each entry: `{ path, workspaces?, skills? }`. `workspaces: "skip"` restricts monorepo targets to root-only install. `skills: { exclude: ["a", "b"] }` drops the named skills from the profile-resolved install set; unmatched names surface as a ⚠ drift warning. See `config/targets.example.json`.
-- `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config change
+- `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config/behaviors change
 - `scripts/install-afk-routines.cjs` — symlinks calsuite-owned `afk-*` workflows, skills, and scheduled-task prompts into `~/.claude/` (global) so Desktop scheduled tasks resolve them by name. Run once per machine; the schedule/folder binding is set separately via the `scheduled-tasks` MCP or the Routines UI.
+- `~/.claude/CLAUDE.md` — user-global memory loaded for every project. Installer merges a marker-delimited block here from `behaviors/*.md`; content outside the markers is preserved.
+- `behaviors/*.md` — global behaviour sections (one concern per file, `README.md` excluded). Concatenated in filename order into the `~/.claude/CLAUDE.md` managed block.
 - `<target>/.claude/verify-config.json` — **optional** per-project config for `/verify` (dev command, ports, log path, DB shell, auth bypass, seed script). Without it the skill auto-discovers from `package.json` / `Makefile` / `docker-compose.yml`; schema lives at `skills/verify/references/config-schema.md`.
 
 ## Gotchas
@@ -182,6 +188,13 @@ scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked i
 - Claude Code's skill hierarchy is enterprise > personal (`~/.claude/`) > project (CWD's `.claude/`) > plugin. Parent-directory `.claude/skills/` is **not** discovered automatically.
 - Review gate blocks commits without `@code-reviewer` approval — bypass with `[skip-review]`, `docs:`/`chore:`/`style:` prefix, or md-only changes.
 
+### Global behaviours
+- `behaviors/*.md` are personal, **cross-project** preferences merged into user-global `~/.claude/CLAUDE.md` — never into a target repo's committed files. (A code-comment convention is arguably team-shared; this mechanism deliberately keeps it personal-global, like the "never write hooks into committed `settings.json`" rule.)
+- The merge is marker-delimited (`installGlobalBehaviors()` in `scripts/configure-claude.js`) and **idempotent**: an unchanged block writes nothing and logs nothing, so the post-commit `--sync` stays silent. Content outside the markers is preserved. A hand-corrupted marker (lone or misordered) is detected and **repaired** — every marker line is stripped and one clean block re-appended — rather than duplicated or used to silently delete surrounding prose.
+- Installs from three callers — single-target install (`announceNoop: true`, shown in the global-settings summary), `--sync` (`quiet: inGitHook`, silent on no-op so `/sync`'s output parsing stays stable), and the standalone `--install-global-behaviors` flag. A normal single-target install writes the block to your real `~/.claude/CLAUDE.md` (same as the existing `~/.mcp.json` write); the `setup.cjs` smoke test runs against a **sandboxed `HOME`**, so it never touches your real home.
+- Behaviour text is injected into **every** session's context — keep each file short and scoped both ways (when it applies *and* when it doesn't). `README.md` in `behaviors/` is documentation and is excluded from the merge.
+- Editing `behaviors/*.md` and committing refreshes `~/.claude/CLAUDE.md` via the post-commit hook (it watches `behaviors/`). Existing installs whose `.git/hooks/post-commit` predates that watch need `node scripts/setup.cjs --hook-only` once to pick up the new path filter.
+
 ### Divergence resolution
 
 When `--sync` reports files skipped pending reconciliation, three commands resolve them:
@@ -193,7 +206,9 @@ When `--sync` reports files skipped pending reconciliation, three commands resol
 
 - `node scripts/configure-claude.js /tmp/test-project` — full integration test
 - `--install-ccstatusline` flag for standalone ccstatusline install
+- `--install-global-behaviors` flag for standalone `~/.claude/CLAUDE.md` behaviour merge (idempotent)
 - Always `rm -rf /tmp/test-project` after testing
+- A full integration test touches the real `~/.claude/CLAUDE.md` (behaviours block) and `~/.mcp.json` — both idempotent and additive. The `setup.cjs` smoke test sandboxes `HOME`, so it touches neither.
 
 ## Versioning
 

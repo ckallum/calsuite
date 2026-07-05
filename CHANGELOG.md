@@ -2,7 +2,24 @@
 
 All notable changes to this repository.
 
-Current version: **2.55**
+Current version: **2.56**
+
+## [2.56] — 2026-06-30
+
+### Added
+
+- **`/next-task` skill — prep and hand off the next piece of work.** Reads what just happened (git log, working tree, spec task state), picks the next task off the active spec using the dependency tree (critical path first), recommends whether to **carry on / compact / start a new session** from explicit signals (coupling to current context, context pressure, tree cleanliness, phase boundary), and writes a ready-to-paste execution prompt to Claude Code prompting best practice (explicit, motivated, files + finish line; standalone when it recommends a fresh session). Then invokes `/roadmap` for the "what we did / where next" visual. Distributed to `base` + `monorepo-root`.
+- **`/roadmap` skill — render where we are and what's next.** Creates or updates a self-contained `docs/roadmap/*.html` from the project's spec(s): finished work, ready-to-start tasks, and the dependency tree (critical path, sequential, parallelisable). Multi-spec aware — one spec → `roadmap.html`; many → a cross-spec `spec_roadmap.html` portfolio plus a per-spec `{spec_name}_roadmap.html` and an index. Output is dependency-free, dark-mode-aware HTML that opens offline; optional inline preview via `show_widget`. Reads status from `tasks.md` only; never edits the spec. Distributed to `base` + `monorepo-root`.
+- **Global behaviours mechanism (`behaviors/` → `~/.claude/CLAUDE.md`).** New `behaviors/*.md` directory holding personal, cross-project guidance. `installGlobalBehaviors()` in the installer merges them (filename order, `README.md` excluded) into a marker-delimited block in user-global `~/.claude/CLAUDE.md`, preserving content outside the markers. Idempotent (unchanged block = no write, no log); a hand-corrupted marker is detected and repaired rather than duplicated. Installs from the single-target path (shown in the global-settings summary), from `--sync` (silent in git-hook context, silent on no-op so `/sync` parsing is unaffected), and from a standalone `--install-global-behaviors` flag. Post-commit hook now watches `behaviors/`; the `setup.cjs` smoke test sandboxes `HOME` so it never touches the real `~/.claude/CLAUDE.md`.
+- **Two starter behaviours.** `visualise-over-verbose.md` — render structure (flows, graphs, layouts) as a visual instead of a wall of describing prose, scoped to skip terse answers and code. `code-comments.md` — functional, present-tense comments stating the contract/invariant/constraint that still governs the code; explicitly **not** debugging war-stories (those belong in commits/PRs/ADRs); favours scannable bullets over dense multi-line paragraphs; grounded in PEP 257 / Google style / a sharpened "why, not what".
+
+### Changed
+
+- **`templates/specs/tasks.md` gains an optional dependency convention.** Tasks may carry a bold `**ID**` and a trailing `— deps: A, B`; `/roadmap` reads these to draw cross-task edges and the critical path. Backward compatible — un-annotated tasks still parse, with dependencies inferred from phase order.
+
+### Why
+
+Maintainer wanted two recurring moves codified as harness primitives — "what's the next task and how should I start it" (`/next-task`) and "show me the plan as a picture, not text" (`/roadmap`) — plus two standing preferences made global: prefer visuals over verbose structural prose, and keep code comments functional rather than forensic. The behaviours needed a home that is truly global (every project) without polluting team-shared repo files, so the installer now manages a section in user-global `~/.claude/CLAUDE.md` — the same "personal config stays out of committed target files" discipline as the hooks-in-`settings.local.json` rule.
 
 ## [2.55] — 2026-06-22
 

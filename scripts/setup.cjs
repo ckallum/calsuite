@@ -158,10 +158,24 @@ function smokeTest() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calsuite-setup-'));
   try {
     spawnSync('git', ['init', '-q'], { cwd: tmpRoot, stdio: 'ignore' });
+    // Sandbox HOME for the run. The single-target install path writes to the
+    // real home in three places:
+    //   - MCP servers → ~/.mcp.json
+    //   - enabled servers → ~/.claude/settings.local.json
+    //   - global-behaviours block → ~/.claude/CLAUDE.md
+    // Pointing HOME/USERPROFILE under tmpRoot keeps this throwaway run from
+    // mutating the user's real home, and from failing on a read-only HOME in CI
+    // (those writes would throw). Everything lands in tmpRoot, removed in the finally.
+    const tmpHome = path.join(tmpRoot, 'home');
+    fs.mkdirSync(tmpHome, { recursive: true });
     const result = spawnSync(
       'node',
       [path.join(CONFIG_REPO, 'scripts', 'configure-claude.js'), tmpRoot],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
+      }
     );
     if (result.status !== 0) {
       fail(`Smoke test failed (exit ${result.status}).`);
@@ -202,6 +216,11 @@ function printNextSteps() {
     log('  Next: copy config/targets.example.json to config/targets.json and list your target repos.');
     log('        Then `node scripts/configure-claude.js --sync` will fan out to them.');
   }
+  log('  A real install (per-target or --sync) seeds the calsuite global behaviours');
+  log('  from behaviors/*.md into your ~/.claude/CLAUDE.md. The smoke test above seeds');
+  log('  into a throwaway sandboxed HOME instead, so your real ~/.claude/CLAUDE.md is');
+  log('  untouched. To seed it now without a target, run');
+  log('  `node scripts/configure-claude.js --install-global-behaviors`.');
   log('');
 }
 
