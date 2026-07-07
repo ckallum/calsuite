@@ -8,14 +8,19 @@
 # which case it is mid-flow in the state machine and must NOT be re-labelled
 # (that would yank it away from whichever loop currently owns it).
 #
-# Requires: AFK labels bootstrapped on the repo (scripts/bootstrap-afk-labels.cjs)
-# and Actions allowed to write PRs (the permissions block below; if the repo
-# default is read-only, Settings -> Actions -> Workflow permissions may need it).
+# Uses `pull_request_target` (not `pull_request`): a plain `pull_request` from a
+# fork runs with a read-only GITHUB_TOKEN, so `gh pr edit --add-label` would 403.
+# `pull_request_target` runs in the base-repo context and can be granted a
+# writable token even for fork PRs. This is SAFE here only because the job never
+# checks out or executes the PR's code (that is the pull_request_target footgun);
+# it just reads the PR number and adds a label.
+#
+# Requires: AFK labels bootstrapped on the repo (scripts/bootstrap-afk-labels.cjs).
 # Takes effect once merged to the default branch.
 name: afk-enroll
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, ready_for_review]
 
 jobs:

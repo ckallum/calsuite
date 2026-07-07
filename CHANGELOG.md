@@ -2,13 +2,7 @@
 
 All notable changes to this repository.
 
-Current version: **2.57**
-
-## [2.57] — 2026-06-29
-
-### Added
-
-- **AFK enrol Action.** `.github/workflows/afk-enroll.yml` labels freshly-opened / ready-for-review non-draft PRs `auto:needs-review`, skipping any PR already in an `auto:*`/`afk` state so a mid-flow PR is never yanked from the loop that owns it. Event-driven and zero-token — no Claude routine needed for the mechanical enrol-on-open step.
+Current version: **2.55**
 
 ## [2.55] — 2026-06-22
 
