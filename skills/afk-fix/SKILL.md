@@ -1,6 +1,6 @@
 ---
 name: afk-fix
-version: 0.1.1
+version: 0.1.2
 description: |
   afk fix loop, autonomous PR fix loop, run the fix loop, fix needs-fixes PRs, afk fix cycle.
   The in-session orchestrator for the AFK fix loop: select open PRs labelled auto:needs-fixes,
@@ -14,6 +14,8 @@ allowed-tools:
   - Bash
   - Skill
   - Read
+  - Edit
+  - Write
 ---
 
 # AFK fix loop
@@ -80,7 +82,9 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
 
 1. **Guard + SHA-skip.** If `SHA` is empty, record `#N → error (no head sha)` and continue. If a comment already records `afk-fix fixed sha=$SHA` — you already converged this exact head and crashed after the push but before the label moved — do **not** re-fix; just finish the transition:
    ```bash
-   gh pr edit "$N" --repo "$REPO" --remove-label auto:needs-fixes --add-label auto:needs-review
+   if gh pr view "$N" --repo "$REPO" --json comments --jq '.comments[].body' | grep -qF "afk-fix fixed sha=$SHA"; then
+     gh pr edit "$N" --repo "$REPO" --remove-label auto:needs-fixes --add-label auto:needs-review
+   fi
    ```
    record `#N → already-fixed (completed transition)` and continue.
 
@@ -94,6 +98,9 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    ```bash
    BR=$(gh pr view "$N" --repo "$REPO" --json headRefName --jq .headRefName)
    gh pr checkout "$N" --repo "$REPO" --detach
+   git fetch origin main    # gh pr checkout fetches the PR ref but NOT origin/main; without this,
+                            # /review --headless (which diffs `git diff origin/main`) would compare
+                            # against a stale base in a reused worktree and false-PASS a conflict.
    ```
    If either fails (e.g. a cross-fork PR without push access — you could never push the fixes), **escalate** (Step 4), reason `checkout/push access failed`. The publish step pushes with `HEAD:$BR`, so a detached checkout is fine.
 
@@ -126,9 +133,9 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
      ```
    - Confirm the push landed and capture the new head:
      ```bash
-     NEWSHA=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid)
+     NEWSHA=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid) || NEWSHA=""
      ```
-     If `NEWSHA` equals the pre-fix `SHA` (nothing was pushed), the publish failed — **escalate** (Step 4), reason `publish/push did not land`.
+     If the fetch failed, or `NEWSHA` is **empty**, or `NEWSHA` equals the pre-fix `SHA` (nothing was pushed), the publish did not land — **escalate** (Step 4), reason `publish/push did not land`. **Never** write an `afk-fix fixed sha=` marker with an empty SHA: an empty marker defeats the Step 3.1 re-run guard and would let a half-published PR slip to `auto:needs-review`.
    - Transition + mark the **pushed** head (so step 1's guard recognises a completed fix on a re-run):
      ```bash
      gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-review

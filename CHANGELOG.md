@@ -2,15 +2,32 @@
 
 All notable changes to this repository.
 
-Current version: **2.56**
+Current version: **2.57**
 
-## [2.56] — 2026-06-29
+## [2.57] — 2026-07-10
 
 ### Added
 
 - **AFK fix loop — Phase 3.** The third autonomous loop, and the only one that mutates code. `/afk-fix <owner/repo>` selects open PRs labelled `auto:needs-fixes`, claims each (`auto:fixing`), checks out the PR head **detached** in an isolated worktree (never the branch — so it can't collide with a worktree already on that branch, the common case in a multi-worktree setup), and runs a bounded **convergence cycle** (max 3 rounds): `/receiving-pr-feedback --no-publish` → `/improve-architecture` + `/simplify` (non-trivial PRs) → `/review --headless`, addressing every CRITICAL finding plus any relevant / newly-introduced-bug INFORMATIONAL finding each round. On convergence it runs `/prevent`, then `/receiving-pr-feedback --publish-only` to post replies + push **to the PR branch** and move the label to `auto:needs-review`; anything that can't converge (or hits a question / unfixable failure) escalates to `auto:needs-human` with the branch left unpushed. Mirrors the afk-review safety spine (cwd/label preconditions, age-aware `auto:fixing` sweep, per-PR isolation, SHA-marker idempotency) plus mutation guards: PR-branch-only, never `main`, never force-push, publish once. Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-fix/` task prompt (7h, worktree-on).
   - **`/receiving-pr-feedback` v1.1.1** — `--no-publish` (apply + commit locally, stage replies to `.claude/.rpf-pending-<N>.json`, defer PR-body/push) and `--publish-only` (flush staged replies + PR body, then `git push origin HEAD:<branch>` so it works from a detached checkout). Additive; default behavior unchanged, so `/ship` and manual callers are unaffected.
   - **`/review` v1.3.0** — `--headless`: non-interactive local review (reviews `git diff origin/main`, prints findings + the canonical verdict, with no AskUserQuestion / PR post / stamp) so the fix loop can re-review its unpushed working branch each round.
+
+## [2.56] — 2026-06-30
+
+### Added
+
+- **`/next-task` skill — prep and hand off the next piece of work.** Reads what just happened (git log, working tree, spec task state), picks the next task off the active spec using the dependency tree (critical path first), recommends whether to **carry on / compact / start a new session** from explicit signals (coupling to current context, context pressure, tree cleanliness, phase boundary), and writes a ready-to-paste execution prompt to Claude Code prompting best practice (explicit, motivated, files + finish line; standalone when it recommends a fresh session). Then invokes `/roadmap` for the "what we did / where next" visual. Distributed to `base` + `monorepo-root`.
+- **`/roadmap` skill — render where we are and what's next.** Creates or updates a self-contained `docs/roadmap/*.html` from the project's spec(s): finished work, ready-to-start tasks, and the dependency tree (critical path, sequential, parallelisable). Multi-spec aware — one spec → `roadmap.html`; many → a cross-spec `spec_roadmap.html` portfolio plus a per-spec `{spec_name}_roadmap.html` and an index. Output is dependency-free, dark-mode-aware HTML that opens offline; optional inline preview via `show_widget`. Reads status from `tasks.md` only; never edits the spec. Distributed to `base` + `monorepo-root`.
+- **Global behaviours mechanism (`behaviors/` → `~/.claude/CLAUDE.md`).** New `behaviors/*.md` directory holding personal, cross-project guidance. `installGlobalBehaviors()` in the installer merges them (filename order, `README.md` excluded) into a marker-delimited block in user-global `~/.claude/CLAUDE.md`, preserving content outside the markers. Idempotent (unchanged block = no write, no log); a hand-corrupted marker is detected and repaired rather than duplicated. Installs from the single-target path (shown in the global-settings summary), from `--sync` (silent in git-hook context, silent on no-op so `/sync` parsing is unaffected), and from a standalone `--install-global-behaviors` flag. Post-commit hook now watches `behaviors/`; the `setup.cjs` smoke test sandboxes `HOME` so it never touches the real `~/.claude/CLAUDE.md`.
+- **Two starter behaviours.** `visualise-over-verbose.md` — render structure (flows, graphs, layouts) as a visual instead of a wall of describing prose, scoped to skip terse answers and code. `code-comments.md` — functional, present-tense comments stating the contract/invariant/constraint that still governs the code; explicitly **not** debugging war-stories (those belong in commits/PRs/ADRs); favours scannable bullets over dense multi-line paragraphs; grounded in PEP 257 / Google style / a sharpened "why, not what".
+
+### Changed
+
+- **`templates/specs/tasks.md` gains an optional dependency convention.** Tasks may carry a bold `**ID**` and a trailing `— deps: A, B`; `/roadmap` reads these to draw cross-task edges and the critical path. Backward compatible — un-annotated tasks still parse, with dependencies inferred from phase order.
+
+### Why
+
+Maintainer wanted two recurring moves codified as harness primitives — "what's the next task and how should I start it" (`/next-task`) and "show me the plan as a picture, not text" (`/roadmap`) — plus two standing preferences made global: prefer visuals over verbose structural prose, and keep code comments functional rather than forensic. The behaviours needed a home that is truly global (every project) without polluting team-shared repo files, so the installer now manages a section in user-global `~/.claude/CLAUDE.md` — the same "personal config stays out of committed target files" discipline as the hooks-in-`settings.local.json` rule.
 
 ## [2.55] — 2026-06-22
 

@@ -14,6 +14,7 @@
  *   --only skill1,skill2,...     Install only specific skills (skips hooks/plugins/settings)
  *   --agents agent1,agent2,...   Install only specific agents (use with --only)
  *   --install-ccstatusline       Install ccstatusline config only
+ *   --install-global-behaviors   Merge behaviors/*.md into ~/.claude/CLAUDE.md only
  *   --sync                       Re-run install against all targets in config/targets.json.
  *                                Each target may set `workspaces: "skip"` to install the
  *                                harness only at the repo root — workspace subdirs
@@ -63,6 +64,10 @@ const HOME_SETTINGS = path.join(HOME_DIR, '.claude', 'settings.json');
 const HOME_SETTINGS_LOCAL = path.join(HOME_DIR, '.claude', 'settings.local.json');
 const HOME_MCP_JSON = path.join(HOME_DIR, '.mcp.json');
 const KNOWN_MARKETPLACES = path.join(HOME_DIR, '.claude', 'plugins', 'known_marketplaces.json');
+const BEHAVIORS_DIR = path.join(CONFIG_REPO, 'behaviors');
+const HOME_CLAUDE_MD = path.join(HOME_DIR, '.claude', 'CLAUDE.md');
+const BEHAVIORS_BEGIN = '<!-- BEGIN calsuite global behaviours (managed by configure-claude.js — edit behaviors/*.md in calsuite, not here) -->';
+const BEHAVIORS_END = '<!-- END calsuite global behaviours -->';
 // Skills that only make sense in the config repo itself — never export to target repos.
 // These orchestrate calsuite's own workflow (installer, sync, cross-target reconciliation)
 // and read files that only exist here (config/targets.json, scripts/configure-claude.js).
@@ -1051,6 +1056,93 @@ function installCcstatuslineConfig(manifest) {
   console.log(`  ✓ Installed ccstatusline config (v${manifest.ccstatusline.version}) → ${ccstatuslinePath}`);
 }
 
+function buildBehaviorsBlock() {
+  if (!fs.existsSync(BEHAVIORS_DIR)) return null;
+  const files = fs.readdirSync(BEHAVIORS_DIR)
+    .filter(f => f.endsWith('.md') && f.toLowerCase() !== 'readme.md')
+    .sort();
+  if (!files.length) return null;
+  const sections = files.map(f => fs.readFileSync(path.join(BEHAVIORS_DIR, f), 'utf8').trim());
+  return `${BEHAVIORS_BEGIN}\n\n${sections.join('\n\n')}\n\n${BEHAVIORS_END}`;
+}
+
+/**
+ * Sync the global-behaviours block into the user-global ~/.claude/CLAUDE.md,
+ * which Claude Code loads for every project. Marker-delimited and idempotent:
+ * content outside the markers is preserved, and an unchanged block is a no-op
+ * (no write, no log) so the post-commit --sync hook stays silent.
+ *
+ * The block mirrors behaviors/ exactly: install/update when behaviours exist,
+ * and REMOVE it when behaviors/ is present but empty (so deleting the last
+ * behaviour propagates). A missing behaviors/ dir is left alone — that's an
+ * unknown/partial checkout, not a deliberate removal.
+ *
+ * `quiet` suppresses all output (git-hook context). `announceNoop` prints a ✓
+ * even when nothing changed — used by the single-target install where the
+ * global-settings summary expects a line per check.
+ */
+function installGlobalBehaviors({ quiet = false, announceNoop = false } = {}) {
+  const block = buildBehaviorsBlock();
+
+  const existing = fs.existsSync(HOME_CLAUDE_MD) ? fs.readFileSync(HOME_CLAUDE_MD, 'utf8') : '';
+  const beginIdx = existing.indexOf(BEHAVIORS_BEGIN);
+  const endIdx = existing.indexOf(BEHAVIORS_END);
+  const wellFormed = beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx;
+  // A lone or misordered marker (BEGIN with no END, or END before BEGIN) means
+  // the managed region was hand-edited or a write was interrupted. Treating it
+  // as "no block" and appending would:
+  //   - duplicate the block now, and
+  //   - on the next run, silently delete text between the orphan marker and the
+  //     new block.
+  // Instead: strip every marker line (keeping surrounding prose) and re-append
+  // one clean block — convergent and lossless.
+  const corrupted = !wellFormed && (beginIdx !== -1 || endIdx !== -1);
+
+  let next;
+  let verb;
+  if (!block) {
+    // No behaviours defined. If behaviors/ exists but is empty, this is a
+    // deliberate removal — strip the managed block so it propagates. If the dir
+    // is absent (unknown/partial checkout), leave the file untouched.
+    if (!fs.existsSync(BEHAVIORS_DIR) || (!wellFormed && !corrupted)) {
+      if (!quiet && announceNoop) console.log('  ✓ Global behaviours: none defined, ~/.claude/CLAUDE.md untouched');
+      return;
+    }
+    const body = wellFormed
+      ? existing.slice(0, beginIdx) + existing.slice(endIdx + BEHAVIORS_END.length)
+      : existing.split('\n').filter(l => l.trim() !== BEHAVIORS_BEGIN && l.trim() !== BEHAVIORS_END).join('\n');
+    const trimmed = body.replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '');
+    next = trimmed ? trimmed + '\n' : '';
+    verb = 'removed';
+  } else if (wellFormed) {
+    next = existing.slice(0, beginIdx) + block + existing.slice(endIdx + BEHAVIORS_END.length);
+    verb = 'updated';
+  } else if (corrupted) {
+    const cleaned = existing
+      .split('\n')
+      .filter(line => line.trim() !== BEHAVIORS_BEGIN && line.trim() !== BEHAVIORS_END)
+      .join('\n')
+      .replace(/\s*$/, '');
+    next = (cleaned ? cleaned + '\n\n' : '') + block + '\n';
+    verb = 'repaired';
+  } else if (existing.trim() === '') {
+    next = block + '\n';
+    verb = 'installed';
+  } else {
+    next = existing.replace(/\s*$/, '') + '\n\n' + block + '\n';
+    verb = 'installed';
+  }
+
+  if (next === existing) {
+    if (!quiet && announceNoop) console.log('  ✓ Global behaviours: ~/.claude/CLAUDE.md already current');
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(HOME_CLAUDE_MD), { recursive: true });
+  fs.writeFileSync(HOME_CLAUDE_MD, next);
+  if (!quiet) console.log(`  ✓ Global behaviours ${verb} → ~/.claude/CLAUDE.md`);
+}
+
 /**
  * --only mode: Install specific skills/agents only, without touching hooks or settings.
  * Usage: node configure-claude.js <target> --only review,qa,ship
@@ -1914,6 +2006,8 @@ function parseArgv() {
       flags.agents = args[++i].split(',').map(s => s.trim()).filter(Boolean);
     } else if (args[i] === '--install-ccstatusline') {
       flags.installCcstatusline = true;
+    } else if (args[i] === '--install-global-behaviors') {
+      flags.installGlobalBehaviors = true;
     } else if (args[i] === '--sync') {
       flags.sync = true;
     } else if (args[i] === '--yes' || args[i] === '-y') {
@@ -1997,6 +2091,12 @@ function main() {
     return;
   }
 
+  // Handle --install-global-behaviors flag (standalone refresh of ~/.claude/CLAUDE.md)
+  if (flags.installGlobalBehaviors) {
+    installGlobalBehaviors({ announceNoop: true });
+    return;
+  }
+
   // Handle --sync mode: re-run install against all targets in config/targets.json.
   //
   // Loudness depends on invocation context:
@@ -2023,6 +2123,11 @@ function main() {
   if (flags.sync) {
     const targets = readJsonSync(TARGETS_JSON);
     const inGitHook = !!process.env.GIT_DIR;
+    // Refresh global behaviours so committing a behaviors/*.md change (or any
+    // sync) flows into ~/.claude/CLAUDE.md. Runs before the no-targets early
+    // return so it works even when no targets are configured. Quiet in hook
+    // context; silent on no-op so /sync's output parsing stays stable.
+    installGlobalBehaviors({ quiet: inGitHook });
     if (!targets) {
       if (inGitHook) return;
       console.error('  ✗ config/targets.json not found.');
@@ -2129,6 +2234,9 @@ function main() {
     }
     checkGlobalSettings(manifest, settingsPaths);
   }
+
+  // Global behaviours → ~/.claude/CLAUDE.md (home-level, applies to every project).
+  installGlobalBehaviors({ announceNoop: true });
 
   console.log('\nDone!\n');
   printDivergenceSummary(divergences);

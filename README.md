@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration — hooks, commands, scripts, plugins, skills, and agents.
 
-**Version: 2.56**
+**Version: 2.57**
 
 ## Getting started
 
@@ -50,6 +50,7 @@ config/      # global-settings.json (manifest), profiles.json, targets.example.j
 plugins/     # Claude Code plugins
 skills/      # Markdown skills (invoked as /skill-name)
 agents/      # Agent definitions (invoked as @agent-name)
+behaviors/   # Global cross-project behaviour sections merged into ~/.claude/CLAUDE.md
 templates/   # Spec, doc, and changelog templates (for target projects)
 specs/       # Calsuite's own spec docs
 workflows/        # Dynamic-workflow scripts (afk-*.js); symlinked into ~/.claude/workflows
@@ -172,6 +173,8 @@ Skills are invoked as `/<name>`. Bucketed by how often you'll reach for them.
 - **`/session-start`** — load full project context: CLAUDE.md, specs, changelog, git history.
 - **`/strategic-compact`** — hook-driven compaction suggestions at logical session breakpoints.
 - **`/learn`** — durable per-project learnings that compound across sessions.
+- **`/next-task`** — figure out what just shipped, pick the next task off the spec (critical path first), recommend carry-on / compact / new session, and write a ready-to-paste execution prompt. Renders the roadmap visual via `/roadmap`.
+- **`/roadmap`** — create or update a self-contained `docs/roadmap/*.html` from the spec(s): done vs next, plus the dependency tree (critical path, sequential, parallelisable). Multi-spec aware.
 - **`/babysit-pr`**, **`/receiving-pr-feedback`** — PR lifecycle helpers.
 
 ### Occasional
@@ -223,6 +226,16 @@ The installer auto-configures MCP servers defined in `config/global-settings.jso
 - **context7** — current, version-specific library documentation via [Context7](https://github.com/upstash/context7) (used by `/context7` skill, no API key required)
 
 Servers are written to `~/.mcp.json` and enabled in `~/.claude/settings.local.json` automatically.
+
+## Global behaviours
+
+`behaviors/*.md` hold personal, cross-project guidance. The installer merges them (filename order; `README.md` excluded) into a marker-delimited block in your user-global `~/.claude/CLAUDE.md`, which Claude Code loads for **every** project. Content outside the markers is preserved, and the merge is idempotent.
+
+- Installs during a normal `configure-claude.js <target>` run, during `--sync` (silent in the post-commit hook), or standalone via `--install-global-behaviors`.
+- These are personal preferences, not team conventions — they live in your home directory, never in a target repo's committed files (same discipline as hooks-in-`settings.local.json`).
+- Ships with two: **visualise-over-verbose** (render structure as a diagram instead of describing it in prose) and **code-comments** (functional, present-tense comments — contracts and constraints, not debugging war-stories).
+
+Add one by dropping a short `behaviors/<topic>.md` and re-running the installer. See `behaviors/README.md`.
 
 ## Changelog
 
