@@ -1,6 +1,6 @@
 ---
 name: receiving-pr-feedback
-version: 1.1.1
+version: 1.1.2
 description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.
@@ -59,7 +59,7 @@ Per-PR staging file: `PENDING=.claude/.rpf-pending-<number>.json`.
 
 - **default (full)** — unchanged: apply fixes, post replies (Step 4), update the PR body (Step 4.5); the caller commits/pushes as today. Ignore `$PENDING`.
 - **`--no-publish` (defer)** — run Steps 1–4's analysis + code fixes and **commit locally**, but do NOT post any reply, do NOT run Step 4.5, and do NOT push. Instead, in Step 4 **append** each reply you would have posted to `$PENDING` (merge into the existing file — this is meant to run multiple times and accumulate). Safe and idempotent across rounds.
-- **`--publish-only` (flush)** — **skip Steps 1–4 entirely** (no re-analysis, no new fixes). Read `$PENDING`; post each recorded reply; run Step 4.5 once using the accumulated tallies; then push with `git push origin HEAD:<the PR's head branch>` — derive the branch from `gh pr view <number> --json headRefName --jq .headRefName`, and push `HEAD:<branch>` (not a bare `git push`) so it works whether you're sitting on the branch **or in a detached checkout**, which the AFK fix loop uses to dodge worktree conflicts. Then delete `$PENDING`. If `$PENDING` is missing or empty, print "nothing staged to publish" and stop.
+- **`--publish-only` (flush)** — **skip Steps 1–4 entirely** (no re-analysis, no new fixes). **Push first, and NEVER gate the push on `$PENDING`** — the fix loop's real payload is the *commits*, not the replies (its rounds 2–3 apply findings directly with `Edit`, staging no replies), so a genuinely-fixed PR can legitimately have an empty `$PENDING`. Derive the branch (`gh pr view <number> --json headRefName --jq .headRefName`) and, if local `HEAD` is ahead of `origin/<branch>`, `git push origin HEAD:<branch>` — push `HEAD:<branch>` (not a bare `git push`) so it works on the branch **or in a detached checkout**, which the AFK fix loop uses to dodge worktree conflicts. **Then**, *only if* `$PENDING` has replies, post each and run Step 4.5 once using the accumulated tallies; if `$PENDING` is missing or empty, skip the reply/PR-body step (say "no staged replies") — the commits were already pushed above. Finally delete `$PENDING`.
 
 `$PENDING` schema: `{ "replies": [ { "commentId": <id|null>, "path": <str|null>, "body": <str> } ], "tally": { "accepted": <n>, "pushedBack": <n>, "answered": <n> }, "notes": [<str>] }`.
 

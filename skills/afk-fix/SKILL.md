@@ -1,6 +1,6 @@
 ---
 name: afk-fix
-version: 0.1.2
+version: 0.1.3
 description: |
   afk fix loop, autonomous PR fix loop, run the fix loop, fix needs-fixes PRs, afk fix cycle.
   The in-session orchestrator for the AFK fix loop: select open PRs labelled auto:needs-fixes,
@@ -94,7 +94,11 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    ```
    If the claim fails, do **not** touch the PR — record `#N → error (claim)` and continue.
 
-3. **Check out the PR head, detached, in isolation.** The scheduled task runs with **worktree on**, so your cwd is an isolated worktree. Check out the PR head **detached — never the branch** — so it can't collide with the PR branch already being checked out in another worktree: git refuses a branch that's live in a second worktree, and in a multi-worktree setup that's the *common* case. Capture the branch name for the push:
+3. **Cross-fork guard, then check out the PR head, detached, in isolation.** First reject fork PRs — the publish only pushes to a **same-repo** head. `gh pr checkout --detach` *succeeds* for a fork (it fetches the PR ref), so a checkout failure can't catch one; and the publish would then push `HEAD:$BR` to `origin` (the **base** repo), leaving a stray branch there while the fork's head stays untouched. Detect it up front:
+   ```bash
+   ISFORK=$(gh pr view "$N" --repo "$REPO" --json isCrossRepository --jq .isCrossRepository)
+   ```
+   If `$ISFORK` is `true`, **escalate** (Step 4), reason `cross-fork PR: no push access to fork head`, and continue — do **not** check out or converge (the claim from step 3.2 is reversed by Step 4). Only for a same-repo PR, check out the PR head **detached — never the branch** — so it can't collide with the PR branch already being checked out in another worktree: git refuses a branch that's live in a second worktree, and in a multi-worktree setup that's the *common* case. Capture the branch name for the push:
    ```bash
    BR=$(gh pr view "$N" --repo "$REPO" --json headRefName --jq .headRefName)
    gh pr checkout "$N" --repo "$REPO" --detach
@@ -102,7 +106,7 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
                             # /review --headless (which diffs `git diff origin/main`) would compare
                             # against a stale base in a reused worktree and false-PASS a conflict.
    ```
-   If either fails (e.g. a cross-fork PR without push access — you could never push the fixes), **escalate** (Step 4), reason `checkout/push access failed`. The publish step pushes with `HEAD:$BR`, so a detached checkout is fine.
+   If the checkout or fetch fails, **escalate** (Step 4), reason `checkout/fetch failed`. The publish step pushes with `HEAD:$BR`, so a detached checkout is fine.
 
 4. **Convergence loop (max 3 rounds).** Goal: a local `/review` with **no CRITICAL findings**.
    - **Round 1 — address posted feedback:** run the fix skill in defer mode —

@@ -6,7 +6,7 @@ description: AFK fix loop — converge review feedback into committed fixes on a
 Run `/afk-fix` and report the per-PR summary.
 
 This is the AFK fix loop — the **only loop that mutates code.** Select open PRs labelled
-`auto:needs-fixes`, claim each (`auto:fixing`), check out the PR branch in this task's isolated
+`auto:needs-fixes`, claim each (`auto:fixing`), check out the PR head (detached) in this task's isolated
 worktree, and converge review feedback into committed fixes: `/receiving-pr-feedback --no-publish`
 → `/improve-architecture` + `/simplify` (non-trivial PRs) → `/review --headless`, looping up to 3
 rounds until the local review passes. On convergence, run `/prevent`, then `/receiving-pr-feedback
@@ -17,5 +17,5 @@ force-push, never ask for input.
 
 > The loop fixes **this task's working-folder repo** — set the working folder to a checkout of your
 > target repo; that alone selects the repo (no arg needed). This file is symlinked from calsuite.
-> **Worktree isolation must be ON** — the loop runs `gh pr checkout`, so it needs an isolated branch
+> **Worktree isolation must be ON** — the loop runs `gh pr checkout --detach`, so it needs an isolated
 > checkout it can safely mutate. Suggested schedule: every 7h, offset from the review loop.
