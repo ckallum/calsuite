@@ -1,6 +1,6 @@
 ---
 name: receiving-pr-feedback
-version: 1.1.2
+version: 1.1.3
 description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.
@@ -58,10 +58,10 @@ These flags let the AFK **fix loop** run this skill repeatedly on one PR and pub
 Per-PR staging file: `PENDING=.claude/.rpf-pending-<number>.json`.
 
 - **default (full)** — unchanged: apply fixes, post replies (Step 4), update the PR body (Step 4.5); the caller commits/pushes as today. Ignore `$PENDING`.
-- **`--no-publish` (defer)** — run Steps 1–4's analysis + code fixes and **commit locally**, but do NOT post any reply, do NOT run Step 4.5, and do NOT push. Instead, in Step 4 **append** each reply you would have posted to `$PENDING` (merge into the existing file — this is meant to run multiple times and accumulate). Safe and idempotent across rounds.
-- **`--publish-only` (flush)** — **skip Steps 1–4 entirely** (no re-analysis, no new fixes). **Push first, and NEVER gate the push on `$PENDING`** — the fix loop's real payload is the *commits*, not the replies (its rounds 2–3 apply findings directly with `Edit`, staging no replies), so a genuinely-fixed PR can legitimately have an empty `$PENDING`. Derive the branch (`gh pr view <number> --json headRefName --jq .headRefName`) and, if local `HEAD` is ahead of `origin/<branch>`, `git push origin HEAD:<branch>` — push `HEAD:<branch>` (not a bare `git push`) so it works on the branch **or in a detached checkout**, which the AFK fix loop uses to dodge worktree conflicts. **Then**, *only if* `$PENDING` has replies, post each and run Step 4.5 once using the accumulated tallies; if `$PENDING` is missing or empty, skip the reply/PR-body step (say "no staged replies") — the commits were already pushed above. Finally delete `$PENDING`.
+- **`--no-publish` (defer)** — run Steps 1–4's analysis + code fixes and **commit locally**, but do NOT post any reply, do NOT run Step 4.5, and do NOT push. Instead, in Step 4 record each reply you would have posted into `$PENDING.replies`, **upserting by `commentId`** — replace any existing entry with the same `commentId` rather than appending a duplicate (a `null` `commentId`, e.g. a general non-inline reply, can't be keyed — append those). Meant to run multiple times; the upsert is what keeps it idempotent (one latest reply per comment), so a re-run — or a later `--publish-only` — never replays a duplicate.
+- **`--publish-only` (flush)** — **skip Steps 1–4 entirely** (no re-analysis, no new fixes). **Push first, and NEVER gate the push on `$PENDING`** — the fix loop's real payload is the *commits*, not the replies (its rounds 2–3 apply findings directly with `Edit`, staging no replies), so a genuinely-fixed PR can legitimately have an empty `$PENDING`. Derive the branch (`gh pr view <number> --json headRefName --jq .headRefName`) and, if local `HEAD` is ahead of `origin/<branch>`, `git push origin HEAD:<branch>` — push `HEAD:<branch>` (not a bare `git push`) so it works on the branch **or in a detached checkout**, which the AFK fix loop uses to dodge worktree conflicts. **Then**, *only if* `$PENDING` has replies, post each and run Step 4.5 once using the tally derived from `$PENDING.replies` (count per `kind`); if `$PENDING` is missing or empty, skip the reply/PR-body step (say "no staged replies") — the commits were already pushed above. Finally delete `$PENDING`.
 
-`$PENDING` schema: `{ "replies": [ { "commentId": <id|null>, "path": <str|null>, "body": <str> } ], "tally": { "accepted": <n>, "pushedBack": <n>, "answered": <n> }, "notes": [<str>] }`.
+`$PENDING` schema: `{ "replies": [ { "commentId": <id|null>, "path": <str|null>, "kind": "accepted"|"pushedBack"|"answered", "body": <str> } ], "notes": [<str>] }`. `replies` is keyed by `commentId` (upsert, not append); the Step 4.5 tally is **derived** by counting `replies` per `kind` — there is no separately-accumulated counter to double-count when a round re-runs.
 
 If `$ARGUMENTS` contains **both** flags, print "Choose one of --no-publish / --publish-only, not both." and stop. `--multi` is incompatible with either — the spawned panes run full mode.
 
@@ -155,7 +155,7 @@ Acknowledge with brief, factual statements: "Fixed — the null check was missin
 
 ## Step 4: Apply fixes
 
-> **Publish mode (Step 0.5):** `--publish-only` never reaches this step (Steps 1–4 are skipped). In `--no-publish`, do the fixes + local commit below, but replace every `gh api … /replies` post with an **append to `$PENDING.replies`** and bump `$PENDING.tally` — do not post, do not push. In full (default) mode, post/commit/push as written.
+> **Publish mode (Step 0.5):** `--publish-only` never reaches this step (Steps 1–4 are skipped). In `--no-publish`, do the fixes + local commit below, but replace every `gh api … /replies` post with an **upsert into `$PENDING.replies`** — key by `commentId` (replace a same-id entry; append only a `null`-id reply) and carry the reply's `kind` (`accepted`|`pushedBack`|`answered`) — do not post, do not push. No tally to bump; it's derived from the reply set at publish. In full (default) mode, post/commit/push as written.
 
 Implement in this order:
 1. **Blocking issues** (breaks, security) — fix first
@@ -179,7 +179,7 @@ gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body
 
 ## Step 4.5: Update PR Description
 
-> **Publish mode (Step 0.5):** **skip this step entirely in `--no-publish`** — the PR body is rewritten once, at `--publish-only` time. In `--publish-only` and full mode, run it; in `--publish-only` use the accumulated `$PENDING.tally` for the Revision History round.
+> **Publish mode (Step 0.5):** **skip this step entirely in `--no-publish`** — the PR body is rewritten once, at `--publish-only` time. In `--publish-only` and full mode, run it; in `--publish-only` derive the Revision History tally by counting `$PENDING.replies` per `kind`.
 
 After fixes are applied and commits pushed, update the PR description to reflect the current state. Both `/ship` (Step 8) and this skill follow the same PR body structure defined in `.claude/skills/ship/pr-template.md`.
 
