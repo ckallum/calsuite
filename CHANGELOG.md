@@ -2,7 +2,18 @@
 
 All notable changes to this repository.
 
-Current version: **2.56**
+Current version: **2.57**
+
+## [2.57] — 2026-07-14
+
+### Fixed
+
+- **`/roadmap` and `/next-task` spec discovery aborted under zsh.** Both located specs with `ls -d .claude/specs/*/ docs/specs/*/ specs/*/` — but zsh's `nomatch` aborts the whole line (printing a "no matches found" error that `2>/dev/null` can't suppress, since it fires during word-expansion before the redirect applies) whenever any of the three paths is absent. So on any project without all three spec dirs (nearly all of them) both skills found **zero** specs and fell into their no-spec fallback. Replaced with `find … -type d`, which handles absent *and* existing-but-empty spec dirs cleanly in both shells. Found by dogfooding the skills for #135; reproduced live in zsh.
+
+### Changed
+
+- **`/roadmap` → v1.1.0: the SVG dependency-graph path is now actually specified.** The skeleton couldn't render a node (only `.edge`/`text` were styled); added node CSS, the status-dot + amber-critical-border encoding, and `fill="context-stroke"` arrowheads so critical-path edges get amber heads. Added a **Graph layout** rules block (bands by phase, ≤12-node cap with card fallback, "no arrow through a non-endpoint node", ID-only labels, viewBox/`role`), handling for design-only spec dirs (no `tasks.md`), and completed the body CSS (max-width, links, inline `code`).
+- **`/next-task` → v1.0.1:** the shared glob fix, plus a rule for picking the active spec when several exist and no `SPECLOG`/slug disambiguates.
 
 ## [2.56] — 2026-06-30
 
