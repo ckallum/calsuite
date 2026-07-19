@@ -1,6 +1,6 @@
 ---
 name: next-task
-version: 1.0.0
+version: 1.0.1
 description: |
   next task, what's next, what should I do next, generate the next prompt,
   hand off to the next task, kick off the next piece, should I start a new
@@ -46,7 +46,8 @@ git diff --stat
 ```
 
 - What did the recent commits / working tree actually change? Which files, which feature?
-- Find the active spec: `ls -d .claude/specs/*/ docs/specs/*/ specs/*/ 2>/dev/null` and check `SPECLOG.md`. Which tasks in `tasks.md` are now `[x]` or in `## Completed`? **Remember the directory you find** — Step 4 and the `/roadmap` call in Step 5 both reference it. (Same three locations `/roadmap` searches, so the two skills agree.)
+- Find the active spec with `find .claude/specs docs/specs specs -mindepth 1 -maxdepth 1 -type d 2>/dev/null`, then check `SPECLOG.md`. (A bare `ls -d .claude/specs/*/ docs/specs/*/ specs/*/` aborts the whole line under zsh when any path is missing, and a per-dir glob still leaks a nomatch error on an empty spec dir — `find` avoids both.) Which tasks in `tasks.md` are now `[x]` or in `## Completed`? **Remember the directory you find** — Step 4 and the `/roadmap` call in Step 5 both reference it. (Same locations `/roadmap` searches, so the two skills agree.)
+- **Multiple specs, no slug?** If discovery finds several and neither `SPECLOG.md` nor a `$ARGUMENTS` slug singles one out, pick the spec whose open tasks line up with the recent commits (else the most-recently-touched `tasks.md`); if it's still a toss-up, `AskUserQuestion` rather than guess silently.
 - Is the tree clean (work committed/shipped) or dirty (mid-task)? This drives the session call in Step 3.
 
 ## Step 2 — Pick the next task
