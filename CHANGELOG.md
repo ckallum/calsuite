@@ -2,15 +2,25 @@
 
 All notable changes to this repository.
 
-Current version: **2.57**
+Current version: **2.58**
 
-## [2.57] — 2026-07-10
+## [2.58] — 2026-07-19
 
 ### Added
 
-- **AFK fix loop — Phase 3.** The third autonomous loop, and the only one that mutates code. `/afk-fix <owner/repo>` selects open PRs labelled `auto:needs-fixes`, claims each (`auto:fixing`), checks out the PR head **detached** in an isolated worktree (never the branch — so it can't collide with a worktree already on that branch, the common case in a multi-worktree setup), and runs a bounded **convergence cycle** (max 3 rounds): `/receiving-pr-feedback --no-publish` → `/improve-architecture` + `/simplify` (non-trivial PRs) → `/review --headless`, addressing every CRITICAL finding plus any relevant / newly-introduced-bug INFORMATIONAL finding each round. On convergence it runs `/prevent`, then `/receiving-pr-feedback --publish-only` to post replies + push **to the PR branch** and move the label to `auto:needs-review`; anything that can't converge (or hits a question / unfixable failure) escalates to `auto:needs-human` with the branch left unpushed. Mirrors the afk-review safety spine (cwd/label preconditions, age-aware `auto:fixing` sweep, per-PR isolation, SHA-marker idempotency) plus mutation guards: PR-branch-only, never `main`, never force-push, publish once. Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-fix/` task prompt (7h, worktree-on).
-  - **`/receiving-pr-feedback` v1.1.1** — `--no-publish` (apply + commit locally, stage replies to `.claude/.rpf-pending-<N>.json`, defer PR-body/push) and `--publish-only` (flush staged replies + PR body, then `git push origin HEAD:<branch>` so it works from a detached checkout). Additive; default behavior unchanged, so `/ship` and manual callers are unaffected.
+- **AFK fix loop — Phase 3.** The third autonomous loop, and the only one that mutates code. `/afk-fix <owner/repo>` selects open PRs labelled `auto:needs-fixes`, claims each (`auto:fixing`), checks out the PR head **detached** in an isolated worktree (never the branch — so it can't collide with a worktree already on that branch, the common case in a multi-worktree setup), and runs a bounded **convergence cycle** (max 3 rounds): `/receiving-pr-feedback --no-publish` → `/improve-architecture` + `/simplify` (non-trivial PRs) → `/review --headless`, addressing every CRITICAL finding plus any relevant / newly-introduced-bug INFORMATIONAL finding each round. On convergence it runs `/prevent`, then `/receiving-pr-feedback --publish-only` to post replies + push **to the PR branch** and move the label to `auto:needs-review`; anything that can't converge (or hits a question / unfixable failure) escalates to `auto:needs-human` with the branch left unpushed. Mirrors the afk-review safety spine (cwd/label preconditions, age-aware `auto:fixing` sweep, per-PR isolation, SHA-marker idempotency) plus mutation guards: PR-branch-only, never `main`, never force-push, publish once, and same-repo-only — a cross-fork PR is detected up front (`isCrossRepository`) and escalated, since `gh pr checkout --detach` succeeds for a fork and the publish would otherwise push a stray branch to the *base* repo. Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-fix/` task prompt (7h, worktree-on).
+  - **`/receiving-pr-feedback` v1.1.3** — `--no-publish` (apply + commit locally, stage replies to `.claude/.rpf-pending-<N>.json`, defer PR-body/push) and `--publish-only` (flush staged replies + PR body, then `git push origin HEAD:<branch>` so it works from a detached checkout). Additive; default behavior unchanged, so `/ship` and manual callers are unaffected. Two correctness fixes found while dogfooding the loop on its own PR: `--publish-only` no longer gates the **push** on there being staged replies (the fix loop's payload is the *commits* — rounds 2–3 apply findings directly and stage none, so the old gate would silently drop a converged fix and escalate it to `auto:needs-human`); and `$PENDING` is now **idempotent**, upserting replies by `commentId` with the tally derived per `kind` rather than appending and bumping counters, so a re-run can't replay duplicate replies.
   - **`/review` v1.3.0** — `--headless`: non-interactive local review (reviews `git diff origin/main`, prints findings + the canonical verdict, with no AskUserQuestion / PR post / stamp) so the fix loop can re-review its unpushed working branch each round.
+## [2.57] — 2026-07-14
+
+### Fixed
+
+- **`/roadmap` and `/next-task` spec discovery aborted under zsh.** Both located specs with `ls -d .claude/specs/*/ docs/specs/*/ specs/*/` — but zsh's `nomatch` aborts the whole line (printing a "no matches found" error that `2>/dev/null` can't suppress, since it fires during word-expansion before the redirect applies) whenever any of the three paths is absent. So on any project without all three spec dirs (nearly all of them) both skills found **zero** specs and fell into their no-spec fallback. Replaced with `find … -type d`, which handles absent *and* existing-but-empty spec dirs cleanly in both shells. Found by dogfooding the skills for #135; reproduced live in zsh.
+
+### Changed
+
+- **`/roadmap` → v1.1.0: the SVG dependency-graph path is now actually specified.** The skeleton couldn't render a node (only `.edge`/`text` were styled); added node CSS, the status-dot + amber-critical-border encoding, and `fill="context-stroke"` arrowheads so critical-path edges get amber heads. Added a **Graph layout** rules block (bands by phase, ≤12-node cap with card fallback, "no arrow through a non-endpoint node", ID-only labels, viewBox/`role`), handling for design-only spec dirs (no `tasks.md`), and completed the body CSS (max-width, links, inline `code`).
+- **`/next-task` → v1.0.1:** the shared glob fix, plus a rule for picking the active spec when several exist and no `SPECLOG`/slug disambiguates.
 
 ## [2.56] — 2026-06-30
 

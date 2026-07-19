@@ -1,6 +1,6 @@
 ---
 name: roadmap
-version: 1.0.0
+version: 1.1.0
 description: |
   roadmap, show the roadmap, update the roadmap, where are we, project map,
   what's done and what's next, dependency tree, critical path, spec roadmap,
@@ -50,14 +50,18 @@ Always create `docs/roadmap/` if it's missing. Never delete a `{spec_name}_roadm
 Spec paths vary by project. Look in this order and use the first that has specs:
 
 ```bash
-ls -d .claude/specs/*/ docs/specs/*/ specs/*/ 2>/dev/null
+# `find` sidesteps the zsh nomatch trap: a bare `ls -d a/*/ b/*/ c/*/` aborts the whole
+# line (finding nothing) when any path is missing, and a per-dir glob still leaks a
+# "no matches found" error on an existing-but-empty spec dir. find handles absent AND
+# empty dirs cleanly in both bash and zsh.
+find .claude/specs docs/specs specs -mindepth 1 -maxdepth 1 -type d 2>/dev/null
 ```
 
 Also read `SPECLOG.md` if present — it indexes specs and their status. If `$ARGUMENTS` names a slug, target only that spec. **If no specs exist anywhere**, fall back to a freeform roadmap built from open GitHub issues / `TODO`s / the conversation, and tell the user there's no spec to anchor to (offer `/new-spec <slug>`).
 
 ## Step 2 — Parse `tasks.md` into a task graph
 
-For each spec, read `tasks.md` and extract every task as a node:
+For each spec, read `tasks.md` and extract every task as a node. **A spec dir with no `tasks.md` (design-only) isn't renderable** — in multi-spec mode list it in `spec_roadmap.html` as "design only (no tasks yet)"; in single-spec mode say so and offer `/plan` to add tasks. In both cases, skip it from the node extraction below. For each renderable spec:
 
 - **Phase** — the `## Phase N: …` header the task sits under.
 - **Status** — `[x]` or under `## Completed` → **done**; under `## Blocked` → **blocked**; `[ ]` otherwise → **open**.
@@ -96,9 +100,9 @@ Write a **single self-contained file** — no external scripts, fonts, or CDNs, 
     :root{ --bg:#0d1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e; --border:#30363d;
            --done:#3fb950; --next:#58a6ff; --blocked:#f85149; --todo:#6e7681; --crit:#d29922; }
   }
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);
+  *{box-sizing:border-box} body{margin:0 auto;max-width:1000px;background:var(--bg);color:var(--text);
     font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:32px}
-  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 20px}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 20px} a{color:var(--next)}
   .bar{height:10px;border-radius:6px;background:var(--border);overflow:hidden;margin:8px 0 24px}
   .bar > i{display:block;height:100%;background:var(--done)}
   .legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13px;margin-bottom:20px}
@@ -111,9 +115,14 @@ Write a **single self-contained file** — no external scripts, fonts, or CDNs, 
   .card.done{border-left-color:var(--done)} .card.next{border-left-color:var(--next)}
   .card.blocked{border-left-color:var(--blocked)} .card.crit{box-shadow:0 0 0 2px var(--crit) inset}
   .card .id{font:12px ui-monospace,monospace;color:var(--muted)}
-  .card .t{margin:4px 0} .badge{font-size:11px;color:var(--muted)}
+  .card .t{margin:4px 0} .card .t code{font:12px ui-monospace,monospace;background:var(--panel);padding:1px 4px;border-radius:4px}
+  .badge{font-size:11px;color:var(--muted)}
+  svg{width:100%;height:auto;display:block}
   svg .edge{stroke:var(--border);stroke-width:2;fill:none;marker-end:url(#a)}
-  svg .edge.crit{stroke:var(--crit)} svg text{fill:var(--text);font-size:12px}
+  svg .edge.crit{stroke:var(--crit);stroke-width:2.5}
+  svg .node rect{fill:var(--bg);stroke:var(--border);stroke-width:1.5}
+  svg .node.crit rect{stroke:var(--crit);stroke-width:2.5}
+  svg .node text{fill:var(--text);font:12px ui-monospace,monospace;text-anchor:middle;dominant-baseline:middle}
 </style>
 </head>
 <body>
@@ -128,11 +137,18 @@ Write a **single self-contained file** — no external scripts, fonts, or CDNs, 
     <span><b style="background:var(--crit)"></b>Critical path</span>
   </div>
 
-  <!-- DEPENDENCY GRAPH: inline SVG, viewBox sized to content. Nodes positioned
-       by phase (left→right or top→bottom). Critical-path nodes/edges use class="crit".
-       Include <defs><marker id="a">…</marker></defs> for arrowheads. Omit the SVG
-       entirely if the only structure is phase order with no explicit deps — the
-       phase cards below already convey it. -->
+  <!-- DEPENDENCY GRAPH — draw ONLY when there are explicit cross-task deps; omit for
+       phase-order-only specs (the cards already convey those). viewBox sized to content;
+       positioning is in "Graph layout" below. Markup pattern:
+         <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+           markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+         edge:  <line class="edge" .../>          <line class="edge crit" .../>   (crit = on critical path)
+         node:  <g class="node[ crit]"><rect x y width height rx="7"/>
+                  <circle cx cy r="4" fill="var(--STATUS)"/>   STATUS = done|next|blocked|todo
+                  <text x y>ID</text></g>
+       Encoding: the node OUTLINE marks the critical path (amber via .crit); the status
+       DOT marks done/next/blocked/todo — so a ready critical task shows an amber border
+       AND a blue dot. fill="context-stroke" makes each arrowhead match its edge colour. -->
   {svg-or-omit}
 
   <!-- PHASE CARDS: one .phase per phase, .card per task with the right status class.
@@ -147,6 +163,13 @@ Render rules:
 - Keep node labels ≤6 words; the full task text lives in the card, not the SVG node.
 - If a spec has only phase-order structure (no explicit deps), **skip the SVG** — the phase cards already show the sequence. The graph earns its place only when there are real cross-task edges.
 - For the **multi-spec `spec_roadmap.html`**, nodes are specs (status = % complete), edges are inter-spec deps (from `design.md` "Dependencies" or SPECLOG), and the critical path is the longest spec chain.
+
+**Graph layout (when you draw the SVG):**
+- **Bands by phase.** One horizontal band per phase, top→bottom in phase order; give each node in a band an evenly-spaced x-slot (~140px apart, first at x≈110). Push blocked/side tasks to an outer x-slot so their edges don't cut through the main columns.
+- **Keep it small — ≤ ~12 nodes.** Past that the hand-layout gets unreliable; render phase cards only and skip the SVG.
+- **No arrow through a non-endpoint node.** After placing nodes, walk each edge: if the straight segment would cross another node's box, move a node rather than let the arrow pass through. Favour short vertical edges within a column and gentle diagonals between bands.
+- **ID-only node labels** (`T1`, `P2.1`); the task text lives in the card.
+- **viewBox** width ~600 — but widen it if any band has more than ~4 nodes rather than compressing the x-spacing; height = the last band's bottom + ~30; `svg{width:100%;height:auto}` scales it. Give the `<svg>` `role="img"` + an `aria-label` naming the critical path.
 
 ## Step 5 — Show it and report
 
