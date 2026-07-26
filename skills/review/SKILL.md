@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.4.0
+version: 1.4.1
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -92,7 +92,7 @@ Full flow lives in [references/converse.md](references/converse.md) — read it 
 3. Run `gh pr diff <number>` to get the diff. Use this instead of `git diff origin/main` for all subsequent steps.
 4. Skip to Step 2.
 
-**Otherwise:** Local branch review mode. The review base is `main` by default; a caller may override it with `--base <ref>` — the AFK fix loop passes the PR's real base, since it reviews a **detached** checkout on an arbitrary repo (which may use `master`/`develop`, or be a stacked PR). Resolve it once and use `origin/$BASE` everywhere below: `BASE=<the --base value, else main>`.
+**Otherwise:** Local branch review mode. The review base is `main` by default; a caller may override it with `--base <ref>` — the AFK fix loop passes the PR's real base, since it reviews a **detached** checkout on an arbitrary repo (which may use `master`/`develop`, or be a stacked PR). Resolve it once and use `origin/$BASE` everywhere below: `BASE=<the --base value, else main>`. **`--base` is honored only together with `--headless`** — the Step 6 stamp and the review-gate hook both assume `origin/main`, so in interactive mode ignore any `--base` and always use `main` (an interactive `--base develop` would otherwise write a stamp hashing a diff it never reviewed, and crash on a repo with no `origin/main`).
 1. Run `git branch --show-current` to get the current branch — it is **empty under a detached HEAD** (the `--headless`/fix-loop case); that's expected, and Agent I's gate (Step 3) handles it.
 2. If the current branch is exactly `main`, output: **"Nothing to review — you're on main."** and stop. (A detached HEAD has no branch name, so this never fires under `--headless`.)
 3. Run `git fetch origin "$BASE" --quiet && git diff origin/$BASE --stat` to check if there's a diff.

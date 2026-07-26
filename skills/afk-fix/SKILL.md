@@ -1,6 +1,6 @@
 ---
 name: afk-fix
-version: 0.2.0
+version: 0.2.1
 description: |
   afk fix loop, autonomous PR fix loop, run the fix loop, fix needs-fixes PRs, afk fix cycle.
   The in-session orchestrator for the AFK fix loop: select open PRs labelled auto:needs-fixes,
@@ -83,15 +83,20 @@ A gh failure returns empty, indistinguishable from an empty queue — so capture
 
 For PR `N` with head `SHA` (`headRefOid` from Step 2):
 
-1. **Guard + SHA-skip.** If `SHA` is empty, record `#N → error (no head sha)` and continue. Otherwise check for a completion marker left by a prior crashed run:
+1. **Guard + SHA-skip.** If `SHA` is empty, record `#N → error (no head sha)` and continue. Otherwise decide whether this exact head was *already fixed by a prior run* — but distinguish the true crash case from a **legitimate re-block**, or the two loops deadlock (see below):
    ```bash
-   if gh pr view "$N" --repo "$REPO" --json comments --jq '.comments[].body' | grep -qF "afk-fix fixed sha=$SHA"; then
-     # already converged this exact head, crashed after the push but before the label moved —
-     # finish the transition, do NOT re-fix
+   BODIES=$(gh pr view "$N" --repo "$REPO" --json comments --jq '.comments[].body') || BODIES=""
+   FIXED=$(grep -qF "afk-fix fixed sha=$SHA"       <<<"$BODIES" && echo 1)
+   REVIEWED=$(grep -qF "afk-review reviewed sha=$SHA" <<<"$BODIES" && echo 1)
+   if [ -n "$FIXED" ] && [ -z "$REVIEWED" ]; then
+     # We pushed this exact head, and the review loop has NOT since re-reviewed it —
+     # so we may have crashed before the label moved. Finish the transition, do NOT re-fix.
      gh pr edit "$N" --repo "$REPO" --remove-label auto:needs-fixes --add-label auto:needs-review
    fi
    ```
-   **If the marker was present** (the `if` fired), record `#N → already-fixed (completed transition)` and continue to the next PR. **If it was absent** (the common path), do *not* record already-fixed — fall through to step 2 and process the PR. *(The record-and-continue is conditional on the marker; putting it outside the `if` would skip every PR forever.)*
+   - **`$FIXED` and not `$REVIEWED`** (the `if` fired): record `#N → already-fixed (completed transition)` and continue to the next PR.
+   - **`$FIXED` *and* `$REVIEWED`**: afk-review has re-reviewed this exact pushed head and deliberately **re-blocked** it — a genuine *second round*, not a crash. Fall through to step 2 and **re-fix**. Skipping here would bounce the label to `auto:needs-review`, where afk-review skips the unchanged head (`reviewed sha=$SHA` already present) and leaves it — so the PR **parks at `auto:needs-review` forever**, silently, never re-fixed or escalated. The 3-round cap and zero-commit escalation give the correct terminal behaviour instead: a second visit that changes nothing lands at `auto:needs-human`.
+   - **no `$FIXED`** (the common first-visit path): fall through to step 2 and process normally.
 
 2. **Claim** (first state change, so a second run finds nothing to grab):
    ```bash
@@ -104,16 +109,28 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    ISFORK=$(gh pr view "$N" --repo "$REPO" --json isCrossRepository --jq .isCrossRepository) \
      || ISFORK="check-failed"
    ```
-   If `$ISFORK` is anything other than the literal `false`, **escalate** (Step 4), reason `cross-fork or fork-check failed — no push access to fork head`, and continue — do **not** check out or converge (the claim from step 3.2 is reversed by Step 4). Only when `$ISFORK` is exactly `false`: clean any residue a prior PR's abandoned convergence left in this reused worktree (Step 4 abandons changes in place), then check out the PR head **detached — never the branch** (git refuses a branch that's live in another worktree; in a multi-worktree setup that's the *common* case), and fetch the PR's **real base** — not a hardcoded `main`: the loop runs on arbitrary repos (`master`/`develop`) and a stacked PR's base is another feature branch.
+   If `$ISFORK` is anything other than the literal `false`, **escalate** (Step 4), reason `cross-fork or fork-check failed — no push access to fork head`, and continue — do **not** check out or converge (the claim from step 3.2 is reversed by Step 4). Only when `$ISFORK` is exactly `false`, resolve the base and confirm this is an **isolated** worktree *before mutating anything*:
    ```bash
    BASE=$(gh pr view "$N" --repo "$REPO" --json baseRefName --jq .baseRefName) || BASE=""
-   [ -n "$BASE" ] || { echo "  ~ #$N: could not resolve base ref"; }   # empty → escalate below
+   # Worktree isolation is a task setting the loop can't read — but its EFFECT is detectable.
+   # A linked worktree's git-dir is .git/worktrees/<name>; the PRIMARY checkout's git-dir IS the
+   # common dir. Compare them as ABSOLUTE paths: --absolute-git-dir is always absolute, but
+   # --git-common-dir is relative-when-possible (".git"), so canonicalise it with cd+pwd first —
+   # comparing the raw flags is INERT (absolute never equals ".git", so it would never fire).
+   # Equal ⇒ the live checkout, where the reset below would IRREVERSIBLY destroy uncommitted work.
+   # Fail closed: if either path can't be resolved, treat as NOT isolated and escalate.
+   absgit=$(git rev-parse --absolute-git-dir 2>/dev/null)
+   abscommon=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd)
+   if [ -z "$absgit" ] || [ -z "$abscommon" ] || [ "$absgit" = "$abscommon" ]; then ISOLATED=no; else ISOLATED=yes; fi
+   ```
+   **If `$BASE` is empty, or `$ISOLATED` is `no`, escalate** (Step 4) — reason `could not resolve base ref` or `not an isolated worktree — refusing to reset the live checkout` — and continue, mutating nothing. Only when `$BASE` is non-empty **and** `$ISOLATED` is `yes`: clean any residue a prior PR's abandoned convergence left in this reused worktree (Step 4 abandons changes in place), check out the PR head **detached — never the branch** (git refuses a branch that's live in another worktree; in a multi-worktree setup the *common* case), and fetch the PR's **real base** — not a hardcoded `main`: the loop runs on arbitrary repos (`master`/`develop`) and a stacked PR's base is another feature branch.
+   ```bash
    git reset --hard && git clean -fd
    gh pr checkout "$N" --repo "$REPO" --detach
    git fetch origin "$BASE"    # /review --headless diffs `git diff origin/$BASE`; gh pr checkout fetches
                                # the PR ref but not the base, so without this the base ref is stale/absent.
    ```
-   If `$BASE` is empty, or the checkout or fetch fails, **escalate** (Step 4), reason `checkout/base-fetch failed`. `$BASE` feeds the re-review (step 4) and the publish re-derives the head branch itself, so a detached checkout is fine.
+   If the checkout or fetch fails, **escalate** (Step 4), reason `checkout/base-fetch failed`. `$BASE` feeds the re-review (step 4) and the publish re-derives the head branch itself, so a detached checkout is fine.
 
 4. **Convergence loop (max 3 rounds).** Goal: a local `/review --headless` with **no addressable findings**.
    - **Round 1 — address posted feedback:** run the fix skill in defer mode —
@@ -175,5 +192,5 @@ Print one line per PR — `#N → needs-review | needs-human | already-fixed | e
 - **Publish once.** `/receiving-pr-feedback --no-publish` defers replies/body/push through every convergence round; `--publish-only` flushes them once at the end. A crash before `--publish-only` leaves nothing pushed (the isolated worktree is discarded) — clean retry.
 - **Idempotent + crash-safe.** The claim label, age-aware sweep, and `afk-fix fixed sha=` marker mean a re-run does no double work: a crash before push retries clean; a crash after push but before the label moved is recognised by the SHA marker and just completes the transition.
 - **Headless-safe.** Every decision is escalate-not-ask. `/receiving-pr-feedback --no-publish`/`--publish-only` and `/review --headless` are non-interactive by contract; if either prompts or hangs, that is a bug — treat it as a failure and escalate. The loop never invokes a skill that has no headless mode (`/improve-architecture`, `/prevent`, interactive `/review`).
-- **Prerequisites.** Labels bootstrapped (`scripts/bootstrap-afk-labels.cjs`) and cwd a checkout of `REPO` are **verified up front** in the preconditions. The task's **worktree isolation** must also be on (so `gh pr checkout --detach` mutates an isolated tree) — that is a Desktop-task setting the loop can't read at runtime, so it's a deployment prerequisite, not a guard: with isolation off, the loop would detach HEAD and commit in the live checkout.
+- **Prerequisites.** Labels bootstrapped (`scripts/bootstrap-afk-labels.cjs`) and cwd a checkout of `REPO` are **verified up front** in the preconditions. The task's **worktree isolation** should be on (so `gh pr checkout --detach` mutates an isolated tree). The setting isn't readable at runtime, but its *effect* is — Step 3.3 compares the worktree's git-dir against the common git-dir (both as absolute paths) and **escalates rather than reset** when they're equal (the primary checkout), so isolation-off fails closed (no data loss) instead of mutating the live tree.
 - **Downstream.** `auto:needs-review` → the review loop re-verifies the pushed fixes and can bounce it back to `auto:needs-fixes` if new issues appear (the review↔fix cycle). `auto:needs-human` → a human; the branch is left unpushed.

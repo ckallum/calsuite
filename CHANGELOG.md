@@ -4,7 +4,7 @@ All notable changes to this repository.
 
 Current version: **2.58**
 
-## [2.58] — 2026-07-19
+## [2.58] — 2026-07-25
 
 ### Added
 
@@ -14,8 +14,8 @@ Current version: **2.58**
   - **Mutation guards:** PR-branch-only, never `main`, never force-push, publish once. A cross-fork PR is rejected **fail-closed** up front (`isCrossRepository`) — `gh pr checkout --detach` succeeds for a fork, so the publish would otherwise push a stray branch to the *base* repo. The "push landed" check requires the remote head to equal the loop's **own** local commit (not merely differ from the pre-fix SHA), so a concurrent human push can't poison the completion marker.
   - **Arbitrary-repo aware:** the review base is the PR's real `baseRefName` (not a hardcoded `main`), so `master`/`develop` repos and stacked PRs diff against the correct base. Fix-loop commits carry `[skip-review]` (the in-loop `/review --headless` is the gate). Preconditions (cwd/label), an age-aware `auto:fixing` sweep, per-PR isolation with a clean-worktree reset, and SHA-marker idempotency come across from afk-review.
   - Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-fix/` task prompt (7h, worktree-on).
-  - **`/receiving-pr-feedback` v1.2.0** — adds `--no-publish` (apply + commit `[skip-review]` locally, upsert replies into an out-of-tree `$PENDING`, never prompt — an unclear item emits a terminal "cannot proceed" line the loop detects) and `--publish-only` (always push `HEAD:<branch>`, detached-safe, then flush replies idempotently, marking each `posted`). Additive; default full mode unchanged, so `/ship` and manual callers are unaffected.
-  - **`/review` v1.4.0** — `--headless [--base <ref>]`: fully non-interactive local review (diffs `git diff origin/<base>`, prints findings + the canonical verdict, and **never** calls `AskUserQuestion` — not even for Greptile false-positives — nor posts / stamps) so the fix loop can re-review its unpushed detached checkout each round without hanging.
+  - **`/receiving-pr-feedback` v1.2.1** — adds `--no-publish` (apply + commit `[skip-review]` locally, upsert replies into an out-of-tree `$PENDING`, never prompt — an unclear item emits a terminal "cannot proceed" line the loop detects) and `--publish-only` (always push `HEAD:<branch>`, detached-safe, then flush replies idempotently, marking each `posted`). Additive; default full mode unchanged, so `/ship` and manual callers are unaffected.
+  - **`/review` v1.4.1** — `--headless [--base <ref>]`: fully non-interactive local review (diffs `git diff origin/<base>`, prints findings + the canonical verdict, and **never** calls `AskUserQuestion` — not even for Greptile false-positives — nor posts / stamps) so the fix loop can re-review its unpushed detached checkout each round without hanging.
 
 ## [2.57] — 2026-07-14
 
