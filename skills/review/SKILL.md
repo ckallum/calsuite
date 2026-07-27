@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.4.1
+version: 1.4.2
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -86,7 +86,7 @@ Full flow lives in [references/converse.md](references/converse.md) — read it 
 
 ## Step 1: Pre-flight
 
-**If `$ARGUMENTS` contains `pr <number>`:** PR review mode.
+**If `$ARGUMENTS` contains `pr <number>` *and not* `--headless`:** PR review mode. (`--headless` always means the non-interactive *local* mode — even with `pr <number>` — so it must be checked first; otherwise `/review pr 42 --headless` would select PR mode and post a comment, breaking the "no PR comment" contract.)
 1. Run `gh pr view <number> --json state,isDraft` to check eligibility.
 2. If the PR is closed, a draft, or trivially small (automated/bot PR), output: **"PR not eligible for review."** and stop.
 3. Run `gh pr diff <number>` to get the diff. Use this instead of `git diff origin/main` for all subsequent steps.
@@ -137,12 +137,23 @@ Use the same diff source selected in Step 1:
 # Cache the diff once so gating greps are cheap. Reuse the converse-mode diff when present;
 # otherwise populate from the same source used in Step 1 (gh pr diff in PR mode, git diff
 # origin/$BASE in local mode). All gates read from $DIFF_FILE — do NOT re-shell out per gate.
+# Re-RESOLVE BASE from $ARGUMENTS here (the `--base <ref>` value, else `main`) — the SAME resolution
+# as Step 1. Shell state does NOT persist across the skill's separate bash blocks, so the Step-1 BASE
+# is gone; do NOT fall back to a bare `${BASE:-main}` — that hardcodes `main` and breaks a headless
+# `--base develop` run (which fetched only origin/develop). Substitute the actual resolved ref below.
+# Why it matters: without a valid base, `git diff "origin/"` leaves an EMPTY $DIFF_FILE → every
+# *_COUNT is 0 → F–K never dispatch and A–E see an empty diff → the run prints PASS, and a headless
+# caller reads that as convergence and publishes a PR nothing reviewed.
+BASE="<the --base value from $ARGUMENTS, else main — re-resolved here, matching Step 1>"
 DIFF_FILE="$CONVERSE_TMPDIR/diff.txt"
 if [ ! -s "$DIFF_FILE" ]; then
   DIFF_FILE=$(mktemp)
   if [ -n "$PR_NUMBER" ]; then
     gh pr diff "$PR_NUMBER" > "$DIFF_FILE"
   else
+    # Hard-fail if the base ref is missing rather than diffing against nothing and PASSing.
+    git rev-parse --verify --quiet "origin/$BASE" >/dev/null \
+      || { echo "review: origin/$BASE does not resolve — aborting (a missing base would produce an empty diff and a false PASS)"; exit 1; }
     git diff "origin/$BASE" > "$DIFF_FILE"
   fi
 fi
@@ -269,11 +280,11 @@ After presenting your own findings, if Greptile comments were classified in Step
    - Options: A) Reply to Greptile explaining why incorrect (recommended), B) Fix it anyway, C) Ignore
    - If user chose A, reply using the False Positive template from greptile-triage.md
 
-3. **VALID BUT ALREADY FIXED:** Reply using the Already Fixed template — no AskUserQuestion needed.
+3. **VALID BUT ALREADY FIXED (interactive local mode only):** Reply using the Already Fixed template — no AskUserQuestion needed. **In PR mode this reply is folded into the consolidated comment (Step 7); in `--headless` it is *not posted at all*** (the reply is a real `gh api …/replies` POST, which the headless contract forbids — fold the classification into the printed findings instead).
 
 4. **SUPPRESSED:** Skip silently.
 
-Write triage outcomes to history files as documented in greptile-triage.md.
+Write triage outcomes to history files as documented in greptile-triage.md. **Skip this file write in `--headless`** — the headless contract forbids file writes (it would otherwise fire automatically, up to 3× per convergence, on any repo with prior triage history).
 
 ---
 

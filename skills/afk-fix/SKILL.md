@@ -1,6 +1,6 @@
 ---
 name: afk-fix
-version: 0.2.1
+version: 0.2.2
 description: |
   afk fix loop, autonomous PR fix loop, run the fix loop, fix needs-fixes PRs, afk fix cycle.
   The in-session orchestrator for the AFK fix loop: select open PRs labelled auto:needs-fixes,
@@ -43,7 +43,7 @@ Then run these **hard preconditions** — both must pass before any label is tou
    have=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') \
      || { echo "afk-fix: could not list labels on $REPO (gh error — not a missing-label condition). No changes made."; exit 1; }
    for L in auto:needs-fixes auto:fixing auto:needs-review auto:needs-human; do
-     echo "$have" | grep -qx "$L" || { echo "afk-fix: label '$L' missing on $REPO — run: node scripts/bootstrap-afk-labels.cjs $REPO"; exit 1; }
+     echo "$have" | grep -qx "$L" || { echo "afk-fix: label '$L' missing on $REPO — run: node \"\${CALSUITE_DIR:-\$HOME/Projects/calsuite}/scripts/bootstrap-afk-labels.cjs\" $REPO (the script lives in calsuite, not the target repo's cwd)"; exit 1; }
    done
    ```
 
@@ -62,7 +62,11 @@ for n in $claimed; do
     --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | .created_at') \
     || { echo "  ~ #$n: timeline fetch failed — leaving claim as-is"; continue; }
   applied=$(tail -n1 <<<"$raw")
-  if [[ -z "$applied" || "$applied" < "$cutoff" ]]; then
+  # Reclaim ONLY when we have a timestamp AND it's older than the cutoff. An EMPTY result
+  # (successful fetch, no labeled event — e.g. read-replica lag) is uncertainty, not age, so
+  # leave the claim (matches the "never reclaim on uncertainty" contract above). The old
+  # `-z "$applied" ||` reclaimed on empty at any age — a stuck live claim could be yanked.
+  if [[ -n "$applied" && "$applied" < "$cutoff" ]]; then
     gh pr edit "$n" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-fixes \
       || echo "  ~ #$n: reclaim failed — will retry next sweep"
   fi
@@ -85,13 +89,18 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
 
 1. **Guard + SHA-skip.** If `SHA` is empty, record `#N → error (no head sha)` and continue. Otherwise decide whether this exact head was *already fixed by a prior run* — but distinguish the true crash case from a **legitimate re-block**, or the two loops deadlock (see below):
    ```bash
-   BODIES=$(gh pr view "$N" --repo "$REPO" --json comments --jq '.comments[].body') || BODIES=""
+   # Fail CLOSED on a fetch error (skip this PR, retry next run) — consistent with ISFORK/BASE/
+   # NEWSHA. The old `|| BODIES=""` failed OPEN toward "never fixed": a transient API error during
+   # a crash-recovery run would force a needless full re-convergence and a misleading escalation.
+   BODIES=$(gh pr view "$N" --repo "$REPO" --json comments --jq '.comments[].body') \
+     || { echo "  ~ #$N: comments fetch failed — skipping this run"; continue; }
    FIXED=$(grep -qF "afk-fix fixed sha=$SHA"       <<<"$BODIES" && echo 1)
    REVIEWED=$(grep -qF "afk-review reviewed sha=$SHA" <<<"$BODIES" && echo 1)
    if [ -n "$FIXED" ] && [ -z "$REVIEWED" ]; then
      # We pushed this exact head, and the review loop has NOT since re-reviewed it —
      # so we may have crashed before the label moved. Finish the transition, do NOT re-fix.
-     gh pr edit "$N" --repo "$REPO" --remove-label auto:needs-fixes --add-label auto:needs-review
+     gh pr edit "$N" --repo "$REPO" --remove-label auto:needs-fixes --add-label auto:needs-review \
+       || { echo "#N → error (complete-transition)"; continue; }
    fi
    ```
    - **`$FIXED` and not `$REVIEWED`** (the `if` fired): record `#N → already-fixed (completed transition)` and continue to the next PR.
@@ -114,25 +123,30 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
    BASE=$(gh pr view "$N" --repo "$REPO" --json baseRefName --jq .baseRefName) || BASE=""
    # Worktree isolation is a task setting the loop can't read — but its EFFECT is detectable.
    # A linked worktree's git-dir is .git/worktrees/<name>; the PRIMARY checkout's git-dir IS the
-   # common dir. Compare them as ABSOLUTE paths: --absolute-git-dir is always absolute, but
-   # --git-common-dir is relative-when-possible (".git"), so canonicalise it with cd+pwd first —
-   # comparing the raw flags is INERT (absolute never equals ".git", so it would never fire).
-   # Equal ⇒ the live checkout, where the reset below would IRREVERSIBLY destroy uncommitted work.
-   # Fail closed: if either path can't be resolved, treat as NOT isolated and escalate.
+   # common dir, so equal ⇒ the live checkout (where the reset below would IRREVERSIBLY destroy
+   # uncommitted work). Both sides MUST be canonicalised the same way: --absolute-git-dir resolves
+   # symlinks, so resolve the common dir with --path-format=absolute too (NOT `cd "$(...)" && pwd`,
+   # which returns the LOGICAL path — on macOS /tmp vs /private/tmp then never matches → fail-OPEN;
+   # and `cd ""` succeeds, defeating the empty-guard). Fail closed: unresolvable ⇒ NOT isolated.
    absgit=$(git rev-parse --absolute-git-dir 2>/dev/null)
-   abscommon=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd)
+   abscommon=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
    if [ -z "$absgit" ] || [ -z "$abscommon" ] || [ "$absgit" = "$abscommon" ]; then ISOLATED=no; else ISOLATED=yes; fi
    ```
    **If `$BASE` is empty, or `$ISOLATED` is `no`, escalate** (Step 4) — reason `could not resolve base ref` or `not an isolated worktree — refusing to reset the live checkout` — and continue, mutating nothing. Only when `$BASE` is non-empty **and** `$ISOLATED` is `yes`: clean any residue a prior PR's abandoned convergence left in this reused worktree (Step 4 abandons changes in place), check out the PR head **detached — never the branch** (git refuses a branch that's live in another worktree; in a multi-worktree setup the *common* case), and fetch the PR's **real base** — not a hardcoded `main`: the loop runs on arbitrary repos (`master`/`develop`) and a stacked PR's base is another feature branch.
    ```bash
    git reset --hard && git clean -fd
+   rm -f "${TMPDIR:-/tmp}/rpf-pending-$(printf '%s' "$REPO" | tr '/' '__')-$N.json"   # staged replies live
+                               # OUTSIDE the worktree, so the reset doesn't clear them — drop any left by a
+                               # prior crashed convergence, unconditionally, so this run starts clean.
    gh pr checkout "$N" --repo "$REPO" --detach
+   CHECKED_OUT=$(git rev-parse HEAD)   # the head we ACTUALLY start from; a human push between Step 2 and
+                                       # here makes this differ from the selection-time SHA (used in Step 5).
    git fetch origin "$BASE"    # /review --headless diffs `git diff origin/$BASE`; gh pr checkout fetches
                                # the PR ref but not the base, so without this the base ref is stale/absent.
    ```
    If the checkout or fetch fails, **escalate** (Step 4), reason `checkout/base-fetch failed`. `$BASE` feeds the re-review (step 4) and the publish re-derives the head branch itself, so a detached checkout is fine.
 
-4. **Convergence loop (max 3 rounds).** Goal: a local `/review --headless` with **no addressable findings**.
+4. **Convergence loop (max 3 rounds).** Goal: a local `/review --headless` with **no addressable findings**. Track the count explicitly: **`R=1`** covers the round-1 `--no-publish` and its re-review; each subsequent apply + re-review does **`R=R+1`**; the cap is `R == 3` — **three review passes total**, not three *additional* rounds.
    - **Round 1 — address posted feedback:** run the fix skill in defer mode —
      ```
      Skill: receiving-pr-feedback
@@ -146,37 +160,46 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
      ```
      `--headless` diffs `git diff origin/$BASE`, prints the findings + the canonical `^Review complete: PASS|BLOCKED` line, and never prompts / stamps / posts. **Agent K (reuse & simplification) runs inside this review**, so simplification is covered here — there is deliberately no separate `/improve-architecture` or `/simplify` mutation step (both prompt and can't run headless). Determine the **addressable** findings: every CRITICAL, **plus** any INFORMATIONAL clearly relevant to this change or flagging a bug/regression your fixes introduced. Skip only subjective style/nitpick informational. Then:
      - **No addressable findings** (PASS, leftover informational is pure style) → **converged**. Go to step 5.
-     - **Addressable findings remain** with rounds left → apply them directly (edit + commit locally, commit message carrying `[skip-review]`), then re-review. Up to **3 rounds total**.
-     - **Addressable findings remain at the 3-round cap** → **escalate** (Step 4), reason `did not converge in 3 rounds`.
+     - **Addressable findings remain** and `R < 3` → apply them directly (edit + commit locally, commit message carrying `[skip-review]`), do **`R=R+1`**, then re-review.
+     - **Addressable findings remain at `R == 3`** → **escalate** (Step 4), reason `did not converge in 3 rounds`.
      - no recognizable verdict / it errored / it prompted → **escalate**.
 
 5. **Publish + transition** (converged only). No `/prevent` step — it prompts, files a GitHub issue unattended, and its edits would be discarded here anyway; capture guardrails out-of-band.
-   - Record the local head, then flush the staged replies + PR body and push any fix commits to the PR branch:
+   - **Check for a zero-commit convergence *before* publishing anything.** Record the converged head and compare it to **`$CHECKED_OUT`** — the head this run *actually* started from, not the selection-time `SHA` (a human push between Step 2 and the checkout can make `SHA` stale):
      ```bash
      LOCAL=$(git rev-parse HEAD)
      ```
+     If `$LOCAL` == `$CHECKED_OUT`, this run **made no commits** — either every finding was pushed back on, or the head was already fixed by a prior run that crashed before writing its marker. **Do NOT run `--publish-only`** (re-posting the staged replies here would duplicate replies a crashed prior run already posted — the very double-post the `posted:true` machinery guards against, which Step 3.3's fresh-start clear can't preserve). **Escalate** (Step 4), reason `converged with no code changes — needs human adjudication`; a human moves an already-correct head to `auto:needs-review`. Do not auto-transition (an afk-review stricter than the local `--headless` would otherwise bounce it forever).
+   - **Commits were made** (`$LOCAL` != `$CHECKED_OUT`) — flush the staged replies + PR body and push:
      ```
      Skill: receiving-pr-feedback
      args: "<N> --publish-only"
      ```
-   - **Zero-commit convergence.** If `$LOCAL` equals the pre-fix `SHA`, the loop changed no code — every finding was correctly pushed back on, or none was actionable. `--publish-only` above already published the pushback replies, so **escalate** (Step 4), reason `converged with no code changes — pushed back on all findings; needs human adjudication`. Do **not** transition to `auto:needs-review`: the unchanged code would re-trigger the identical findings and bounce between review and fix forever.
-   - **Confirm the push landed** (commits were made): the remote head must now equal **our local commit** — not merely differ from the old `SHA`:
+   - **Confirm the push landed:** the remote head must now equal **our local commit** — not merely differ from `$CHECKED_OUT`:
      ```bash
      NEWSHA=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid) || NEWSHA=""
      ```
-     The push landed **iff** `$NEWSHA` == `$LOCAL`. If the fetch failed, `$NEWSHA` is empty, or `$NEWSHA` != `$LOCAL` — e.g. a human pushed to the branch mid-convergence, so our non-force `git push` was rejected and the remote now carries *their* commit — **escalate** (Step 4), reason `publish/push did not land`. **Never** write a marker unless `$NEWSHA` == `$LOCAL`: a marker on someone else's SHA (or an empty one) poisons the Step 3.1 re-run guard and would slip a half-published PR to `auto:needs-review`.
-   - Transition + mark the **pushed local** head (so step 1's guard recognises a completed fix on a re-run):
+     The push landed **iff** `$NEWSHA` == `$LOCAL`. If the fetch failed, `$NEWSHA` is empty, or `$NEWSHA` != `$LOCAL` — e.g. a human pushed mid-convergence, so our non-force `git push` was rejected and the remote now carries *their* commit — **escalate** (Step 4), reason `publish/push did not land`. **Never** write a marker unless `$NEWSHA` == `$LOCAL`.
+   - **Re-check we still own the claim, then mark-before-transition.** Two overlapping runs can both reach here; the loser must not stamp over the winner. Re-read the label and only proceed while we still hold `auto:fixing`:
      ```bash
-     gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-review
-     gh pr comment "$N" --repo "$REPO" --body "<!-- afk-fix fixed sha=$LOCAL -->"
+     OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:fixing")')
+     [ "$OWN" = "true" ] || { echo "#N → lost claim (another run owns it) — skipping terminal edits"; continue; }
      ```
-     If the transition `gh pr edit` fails, record `#N → error (transition)`; the sweep reclaims the claim and the SHA marker prevents a re-fix.
+     Then **write the marker FIRST, then transition** — the order is load-bearing. On a crash *between* these two, marker-first leaves the marker present with the label still `auto:fixing`, which the sweep reclaims and Step 3.1's `FIXED && !REVIEWED` branch then completes. The reverse order (transition then mark) instead leaves the PR at `auto:needs-review` with **no** marker — a state the `auto:fixing`-only sweep never touches — so afk-review eventually re-reviews it, and on a re-block the missing marker sends it through a needless re-convergence to a **false** `auto:needs-human`.
+     ```bash
+     gh pr comment "$N" --repo "$REPO" --body "<!-- afk-fix fixed sha=$LOCAL -->" \
+       || { echo "#N → error (marker write) — leaving the claim, sweep + re-run retry cleanly"; continue; }
+     gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-review \
+       || echo "#N → error (transition) — marker is set, so a re-run completes it via Step 3.1"
+     ```
 
 ## Step 4 — Escalate on failure
 
-Escalation hands the PR to a human. In the usual case (a mid-convergence failure) it means **abandon the local changes unpushed** — never push a half-converged branch. Post the one-line reason; state "local fixes were not pushed" only when that is actually true — it is **not** true for the zero-commit-convergence escalation, where pushback replies were published and no code changed. Also **discard the staged replies** for this dead convergence, so a later run on the same PR starts clean instead of inheriting stale entries:
+Escalation hands the PR to a human. In the usual case (a mid-convergence failure) it means **abandon the local changes unpushed** — never push a half-converged branch. Post the one-line reason; state "local fixes were not pushed" only when that is actually true — it is **not** true for the zero-commit-convergence escalation, where pushback replies were published and no code changed. Re-check ownership first (an overlapping run may already have moved the PR — adding `auto:needs-human` on top of its `auto:needs-review` would leave both labels set), discard this dead convergence's staged replies (repo-scoped, matching Step 3.3), then escalate:
 ```bash
-rm -f "${TMPDIR:-/tmp}/rpf-pending-$N.json"
+OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:fixing")')
+[ "$OWN" = "true" ] || { echo "#N → lost claim — another run owns it, not escalating"; continue; }
+rm -f "${TMPDIR:-/tmp}/rpf-pending-$(printf '%s' "$REPO" | tr '/' '__')-$N.json"
 gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-human
 gh pr comment "$N" --repo "$REPO" --body "afk-fix: escalating to needs-human — <one-line reason>."
 ```
