@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.4.2
+version: 1.4.3
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -150,11 +150,13 @@ if [ ! -s "$DIFF_FILE" ]; then
   DIFF_FILE=$(mktemp)
   if [ -n "$PR_NUMBER" ]; then
     gh pr diff "$PR_NUMBER" > "$DIFF_FILE"
-  else
-    # Hard-fail if the base ref is missing rather than diffing against nothing and PASSing.
-    git rev-parse --verify --quiet "origin/$BASE" >/dev/null \
-      || { echo "review: origin/$BASE does not resolve — aborting (a missing base would produce an empty diff and a false PASS)"; exit 1; }
+  elif git rev-parse --verify --quiet "origin/$BASE" >/dev/null; then
     git diff "origin/$BASE" > "$DIFF_FILE"
+  else
+    # A missing base would leave $DIFF_FILE empty → every gate 0 → agents see nothing → false PASS.
+    # Headless callers act on that verdict, so there it is fatal; interactively just say so and stop.
+    echo "review: origin/$BASE does not resolve — cannot review (an empty diff would be a false PASS)"
+    exit 1
   fi
 fi
 
@@ -264,7 +266,7 @@ Lead with your recommendation and explain WHY.
 
 **In PR mode:** skip the AskUserQuestion loop — findings are posted as a single consolidated comment in Step 7 for the PR author to address.
 
-**In `--headless` mode** (local, non-interactive — for programmatic callers like the AFK fix loop): **never invoke `AskUserQuestion` for any reason** — not the CRITICAL loop here, not the Greptile FALSE-POSITIVE prompt in the Greptile section below, none of them. A headless run that prompts *hangs* (there's no caller to answer), so this is absolute. Skip the Step 5.5 flow-diagram PR post and the Step 6 stamp. Print the findings block above plus the canonical `Review complete: PASS|BLOCKED` line (Step 8) to stdout — nothing else: no prompts, no PR comment, no replies, no file writes. Fold any Greptile classifications into the printed findings (as PR mode does), never prompting or replying. `--headless` implies local mode; if combined with `pr <number>`, ignore it (PR mode is already non-interactive). Accepts an optional `--base <ref>` (default `main`) for the diff base.
+**In `--headless` mode** (local, non-interactive — for programmatic callers like the AFK fix loop): **never invoke `AskUserQuestion` for any reason** — not the CRITICAL loop here, not the Greptile FALSE-POSITIVE prompt in the Greptile section below, none of them. A headless run that prompts *hangs* (there's no caller to answer), so this is absolute. Skip the Step 5.5 flow-diagram PR post and the Step 6 stamp. Print the findings block above plus the canonical `Review complete: PASS|BLOCKED` line (Step 8) to stdout — nothing else: no prompts, no PR comment, no replies, no file writes. Fold any Greptile classifications into the printed findings (as PR mode does), never prompting or replying. `--headless` implies local mode and always wins: if combined with `pr <number>`, **ignore the `pr <number>`** and review the local checkout (Step 1 dispatches on this too). Accepts an optional `--base <ref>` (default `main`) for the diff base.
 
 ### Greptile Comment Resolution
 
@@ -317,7 +319,7 @@ EOF
 )"
 ```
 
-**If no PR exists** (reviewing before push): Include the diagram in the Step 5 output instead.
+**If no PR exists** (reviewing before push): Include the diagram in the Step 5 output instead — **but skip it entirely in `--headless`**, whose contract is the findings plus the verdict line and nothing else. (This is the branch headless actually reaches: it reviews a detached checkout, where `gh pr view --json number` resolves nothing.)
 
 **In PR mode:** Do NOT post the diagram as a separate comment here — Step 7 embeds it in the single consolidated review comment to avoid double-posting.
 
