@@ -2,7 +2,23 @@
 
 All notable changes to this repository.
 
-Current version: **2.57**
+Current version: **2.58**
+
+## [2.58] — 2026-09-03
+
+### Added
+
+- **AFK fix loop — Phase 3.** The third autonomous loop, and the only one that mutates code and pushes. Orchestrated through the GitHub-label state machine, mirroring the afk-review safety spine.
+  - `/afk-fix <owner/repo>` — selects open PRs labelled `auto:needs-fixes`, claims each (`auto:fixing`), checks out the PR head **detached** in an isolated worktree (never the branch — it would collide with a worktree already on it), and runs a bounded **convergence cycle** (max 3 review passes). Escalates anything it can't converge — or any unattended prompt / unfixable failure — to `auto:needs-human`, branch left unpushed.
+  - **Convergence:** `/receiving-pr-feedback --no-publish` (round 1) → `/review --headless` each round, addressing every CRITICAL plus any relevant / newly-introduced-bug INFORMATIONAL. Simplification is covered by the review's own Agent K, so there is **no** separate `/improve-architecture` or `/simplify` mutation step — both prompt and have no headless apply mode. On convergence, `/receiving-pr-feedback --publish-only` pushes to the PR branch and the label moves to `auto:needs-review`.
+  - **Stateless by construction.** Each ` ```bash ` block in the skill is a separate shell and each `Skill:` call a separate process, so the loop keeps **no** cross-block state: every block re-derives from `gh`/`git`, guards fail closed with `exit 1` (never `continue`, which falls through outside a loop), and blocks hand state to the orchestrating model as a printed `AFKFIX_OK|ESCALATE|ABORT` line. There is no completion marker: a crashed run leaves a stale claim, the sweep returns it to `auto:needs-fixes`, and the next run re-derives — costing a redundant convergence but never corrupting state.
+  - **`scripts/test-afk-fix-blocks.sh`** — an execution harness that extracts each shipped bash block and runs it **as its own process** against a real git repo (bare remote + primary checkout + linked worktree + symlinked path) with a stubbed `gh`. It asserts the guards fail closed, that uncommitted work in a primary checkout survives, and that the loop's status lines parse. 26 cases.
+  - **Preconditions verify the skill dependencies:** `/review` and `/receiving-pr-feedback` resolve from the *target repo's installed* skills, not calsuite's source, so an install predating `--headless`/`--no-publish` aborts up front with the `configure-claude` command to fix it.
+  - **Mutation guards:** PR-branch-only, never `main`, never force-push, publish once. A cross-fork PR is rejected **fail-closed** up front (`isCrossRepository`) — `gh pr checkout --detach` succeeds for a fork, so the publish would otherwise push a stray branch to the *base* repo. The "push landed" check requires the remote head to equal the loop's **own** local commit (not merely differ from the pre-fix SHA), so a concurrent human push can't poison the completion marker.
+  - **Arbitrary-repo aware:** the review base is the PR's real `baseRefName` (not a hardcoded `main`), so `master`/`develop` repos and stacked PRs diff against the correct base. Fix-loop commits carry `[skip-review]` (the in-loop `/review --headless` is the gate). Preconditions (cwd/label), an age-aware `auto:fixing` sweep, per-PR isolation with a clean-worktree reset, and SHA-marker idempotency come across from afk-review.
+  - Added to `INTERNAL_SKILLS` (globally symlinked), with a `scheduled-tasks/afk-fix/` task prompt (7h, worktree-on).
+  - **`/receiving-pr-feedback` v1.2.2** — adds `--no-publish` (apply + commit `[skip-review]` locally, upsert replies into an out-of-tree `$PENDING`, never prompt — an unclear item emits a terminal "cannot proceed" line the loop detects) and `--publish-only` (always push `HEAD:<branch>`, detached-safe, then flush replies idempotently, marking each `posted`). Additive; default full mode unchanged, so `/ship` and manual callers are unaffected.
+  - **`/review` v1.4.2** — `--headless [--base <ref>]`: fully non-interactive local review (diffs `git diff origin/<base>`, prints findings + the canonical verdict, and **never** calls `AskUserQuestion` — not even for Greptile false-positives — nor posts / stamps) so the fix loop can re-review its unpushed detached checkout each round without hanging.
 
 ## [2.57] — 2026-07-14
 

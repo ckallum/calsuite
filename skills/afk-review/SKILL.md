@@ -1,6 +1,6 @@
 ---
 name: afk-review
-version: 0.2.4
+version: 0.2.5
 description: |
   afk review loop, autonomous PR review loop, run the review loop, review needs-review PRs,
   afk review cycle. The in-session orchestrator for the AFK review loop: select open PRs
@@ -39,7 +39,7 @@ Then run these two **hard preconditions** — both must pass before any label is
    have=$(gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name') \
      || { echo "afk-review: could not list labels on $REPO (gh error — not a missing-label condition). No changes made."; exit 1; }
    for L in auto:needs-review auto:reviewing auto:needs-fixes auto:ready auto:needs-human; do
-     echo "$have" | grep -qx "$L" || { echo "afk-review: AFK label '$L' missing on $REPO — run: node scripts/bootstrap-afk-labels.cjs $REPO"; exit 1; }
+     echo "$have" | grep -qx "$L" || { echo "afk-review: AFK label '$L' missing on $REPO — run: node \"\${CALSUITE_DIR:-\$HOME/Projects/calsuite}/scripts/bootstrap-afk-labels.cjs\" $REPO (that script lives in calsuite, not in this repo)"; exit 1; }
    done
    ```
 
@@ -48,7 +48,10 @@ Then run these two **hard preconditions** — both must pass before any label is
 A prior run may have crashed mid-review, leaving a stuck `auto:reviewing` claim. Reset only claims **older than the ~30-min run budget** — a *fresh* claim may belong to a still-running sibling (manual + scheduled runs can overlap), so don't yank it:
 ```bash
 cutoff=$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
-for n in $(gh pr list --repo "$REPO" --state open --label auto:reviewing --json number --jq '.[].number'); do
+if ! claimed=$(gh pr list --repo "$REPO" --state open --label auto:reviewing --limit 200 --json number --jq '.[].number'); then
+  echo "afk-review: could not list auto:reviewing PRs (gh error) — skipping the sweep this run"; claimed=""
+fi
+for n in $claimed; do
   # Per-page --jq, NOT --slurp: gh >= 2.95 rejects `--slurp` together with
   # `--jq` and exits 1 — which the `|| continue` below would swallow on every
   # PR, turning the whole sweep into a silent no-op (so a crashed run's claim is
@@ -66,7 +69,9 @@ for n in $(gh pr list --repo "$REPO" --state open --label auto:reviewing --json 
   # [ \< ] — POSIX `test`/`[` has no `<` operator, and under zsh `[ "$a" \< ... ]`
   # errors out and the failed test reads as "leave the claim", so no stale claim
   # is ever reclaimed. ISO-8601 UTC strings sort lexically == chronologically.
-  if [[ -z "$applied" || "$applied" < "$cutoff" ]]; then
+  # Reclaim only with a timestamp older than the cutoff — an empty result is a successful fetch
+  # with no labeled event (e.g. read-replica lag), i.e. uncertainty, and must leave the claim.
+  if [[ -n "$applied" && "$applied" < "$cutoff" ]]; then
     gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review \
       || echo "  ~ #$n: reclaim failed — will retry next sweep"
   fi
@@ -76,7 +81,7 @@ done
 ## Step 2 — Select
 
 ```bash
-gh pr list --repo "$REPO" --state open --label auto:needs-review --json number,headRefOid,title
+gh pr list --repo "$REPO" --state open --label auto:needs-review --limit 200 --json number,headRefOid
 ```
 If empty, report "no PRs awaiting review" and stop. Otherwise process each PR (Step 3).
 
@@ -120,8 +125,16 @@ For PR `N` with head `SHA` (`headRefOid` from Step 2):
 ## Step 4 — Escalate on failure
 
 ```bash
-gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-human
+# Still ours? An overlapping run may already have moved this PR; adding auto:needs-human on top of
+# its label would leave two set. Comment BEFORE the label move: if the label goes first and the
+# comment fails, the PR sits at needs-human with no reason and the sweep (which queries
+# auto:reviewing) can no longer see it.
+OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")' 2>/dev/null)
+if [ "$OWN" != "true" ]; then
+  echo "#$N → lost claim — another run owns it, not escalating"; exit 1
+fi
 gh pr comment "$N" --repo "$REPO" --body "afk-review: escalating to needs-human — <one-line reason>."
+gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-human
 ```
 If either call fails, record the error and continue — Step 1's sweep reclaims the stranded claim next run.
 
