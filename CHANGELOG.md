@@ -14,7 +14,7 @@ Current version: **2.59**
 
 ### Added
 
-- **`scripts/sync-installed-skills.cjs`** — compares calsuite's tracked installed copies with their source and exits 1 on drift (`--fix` refreshes them). It reuses the installer's `normalizeForCompare`, so `_origin` stamps and auto-added frontmatter never count as drift, and it treats a copy that matches on disk but isn't committed as drift, because a fresh checkout won't have it. Distributed skills are stamped with the last commit that touched their source, so `configure-claude.js .` run on calsuite treats them as current and leaves them alone.
+- **`scripts/sync-installed-skills.cjs`** — compares calsuite's tracked installed copies with their source and exits 1 on drift (`--fix` refreshes them). It reuses the installer's `normalizeForCompare`, so `_origin` stamps and auto-added frontmatter never count as drift, and it treats a copy that matches on disk but isn't committed as drift, because a fresh checkout won't have it. Markdown mirrors carry `_origin: calsuite-mirror`, which the installer reads as a claim and skips without reporting, so `configure-claude.js .` run on calsuite never rewrites one. A `calsuite@<sha>` stamp can't work for mirrors: the commit that holds new content doesn't exist until merge, and squash-merges discard branch shas. `--fix` stages what it writes, and the loop's indirect dependencies (`ship`'s `pr-template.md`, `pr-body-parser.cjs`) are mirrored unconditionally.
 - **`.github/workflows/checks.yml`** — runs the drift check and the afk-fix execution harness (`scripts/test-afk-fix-blocks.sh`) on every PR.
 - `/review` is now mirrored into calsuite's `.claude/skills/`.
 

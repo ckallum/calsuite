@@ -70,7 +70,8 @@ done
 # (personal ~/.claude beats project .claude), never from calsuite's source tree — and this loop runs
 # in an isolated worktree, which contains only COMMITTED files. An install that predates
 # --headless / --no-publish, or one that was never committed, fails every convergence, so verify
-# the resolved copies actually carry the flags.
+# the resolved copies actually carry the flags. (Calsuite mirrors these via REQUIRED_SKILLS in
+# scripts/sync-installed-skills.cjs — keep that list in step with the checks below.)
 resolve_skill() {
   for p in "$HOME/.claude/skills/$1/SKILL.md" ".claude/skills/$1/SKILL.md"; do
     [ -f "$p" ] && { echo "$p"; return 0; }

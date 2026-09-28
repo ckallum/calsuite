@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@00b7dc5
+_origin: calsuite-mirror
 name: ship
 description: |
   ship it, push this, create PR, land this, send it, merge this, commit and push,

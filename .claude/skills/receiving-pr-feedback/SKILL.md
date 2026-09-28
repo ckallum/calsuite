@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@d0747f5
+_origin: calsuite-mirror
 name: receiving-pr-feedback
 version: 1.2.3
 description: |

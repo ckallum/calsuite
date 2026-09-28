@@ -1,4 +1,5 @@
 ---
+_origin: calsuite-mirror
 name: configure-claude
 description: Install Claude Code hooks, scripts, plugins, and config into a project. Use when setting up a new project or syncing config to an existing one.
 disable-model-invocation: true

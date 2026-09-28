@@ -1,4 +1,5 @@
 ---
+_origin: calsuite-mirror
 name: sync
 description: |
   Manually run calsuite's mechanical --sync across every target in config/targets.json,

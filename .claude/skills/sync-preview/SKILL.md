@@ -1,4 +1,5 @@
 ---
+_origin: calsuite-mirror
 name: sync-preview
 description: |
   Read-only preview of calsuite --sync across every target in config/targets.json.

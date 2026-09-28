@@ -1,4 +1,5 @@
 ---
+_origin: calsuite-mirror
 name: reconcile
 description: |
   Wrap configure-claude.js --reconcile <path> for a single divergent skill/agent file.

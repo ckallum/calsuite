@@ -1,3 +1,7 @@
+---
+_origin: calsuite-mirror
+---
+
 # Category Templates
 
 Per-category guidance for skill scaffolding. Read the relevant category section after the user selects their category in Step 1.

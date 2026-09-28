@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@eb25706
+_origin: calsuite-mirror
 ---
 
 # Greptile Comment Triage

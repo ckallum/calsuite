@@ -1,4 +1,5 @@
 ---
+_origin: calsuite-mirror
 name: {{SKILL_NAME}}
 version: 1.0.0
 description: |

@@ -1,20 +1,24 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Keeps calsuite's git-tracked installed copies in step with their sources:
+ * Keeps calsuite's git-tracked installed copies ("mirrors") in step with their sources:
  *   .claude/skills/<name>/**  <-  skills/<name>/**
  *   .claude/scripts/lib/*     <-  scripts/lib/*
  *
  * - Calsuite gitignores `.claude/`, so a fresh clone or worktree contains only the force-added
- *   copies, and `--sync` never refreshes calsuite itself (it is the source, not a target).
- *   Anything running in an isolated worktree — the AFK fix loop — sees these copies and nothing else.
- * - "Same" is `normalizeForCompare` equality, the installer's own definition, so `_origin`
- *   stamps and auto-added frontmatter never count as drift.
+ *   mirrors, and `--sync` never refreshes calsuite itself (it is the source, not a target).
+ *   Anything running in an isolated worktree — the AFK fix loop — sees these and nothing else.
+ * - Content equality is `normalizeForCompare`, the installer's own definition, so `_origin` lines
+ *   and auto-added frontmatter never count as content drift.
+ * - Markdown mirrors carry `_origin: calsuite-mirror`. The installer reads any non-`calsuite@`
+ *   origin as a claim and skips the file without reporting it, so `configure-claude.js .` on
+ *   calsuite never rewrites a mirror. A `calsuite@<sha>` stamp can't serve here: no commit carrying
+ *   the new content exists until the change merges, and squash-merging discards branch shas.
  *
  * Usage: node scripts/sync-installed-skills.cjs [--fix] [skill ...]
  *   (default)  report drift; exit 1 if any
- *   --fix      rewrite stale or missing copies from source
- *   skill ...  also mirror these skills (prints the `git add -f` needed to start tracking them)
+ *   --fix      rewrite drifted mirrors from source and stage them (`git add -f`) for commit
+ *   skill ...  also mirror these skills
  */
 const fs = require('fs');
 const path = require('path');
@@ -25,26 +29,28 @@ const ROOT = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const FIX = args.includes('--fix');
 const extraSkills = args.filter(a => !a.startsWith('--'));
+const CLAIM = 'calsuite-mirror';
+
+// Mirrored unconditionally because the AFK fix loop reads them from its isolated worktree:
+// - review, receiving-pr-feedback: the dependencies skills/afk-fix/SKILL.md's preconditions check
+//   (keep both lists in step)
+// - ship: receiving-pr-feedback --publish-only reads .claude/skills/ship/pr-template.md
+// - pr-body-parser.cjs: required by receiving-pr-feedback --publish-only
+const REQUIRED_SKILLS = ['review', 'receiving-pr-feedback', 'ship'];
+const REQUIRED_LIB = ['pr-body-parser.cjs'];
 
 const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8' });
 const tracked = rel => git('ls-files', '-z', '--', rel).split('\0').filter(Boolean);
 const abs = rel => path.join(ROOT, rel);
 
-// The AFK fix loop resolves these from the committed copies (skills/afk-fix/SKILL.md preconditions),
-// so they are mirrored unconditionally — an untracked or missing copy is drift, not "nothing to check".
-const REQUIRED = ['review', 'receiving-pr-feedback'];
-
-const profiles = JSON.parse(fs.readFileSync(abs('config/profiles.json'), 'utf8')).profiles;
-const distributed = new Set(Object.values(profiles).flatMap(p => p.skills || []));
-
-// [installedRel, sourceRel, skillName|null]
+// [mirrorRel, sourceRel]
 const pairs = [];
 const orphans = [];
 
-const trackedInstalled = tracked('.claude/skills');
+const trackedMirrors = tracked('.claude/skills');
 const skillNames = new Set([
-  ...trackedInstalled.map(f => f.split('/')[2]),
-  ...REQUIRED,
+  ...trackedMirrors.map(f => f.split('/')[2]),
+  ...REQUIRED_SKILLS,
   ...extraSkills,
 ]);
 for (const name of [...skillNames].sort()) {
@@ -56,81 +62,80 @@ for (const name of [...skillNames].sort()) {
   }
   const expected = new Set();
   for (const src of sources) {
-    const inst = `.claude/${src}`;
-    expected.add(inst);
-    pairs.push([inst, src, name]);
+    expected.add(`.claude/${src}`);
+    pairs.push([`.claude/${src}`, src]);
   }
-  for (const inst of trackedInstalled) {
-    if (inst.startsWith(`.claude/skills/${name}/`) && !expected.has(inst)) orphans.push(inst);
+  for (const m of trackedMirrors) {
+    if (m.startsWith(`.claude/skills/${name}/`) && !expected.has(m)) orphans.push(m);
   }
 }
-for (const inst of tracked('.claude/scripts/lib')) {
-  const src = inst.slice('.claude/'.length);
-  if (fs.existsSync(abs(src))) pairs.push([inst, src, null]);
-  else orphans.push(inst);
-}
-
-function same(instRel, srcRel) {
-  const a = fs.readFileSync(abs(instRel), 'utf8');
-  const b = fs.readFileSync(abs(srcRel), 'utf8');
-  return srcRel.endsWith('.md')
-    ? normalizeForCompare(a) === normalizeForCompare(b)
-    : a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
-}
-
-/**
- * Markdown copies keep the installer's `_origin` convention: stamped when the existing copy is
- * stamped, or when it is new and the skill is distributed. The stamp names the last commit that
- * touched the source, so `configure-claude.js .` run against calsuite finds content-at-sha equal
- * to the copy and treats it as current instead of user-diverged.
- */
-function render(instRel, srcRel, name) {
-  const src = fs.readFileSync(abs(srcRel), 'utf8');
-  if (!srcRel.endsWith('.md')) return src;
-  const existing = fs.existsSync(abs(instRel)) ? fs.readFileSync(abs(instRel), 'utf8') : null;
-  const stamp = existing !== null ? Boolean(readOrigin(existing)) : Boolean(name && distributed.has(name));
-  if (!stamp) return src;
-  const sha = git('log', '-1', '--format=%h', '--', srcRel).trim();
-  return sha ? stampOrigin(src, `calsuite@${sha}`) : src;
+const libMirrors = new Set([
+  ...tracked('.claude/scripts/lib'),
+  ...REQUIRED_LIB.map(f => `.claude/scripts/lib/${f}`),
+]);
+for (const m of [...libMirrors].sort()) {
+  const src = m.slice('.claude/'.length);
+  if (fs.existsSync(abs(src))) pairs.push([m, src]);
+  else orphans.push(m);
 }
 
 if (pairs.length === 0) {
-  console.error('✗ no installed copies found to check — expected at least the required skills; is .claude/ checked out?');
+  console.error('✗ no mirrors found to check — is .claude/ checked out?');
   process.exit(1);
 }
 
-const stale = pairs.filter(([inst, src]) => !fs.existsSync(abs(inst)) || !same(inst, src));
-// A copy that matches on disk but isn't committed is absent from every fresh checkout, so it
-// counts as drift here too — otherwise a local run passes where CI's clean checkout fails.
+const isMd = rel => rel.endsWith('.md');
+const read = rel => fs.readFileSync(abs(rel), 'utf8');
+const lf = s => s.replace(/\r\n/g, '\n');
+
+/** First reason a mirror needs rewriting, or null when it is current. */
+function problem(m, src) {
+  if (!fs.existsSync(abs(m))) return 'missing';
+  const a = read(m), b = read(src);
+  if (isMd(src) ? normalizeForCompare(a) !== normalizeForCompare(b) : lf(a) !== lf(b)) return 'stale';
+  if (isMd(src) && readOrigin(a) !== CLAIM) return 'unclaimed';
+  return null;
+}
+
 const isTracked = new Set(tracked('.claude'));
-const untracked = pairs.map(([inst]) => inst).filter(inst => !isTracked.has(inst));
+const drift = pairs.map(([m, src]) => [m, src, problem(m, src)]).filter(([, , p]) => p);
+// Current on disk but not committed = absent from every fresh checkout, so it is drift too.
+const untracked = pairs.map(([m]) => m).filter(m => !isTracked.has(m) && !drift.some(([d]) => d === m));
+
+const NOTE = {
+  missing: 'no mirror',
+  stale: 'differs from source',
+  unclaimed: `lacks _origin: ${CLAIM}, so configure-claude.js may rewrite it`,
+};
 
 if (!FIX) {
-  for (const [inst, src] of stale) {
-    console.log(`  ${fs.existsSync(abs(inst)) ? 'stale    ' : 'missing  '}${inst}  (source: ${src})`);
-  }
-  const staleSet = new Set(stale.map(([inst]) => inst));
-  for (const u of untracked) if (!staleSet.has(u)) console.log(`  untracked ${u}  (matches source but not committed)`);
-  for (const o of orphans) console.log(`  orphan   ${o}  (no source)`);
-  const n = new Set([...stale.map(([i]) => i), ...untracked, ...orphans]).size;
+  for (const [m, src, p] of drift) console.log(`  ${p.padEnd(9)} ${m}  (${NOTE[p]}; source: ${src})`);
+  for (const m of untracked) console.log(`  untracked ${m}  (current but not committed)`);
+  for (const o of orphans) console.log(`  orphan    ${o}  (no source)`);
+  const n = drift.length + untracked.length + orphans.length;
   if (n) {
-    console.log(`\n✗ ${n} installed cop${n === 1 ? 'y' : 'ies'} out of step with source — run: node scripts/sync-installed-skills.cjs --fix, then commit (it prints the \`git add -f\` for new copies)`);
+    console.log(`\n✗ ${n} mirror${n === 1 ? '' : 's'} out of step — run: node scripts/sync-installed-skills.cjs --fix, then commit`);
     process.exitCode = 1;
   } else if (!process.exitCode) {
-    console.log(`✓ ${pairs.length} installed copies match source`);
+    console.log(`✓ ${pairs.length} mirrors match source`);
   }
   return;
 }
 
-for (const [inst, src, name] of stale) {
-  const isNew = !fs.existsSync(abs(inst));
-  fs.mkdirSync(path.dirname(abs(inst)), { recursive: true });
-  fs.writeFileSync(abs(inst), render(inst, src, name));
-  console.log(`  ${isNew ? 'created' : 'updated'}  ${inst}`);
+const staged = [];
+for (const [m, src, p] of drift) {
+  fs.mkdirSync(path.dirname(abs(m)), { recursive: true });
+  fs.writeFileSync(abs(m), isMd(src) ? stampOrigin(read(src), CLAIM) : read(src));
+  console.log(`  ${p === 'missing' ? 'created' : 'updated'}   ${m}`);
+  staged.push(m);
+}
+staged.push(...untracked);
+if (staged.length) {
+  git('add', '-f', '--', ...staged);
+  console.log(`\nstaged ${staged.length} mirror${staged.length === 1 ? '' : 's'} (git add -f) — commit them with the source change`);
 }
 for (const o of orphans) {
-  console.log(`  orphan   ${o}  — no source; remove with: git rm ${o}`);
+  console.log(`  orphan    ${o}  — no source; remove with: git rm ${o}`);
   process.exitCode = 1;
 }
-if (untracked.length) console.log(`\n.claude/ is gitignored — start tracking with:\n  git add -f ${untracked.join(' ')}`);
-if (!stale.length && !untracked.length && !orphans.length) console.log(`✓ ${pairs.length} installed copies already match source`);
+if (!staged.length && !orphans.length) console.log(`✓ ${pairs.length} mirrors already match source`);

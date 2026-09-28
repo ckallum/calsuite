@@ -1,5 +1,5 @@
 ---
-_origin: calsuite@3b6ed95
+_origin: calsuite-mirror
 ---
 
 # Review agent prompts

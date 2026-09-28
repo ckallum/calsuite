@@ -1,3 +1,7 @@
+---
+_origin: calsuite-mirror
+---
+
 # Skill Authoring Best Practices
 
 Distilled from Anthropic's internal skill authoring guidelines and real-world usage patterns. Read this before generating any SKILL.md content.
