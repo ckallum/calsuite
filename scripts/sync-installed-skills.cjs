@@ -104,7 +104,7 @@ if (!FIX) {
   for (const o of orphans) console.log(`  orphan   ${o}  (no source)`);
   const n = new Set([...stale.map(([i]) => i), ...untracked, ...orphans]).size;
   if (n) {
-    console.log(`\n✗ ${n} installed cop${n === 1 ? 'y' : 'ies'} out of step with source — run: node scripts/sync-installed-skills.cjs --fix`);
+    console.log(`\n✗ ${n} installed cop${n === 1 ? 'y' : 'ies'} out of step with source — run: node scripts/sync-installed-skills.cjs --fix, then commit (it prints the \`git add -f\` for new copies)`);
     process.exitCode = 1;
   } else if (!process.exitCode) {
     console.log(`✓ ${pairs.length} installed copies match source`);
