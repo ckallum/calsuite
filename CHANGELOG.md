@@ -2,7 +2,21 @@
 
 All notable changes to this repository.
 
-Current version: **2.58**
+Current version: **2.59**
+
+## [2.59] — 2026-09-28
+
+### Fixed
+
+- **The AFK fix loop could not run in calsuite.** It runs in an isolated worktree, which contains only committed files, and calsuite gitignores `.claude/`. The installed `/review` had never been committed, and the committed `/receiving-pr-feedback` was v1.0.0, so afk-fix's preconditions aborted before touching any PR. Running `configure-claude.js .` did not help: it installs into the ignored directory, which no fresh worktree sees.
+- **Every force-tracked installed skill in calsuite had gone stale.** Ten of eleven copies under `.claude/skills/` and `.claude/scripts/lib/` lagged their source; the oldest dated from March. Each exactly matched a past version of its source, so refreshing lost nothing. `/ship` also referenced `references/pre-pr-gates.md`, which had no installed copy.
+- **afk-fix's dependency error named the wrong fix.** It now says the copies must be committed, with the command for calsuite and for a target.
+
+### Added
+
+- **`scripts/sync-installed-skills.cjs`** — compares calsuite's tracked installed copies with their source and exits 1 on drift (`--fix` refreshes them). It reuses the installer's `normalizeForCompare`, so `_origin` stamps and auto-added frontmatter never count as drift, and it treats a copy that matches on disk but isn't committed as drift, because a fresh checkout won't have it. Distributed skills are stamped with the last commit that touched their source, so `configure-claude.js .` run on calsuite treats them as current and leaves them alone.
+- **`.github/workflows/checks.yml`** — runs the drift check and the afk-fix execution harness (`scripts/test-afk-fix-blocks.sh`) on every PR.
+- `/review` is now mirrored into calsuite's `.claude/skills/`.
 
 ## [2.58] — 2026-09-03
 

@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.58** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.59** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -155,6 +155,7 @@ scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked i
 - `<target>/.claude/settings.local.json` — **per-user** (gitignored by the installer). Installer writes calsuite hook wiring here with literal resolved `$CALSUITE_DIR` paths.
 - `config/targets.json` — repos that `--sync` installs to. Each entry: `{ path, workspaces?, skills? }`. `workspaces: "skip"` restricts monorepo targets to root-only install. `skills: { exclude: ["a", "b"] }` drops the named skills from the profile-resolved install set; unmatched names surface as a ⚠ drift warning. See `config/targets.example.json`.
 - `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config/behaviors change
+- `scripts/sync-installed-skills.cjs` — checks (and with `--fix`, refreshes) calsuite's force-tracked `.claude/skills/` and `.claude/scripts/lib/` copies against `skills/` and `scripts/lib/`. Run by the `checks` workflow on every PR.
 - `scripts/install-afk-routines.cjs` — symlinks calsuite-owned `afk-*` workflows, skills, and scheduled-task prompts into `~/.claude/` (global) so Desktop scheduled tasks resolve them by name. Run once per machine; the schedule/folder binding is set separately via the `scheduled-tasks` MCP or the Routines UI.
 - `~/.claude/CLAUDE.md` — user-global memory loaded for every project. Installer merges a marker-delimited block here from `behaviors/*.md`; content outside the markers is preserved.
 - `behaviors/*.md` — global behaviour sections (one concern per file, `README.md` excluded). Concatenated in filename order into the `~/.claude/CLAUDE.md` managed block.
@@ -185,6 +186,7 @@ scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked i
 - Hook entries in `hooks.json` MUST have `"_origin": "calsuite"` — the installer uses this to merge without overwriting project-specific hooks.
 - Calsuite is **not** listed in `config/targets.json` — it is the source, not a downstream, so `--sync` never touches it.
 - After structural changes to hooks, profiles, skills, or scripts, run `node scripts/configure-claude.js .` from the calsuite root to refresh `.claude/settings.local.json` here. The committed `.claude/settings.json` stays plugins + permissions only.
+- Calsuite's own `.claude/skills/` and `.claude/scripts/lib/` copies are **force-tracked mirrors** — `.claude/` is otherwise gitignored, so fresh clones and worktrees (including the AFK fix loop's isolated worktree) contain only these, and `--sync` never refreshes calsuite. After editing a mirrored skill's source, run `node scripts/sync-installed-skills.cjs --fix`; to mirror a new skill, pass its name and `git add -f` the printed paths. The `checks` workflow fails any PR where they drift.
 - Claude Code MCP schema uses `"type": "http"` for remote servers, NOT `"type": "url"`.
 - Claude Code's skill hierarchy is enterprise > personal (`~/.claude/`) > project (CWD's `.claude/`) > plugin. Parent-directory `.claude/skills/` is **not** discovered automatically.
 - Review gate blocks commits without `@code-reviewer` approval — bypass with `[skip-review]`, `docs:`/`chore:`/`style:` prefix, or md-only changes.

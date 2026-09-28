@@ -1,0 +1,33 @@
+# checks — deterministic guards that run on every PR.
+#
+# - Installed-skill drift: calsuite gitignores `.claude/`, so a fresh clone or worktree sees only the
+#   force-added installed copies, and `--sync` never refreshes calsuite itself. The AFK fix loop runs
+#   in an isolated worktree, so a stale or uncommitted copy of /review or /receiving-pr-feedback
+#   breaks it. Fix locally with: node scripts/sync-installed-skills.cjs --fix
+# - afk-fix execution harness: runs each bash block of skills/afk-fix/SKILL.md as its own process
+#   against a real git repo with a stubbed gh, which is how the skill actually executes.
+#
+# Plain `pull_request` (read-only token): this job checks out and executes PR code, so it must never
+# run under `pull_request_target`.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Installed skills match source
+        run: node scripts/sync-installed-skills.cjs
+      - name: afk-fix execution harness
+        run: bash scripts/test-afk-fix-blocks.sh

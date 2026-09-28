@@ -2,7 +2,9 @@
 name: {{SKILL_NAME}}
 version: 1.0.0
 description: |
-  {{TRIGGER_PHRASES}}
+  {{TRIGGER_PHRASES — 5-8 phrases users actually say, OR a "Use when …" clause.
+  Must signal WHEN to reach for the skill, not just what it does. The installer
+  guard warns if this carries no when-to-use signal.}}
 argument-hint: {{ARGUMENT_HINT}}
 allowed-tools:
   - {{TOOL_1}}
@@ -26,6 +28,14 @@ Check for `config.json` in this skill's directory. If missing, use AskUserQuesti
 Store answers in `config.json`. On subsequent runs, load config silently.
 
 {{IF_NO_CONFIG: Remove this section entirely.}}
+
+## Arguments
+
+{{IF_SKILL_TAKES_ARGUMENTS:}}
+- `/{{SKILL_NAME}}` — {{describe behavior with no argument; if not supported, say "abort and ask the user to supply X"}}
+- `/{{SKILL_NAME}} <{{ARG_NAME}}>` — {{describe what the argument means, valid forms, how it maps to the workflow step that consumes it}}
+
+{{IF_SKILL_TAKES_NO_ARGUMENTS: Remove this section entirely AND drop `argument-hint` from frontmatter.}}
 
 ## Workflow
 
