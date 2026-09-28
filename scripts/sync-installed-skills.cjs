@@ -30,6 +30,10 @@ const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8' });
 const tracked = rel => git('ls-files', '-z', '--', rel).split('\0').filter(Boolean);
 const abs = rel => path.join(ROOT, rel);
 
+// The AFK fix loop resolves these from the committed copies (skills/afk-fix/SKILL.md preconditions),
+// so they are mirrored unconditionally — an untracked or missing copy is drift, not "nothing to check".
+const REQUIRED = ['review', 'receiving-pr-feedback'];
+
 const profiles = JSON.parse(fs.readFileSync(abs('config/profiles.json'), 'utf8')).profiles;
 const distributed = new Set(Object.values(profiles).flatMap(p => p.skills || []));
 
@@ -40,6 +44,7 @@ const orphans = [];
 const trackedInstalled = tracked('.claude/skills');
 const skillNames = new Set([
   ...trackedInstalled.map(f => f.split('/')[2]),
+  ...REQUIRED,
   ...extraSkills,
 ]);
 for (const name of [...skillNames].sort()) {
@@ -87,6 +92,11 @@ function render(instRel, srcRel, name) {
   if (!stamp) return src;
   const sha = git('log', '-1', '--format=%h', '--', srcRel).trim();
   return sha ? stampOrigin(src, `calsuite@${sha}`) : src;
+}
+
+if (pairs.length === 0) {
+  console.error('✗ no installed copies found to check — expected at least the required skills; is .claude/ checked out?');
+  process.exit(1);
 }
 
 const stale = pairs.filter(([inst, src]) => !fs.existsSync(abs(inst)) || !same(inst, src));
