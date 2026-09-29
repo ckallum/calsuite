@@ -1,6 +1,6 @@
 ---
 name: review
-version: 1.4.3
+version: 1.4.4
 description: |
   review this, pre-landing review, check my code, review before merge, code review,
   look over my changes, audit this PR, review PR, review pull request.
@@ -47,12 +47,14 @@ If `docs/adr/` exists and the diff touches an area covered by an ADR, include "r
 
 ## Step 0: Multi Mode
 
-**If `$ARGUMENTS` contains `--multi`:**
+**If `$ARGUMENTS` contains `--multi` *and not* `--headless`:**
+
+(`--headless` always wins: its no-PR-write contract can't hold if Step 0 spawns `/review pr` panes, which post comments. With both flags, ignore `--multi` and continue to Step 1.)
 
 `--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance for unbiased review.
 
 1. Parse PR numbers from arguments (single number like `123` or comma-separated like `123,124,125`).
-2. Hand the parsed PR numbers to the shared launcher. It validates each value against `^[0-9]+$` before touching tmux — a value containing `$(...)`, backticks, or other shell metacharacters would otherwise fire command substitution inside the double-quoted tmux command. It then confirms an active tmux session, spawns one pane per PR, and prints the summary. Pass `{ID}` through unexpanded — the script substitutes it per pane.
+2. Hand the parsed PR numbers to the shared launcher. It validates each value against `^[0-9]+$` before touching tmux — a value containing `$(...)`, backticks, or other shell metacharacters would otherwise fire command substitution inside the double-quoted tmux command. It then confirms an active tmux session, spawns one pane per PR, and prints the summary. Substitute the parsed numbers for the `--ids` placeholder, and pass `{ID}` through unexpanded — the script substitutes it per pane.
 
 ```bash
 calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
@@ -62,7 +64,7 @@ if [ ! -f "$calsuite_dir/scripts/tmux-multi-launch.sh" ]; then
   exit 1
 fi
 bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
-  --mode pr --ids "123,124,125" \
+  --mode pr --ids "<the PR numbers parsed in step 1, comma-separated>" \
   --prompt 'Run /review pr {ID}. Post your full findings as a PR comment. Do not make any code changes.' \
   --label 'Review of PR #{ID} complete' \
   --summary-label 'Multi-PR review'
@@ -89,7 +91,7 @@ Full flow lives in [references/converse.md](references/converse.md) — read it 
 **If `$ARGUMENTS` contains `pr <number>` *and not* `--headless`:** PR review mode. (`--headless` always means the non-interactive *local* mode — even with `pr <number>` — so it must be checked first; otherwise `/review pr 42 --headless` would select PR mode and post a comment, breaking the "no PR comment" contract.)
 1. Run `gh pr view <number> --json state,isDraft` to check eligibility.
 2. If the PR is closed, a draft, or trivially small (automated/bot PR), output: **"PR not eligible for review."** and stop.
-3. Run `gh pr diff <number>` to get the diff. Use this instead of `git diff origin/main` for all subsequent steps.
+3. Run `gh pr diff <number>` to get the diff. Use this instead of a local `git diff` for all subsequent steps.
 4. Skip to Step 2.
 
 **Otherwise:** Local branch review mode. The review base is `main` by default; a caller may override it with `--base <ref>` — the AFK fix loop passes the PR's real base, since it reviews a **detached** checkout on an arbitrary repo (which may use `master`/`develop`, or be a stacked PR). Resolve it once and use `origin/$BASE` everywhere below: `BASE=<the --base value, else main>`. **`--base` is honored only together with `--headless`** — the Step 6 stamp and the review-gate hook both assume `origin/main`, so in interactive mode ignore any `--base` and always use `main` (an interactive `--base develop` would otherwise write a stamp hashing a diff it never reviewed, and crash on a repo with no `origin/main`).
@@ -127,6 +129,8 @@ Read `.claude/skills/review/greptile-triage.md` and follow the fetch, filter, cl
 
 Dispatch **up to 11 parallel agents** in a single message using the Agent tool. Agents A–E always run. Agents F, G, H, I, J, and K are signal-gated — only dispatch them if the diff matches the gate.
 
+**Before sending each prompt, substitute its `<DIFF>` and `<FILES>` placeholders** with this run's literal commands — PR mode: `gh pr diff <n>` / `gh pr diff <n> --name-only`; local and `--headless`: `git diff origin/<base>` / `git diff origin/<base> --name-only` — using the real number and base. Each agent runs as its own process, so it sees only what its prompt says.
+
 ### Signal gating (run these greps first)
 
 Use the same diff source selected in Step 1:
@@ -145,6 +149,9 @@ Use the same diff source selected in Step 1:
 # *_COUNT is 0 → F–K never dispatch and A–E see an empty diff → the run prints PASS, and a headless
 # caller reads that as convergence and publishes a PR nothing reviewed.
 BASE="<the --base value from $ARGUMENTS, else main — re-resolved here, matching Step 1>"
+# PR_NUMBER needs the same treatment: nothing earlier sets it in this shell. Left empty, PR mode
+# would diff the LOCAL checkout here while later steps still post to the requested PR.
+PR_NUMBER="<the number after 'pr' in $ARGUMENTS — empty when there is none, or when --headless is present>"
 DIFF_FILE="$CONVERSE_TMPDIR/diff.txt"
 if [ ! -s "$DIFF_FILE" ]; then
   DIFF_FILE=$(mktemp)

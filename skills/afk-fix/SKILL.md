@@ -1,6 +1,6 @@
 ---
 name: afk-fix
-version: 0.3.0
+version: 0.3.1
 description: |
   afk fix loop, autonomous PR fix loop, run the fix loop, fix needs-fixes PRs, afk fix cycle.
   The in-session orchestrator for the AFK fix loop: select open PRs labelled auto:needs-fixes,
@@ -72,6 +72,14 @@ done
 # --headless / --no-publish, or one that was never committed, fails every convergence, so verify
 # the resolved copies actually carry the flags. (Calsuite mirrors these via REQUIRED_SKILLS in
 # scripts/sync-installed-skills.cjs — keep that list in step with the checks below.)
+# The fix depends on WHICH copy resolved: a personal ~/.claude copy shadows the project's, so
+# committing the project copy can't clear the abort.
+dep_fix_hint() {
+  case "$1" in
+    "$HOME"/*) echo "that is your personal copy, which shadows the project's — update or remove $1" ;;
+    *) echo "the loop's isolated worktree only sees COMMITTED skills — in calsuite run: node scripts/sync-installed-skills.cjs --fix; in a target run configure-claude.js on it; then commit .claude/skills" ;;
+  esac
+}
 resolve_skill() {
   for p in "$HOME/.claude/skills/$1/SKILL.md" ".claude/skills/$1/SKILL.md"; do
     [ -f "$p" ] && { echo "$p"; return 0; }
@@ -80,11 +88,11 @@ resolve_skill() {
 }
 RV=$(resolve_skill review)
 if [ -z "$RV" ] || ! grep -q -- '--headless' "$RV"; then
-  echo "AFKFIX_ABORT installed /review lacks --headless (resolved: ${RV:-not installed}) — the loop's isolated worktree only sees COMMITTED skills — in calsuite run: node scripts/sync-installed-skills.cjs --fix; in a target run configure-claude.js on it; then commit .claude/skills"; exit 1
+  echo "AFKFIX_ABORT installed /review lacks --headless (resolved: ${RV:-not installed}) — $(dep_fix_hint "$RV")"; exit 1
 fi
 RP=$(resolve_skill receiving-pr-feedback)
 if [ -z "$RP" ] || ! grep -q -- '--no-publish' "$RP"; then
-  echo "AFKFIX_ABORT installed /receiving-pr-feedback lacks --no-publish (resolved: ${RP:-not installed}) — the loop's isolated worktree only sees COMMITTED skills — in calsuite run: node scripts/sync-installed-skills.cjs --fix; in a target run configure-claude.js on it; then commit .claude/skills"; exit 1
+  echo "AFKFIX_ABORT installed /receiving-pr-feedback lacks --no-publish (resolved: ${RP:-not installed}) — $(dep_fix_hint "$RP")"; exit 1
 fi
 
 echo "AFKFIX_OK preconditions repo=$REPO review=$RV rpf=$RP"
@@ -326,5 +334,5 @@ Print one line per PR — `#N → needs-review | needs-human | error (...)` — 
 - **Stateless.** No completion markers, no saved run state. Every block re-derives from `gh`/`git`; the GitHub label is the only persistent state. A crash costs a redundant convergence, never a corrupted transition.
 - **Publish once.** `--no-publish` defers replies/body/push through every convergence pass; `--publish-only` flushes them once at the end. A crash before that leaves nothing pushed — a clean retry.
 - **Headless-safe.** Every decision is escalate-not-ask. `/receiving-pr-feedback --no-publish`/`--publish-only` and `/review --headless` are non-interactive by contract; if either prompts or hangs, treat it as a failure and escalate. The loop never invokes a skill without a headless mode (`/improve-architecture`, `/prevent`, interactive `/review`).
-- **Prerequisites.** Labels bootstrapped, cwd a checkout of `REPO`, and `/review` + `/receiving-pr-feedback` **installed and committed** at versions carrying `--headless` / `--no-publish` (the isolated worktree sees only committed files; in calsuite, `scripts/sync-installed-skills.cjs` keeps those copies current) — all verified up front. Worktree isolation must also be on; the loop can't read that setting but detects its effect and refuses to reset a primary checkout.
+- **Prerequisites.** Labels bootstrapped, cwd a checkout of `REPO`, and `/review` + `/receiving-pr-feedback` **installed and committed** at versions carrying `--headless` / `--no-publish` (the isolated worktree sees only committed files; in calsuite, `scripts/sync-installed-skills.cjs` keeps those copies current). The precondition checks whichever copy actually resolves — personal before project — so a stale personal copy aborts with its own fix. Worktree isolation must also be on; the loop can't read that setting but detects its effect and refuses to reset a primary checkout.
 - **Downstream.** `auto:needs-review` → the review loop re-verifies the pushed fixes and can bounce it back to `auto:needs-fixes` (the review↔fix cycle). `auto:needs-human` → a human; the branch is left unpushed.

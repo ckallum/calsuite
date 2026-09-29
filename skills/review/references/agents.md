@@ -1,14 +1,23 @@
 # Review agent prompts
 
-Verbatim prompt bodies for the nine parallel review agents dispatched by Step 3 of SKILL.md. The dispatch logic (signal gates, ordering, conditional fires) stays in SKILL.md — this file holds only the prompt strings each agent receives.
+Verbatim prompt bodies for the parallel review agents dispatched by Step 3 of SKILL.md. The dispatch logic (signal gates, ordering, conditional fires) stays in SKILL.md — this file holds only the prompt strings each agent receives.
+
+**Diff placeholders.** Prompts name the reviewed change as `<DIFF>` (the full diff) and `<FILES>` (changed file names). The dispatcher substitutes this run's literal commands before sending each prompt:
+
+| Mode | `<DIFF>` | `<FILES>` |
+|---|---|---|
+| PR mode (`pr <n>`) | `gh pr diff <n>` | `gh pr diff <n> --name-only` |
+| Local / `--headless` | `git diff origin/<base>` | `git diff origin/<base> --name-only` |
+
+A subagent runs in its own process, so a prompt must never rely on a shell variable; a hardcoded base branch would review the local checkout instead of the PR, or the wrong base under `--base`.
 
 ## Agent A: Convention review (@code-reviewer)
 
 ```text
-prompt: "You are the @code-reviewer agent. Review the diff between origin/main and HEAD.
+prompt: "You are the @code-reviewer agent. Review the change in `<DIFF>`.
 
 Follow the full code-reviewer workflow:
-1. Run: git diff origin/main, git diff origin/main --name-only
+1. Run: `<DIFF>`, `<FILES>`
 2. Read all CLAUDE.md files in the repo
 3. If .claude/specs/ exists, detect active spec from branch name
 4. For each changed file, read 1-2 sibling files for pattern context
@@ -24,8 +33,8 @@ description: "Convention review (@code-reviewer)"
 ## Agent B: Checklist review (security + structural)
 
 ```text
-prompt: "Run a pre-landing code review on the diff between origin/main and HEAD.
-Run `git diff origin/main` to get the full diff. Read the checklist at
+prompt: "Run a pre-landing code review on the change in `<DIFF>`.
+Run `<DIFF>` to get the full diff. Read the checklist at
 .claude/skills/review/checklist.md. Apply the two-pass review:
 
 Pass 1 (CRITICAL): SQL & Data Safety, Race Conditions & Concurrency,
@@ -47,9 +56,9 @@ description: "Checklist review (security + structural)"
 ## Agent C: Git blame & history review
 
 ```text
-prompt: "Review the changes between origin/main and HEAD using git history context.
+prompt: "Review the change in `<DIFF>` using git history context.
 
-1. Run `git diff origin/main --name-only` to get changed files.
+1. Run `<FILES>` to get changed files.
 2. For each changed file, run `git log --oneline -10 -- <file>` and
    `git blame -L <changed-lines> -- <file>` to understand the history.
 3. Look for:
@@ -70,7 +79,7 @@ description: "Git blame & history review"
 prompt: "Check if previous PRs that touched these files had review comments
 that may also apply to the current changes.
 
-1. Run `git diff origin/main --name-only` to get changed files.
+1. Run `<FILES>` to get changed files.
 2. For each file (max 5), run:
    `gh pr list --state merged --search <filename> --limit 3 --json number`
 3. For each found PR, fetch review comments:
@@ -86,10 +95,10 @@ description: "Previous PR comment review"
 ## Agent E: Code comment compliance
 
 ```text
-prompt: "Check that the changes between origin/main and HEAD comply with
+prompt: "Check that the change in `<DIFF>` complies with
 code comments in the modified files.
 
-1. Run `git diff origin/main --name-only` to get changed files.
+1. Run `<FILES>` to get changed files.
 2. For each changed file, read the full file and identify:
    - TODO/FIXME/HACK comments near changed lines
    - Docstrings or inline comments that describe expected behavior
@@ -109,8 +118,7 @@ Only dispatch if `$F_COUNT > 0` from the gate grep above (diff contains `catch`,
 prompt: "Hunt for silent failures in the target diff for this review.
 
 Use the same diff source selected in Step 1:
-- local mode: `git diff origin/main`
-- PR mode: the `gh pr diff <number>` output already fetched
+- `<DIFF>` (the dispatcher substitutes this run's diff command)
 For every error-handling location in the changed code, scrutinize:
 
 1. **Catch block specificity:** Does it catch only expected errors, or could
@@ -144,8 +152,7 @@ Only dispatch if `$G_COUNT > 0` from the gate grep above (diff introduces or mod
 prompt: "Review type design in the target diff for this review.
 
 Use the same diff source selected in Step 1:
-- local mode: `git diff origin/main`
-- PR mode: the `gh pr diff <number>` output already fetched
+- `<DIFF>` (the dispatcher substitutes this run's diff command)
 Find new or modified type definitions
 (interfaces, types, enums, classes, structs).
 
@@ -180,10 +187,9 @@ Only dispatch if `$H_COUNT > 0` — the diff touches a source file (Rust, TypeSc
 prompt: "Hunt for cross-module format-consistency drift in the target diff.
 
 Use the same diff source selected in Step 1:
-- local mode: git diff origin/main
-- PR mode: the gh pr diff <number> output already fetched
+- `<DIFF>` (the dispatcher substitutes this run's diff command)
 
-1. Run `git diff origin/main --name-only` to get the changed files.
+1. Run `<FILES>` to get the changed files.
 2. For each changed file, determine its module — the nearest enclosing directory
    that groups related files (e.g. `src-tauri/src/db/` for Rust, `src/features/foo/`
    for TS, `app/models/` for Ruby). Read every file in that module, not just the
@@ -216,7 +222,7 @@ Only dispatch if `$SPEC_DIR` is non-empty — i.e. the branch name, with standar
 prompt: "Check the diff for deviations from the spec contract.
 
 1. Read $SPEC_DIR/design.md and $SPEC_DIR/tasks.md — these are the contract.
-2. Run `git diff origin/main` (or the PR diff) to see what was built.
+2. Run `<DIFF>` to see what was built.
 3. For each top-level item in design.md (new components, APIs, data flows, event names,
    field names) and each task in tasks.md:
    - Is it delivered in the diff? If a design.md bullet names a specific symbol,
@@ -249,8 +255,7 @@ Only dispatch if `$H_COUNT > 0` — the diff touches source (Rust, TS/JS, Python
 prompt: "Hunt for correctness and logic bugs in the target diff for this review — defects that make the code do the wrong thing. This is distinct from the security checklist (SQL/race/auth) and the silent-failure pass (error handling); do not re-report those.
 
 Use the same diff source selected in Step 1:
-- local mode: `git diff origin/main`
-- PR mode: the `gh pr diff <number>` output already fetched
+- `<DIFF>` (the dispatcher substitutes this run's diff command)
 
 Read enough surrounding context to judge intent, then for the changed lines look for:
 
@@ -276,8 +281,7 @@ Only dispatch if `$H_COUNT > 0` — the diff touches source. This is the quality
 prompt: "Review the target diff for reuse, simplification, efficiency, and altitude cleanups. Quality only — do NOT hunt for correctness bugs (that is Agent J).
 
 Use the same diff source selected in Step 1:
-- local mode: `git diff origin/main`
-- PR mode: the `gh pr diff <number>` output already fetched
+- `<DIFF>` (the dispatcher substitutes this run's diff command)
 
 For the changed code, look for:
 

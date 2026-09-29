@@ -24,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Both checks use local git data only; don't leave the token readable by PR code.
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
