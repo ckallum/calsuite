@@ -1,13 +1,11 @@
-'use strict';
-
 // Known section names for identification
 const KNOWN_SECTIONS = [
   'Summary',
   'How It Works',
+  'Development Flow',
   'Important Files',
   'Test Results',
   'Pre-Landing Review',
-  'Development Flow',
   'Doc Completeness',
   'Revision History',
 ];
@@ -21,7 +19,10 @@ const KNOWN_SECTIONS = [
  * - Preserves preamble text before the first `## ` header
  * - Each section = header name + full content until next `## ` or EOF
  * - Unknown sections (not in KNOWN_SECTIONS) are preserved in their original position
- * - Round-trip safe: assemblePrBody(parsePrBody(body)) === body
+ * - Section names are trimmed during parsing
+ * - assemblePrBody normalizes section headers to `## ${name}\n`
+ * - assemblePrBody ensures trailing newlines on preamble and section content
+ * - Exact string round-tripping is guaranteed for already-normalized input
  */
 function parsePrBody(body) {
   if (!body) {
@@ -29,7 +30,6 @@ function parsePrBody(body) {
   }
 
   // Split on lines that start with `## ` while keeping the delimiter
-  // We use a regex that matches `## ` at the start of a line
   const parts = body.split(/^(?=## )/m);
 
   let preamble = '';
@@ -51,7 +51,7 @@ function parsePrBody(body) {
 
     if (newlineIndex === -1) {
       // Section header with no content after it
-      name = part.replace(/^## /, '').trim();
+      name = part.slice(3).trim();
       content = '';
     } else {
       name = part.slice(3, newlineIndex).trim();
@@ -65,17 +65,23 @@ function parsePrBody(body) {
 }
 
 /**
+ * Ensure text ends with a trailing newline (prevents header gluing).
+ */
+function ensureTrailingNewline(text) {
+  if (!text || text.endsWith('\n')) return text;
+  return text + '\n';
+}
+
+/**
  * Reassemble a PR body from a section map.
  * Takes the same structure returned by parsePrBody.
+ * Ensures trailing newlines on preamble and section content to prevent header gluing.
  */
 function assemblePrBody(parsed) {
-  let body = parsed.preamble || '';
+  let body = ensureTrailingNewline(parsed.preamble);
 
   for (const section of parsed.sections) {
-    if (body && !body.endsWith('\n')) {
-      body += '\n';
-    }
-    body += '## ' + section.name + '\n' + (section.content || '');
+    body += '## ' + section.name + '\n' + ensureTrailingNewline(section.content);
   }
 
   return body;

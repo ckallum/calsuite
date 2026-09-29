@@ -1,3 +1,7 @@
+---
+_origin: calsuite-mirror
+---
+
 # Review agent prompts
 
 Verbatim prompt bodies for the parallel review agents dispatched by Step 3 of SKILL.md. The dispatch logic (signal gates, ordering, conditional fires) stays in SKILL.md — this file holds only the prompt strings each agent receives.

@@ -1,13 +1,13 @@
 ---
-_origin: calsuite@88c2320
+_origin: calsuite-mirror
 name: receiving-pr-feedback
-version: 1.0.0
+version: 1.2.4
 description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.
   Rigorous handling of PR review feedback — verify before implementing, push back when wrong.
   Multi-PR mode: /receiving-pr-feedback 323,324,325 --multi spawns separate Claude Code instances per PR.
-argument-hint: "[pr-number[,number,...]] [--multi]"
+argument-hint: "[pr-number[,number,...]] [--multi] [--no-publish|--publish-only]"
 allowed-tools:
   - Bash
   - Read
@@ -30,26 +30,41 @@ Handle PR review feedback with technical rigor. Verify suggestions before implem
 `--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance with a fresh context window.
 
 1. Parse PR numbers from arguments (single number like `323` or comma-separated like `323,324,325`).
-2. Get the current tmux window: `tmux display-message -p '#S:#I'`
-3. For each PR number, create a new tmux pane and launch a Claude Code instance:
+2. Hand the parsed PR numbers to the shared launcher. It validates each number against `^[0-9]+$` (rejecting shell metacharacters before they reach the tmux command), confirms an active tmux session, spawns one pane per PR, and prints the summary. Substitute the parsed numbers for the `--ids` placeholder, and pass `{ID}` through unexpanded — the script substitutes it per pane.
 
 ```bash
-# For each PR number in the list:
-tmux split-window -t "$SESSION:$WINDOW" -h "claude --dangerously-skip-permissions --print 'Run /receiving-pr-feedback <NUMBER>. Process all review feedback, apply fixes, and reply to comments on the PR.' 2>&1; echo '--- PR #<NUMBER> feedback complete. Press Enter to close. ---'; read"
-tmux select-layout -t "$SESSION:$WINDOW" tiled
+calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
+if [ ! -f "$calsuite_dir/scripts/tmux-multi-launch.sh" ]; then
+  echo "✗ Launcher not found at $calsuite_dir/scripts/tmux-multi-launch.sh" >&2
+  echo "  Set \$CALSUITE_DIR to your calsuite checkout, or clone it to ~/Projects/calsuite" >&2
+  exit 1
+fi
+bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
+  --mode pr --ids "<the PR numbers parsed in step 1, comma-separated>" \
+  --prompt 'Run /receiving-pr-feedback {ID}. Process all review feedback, apply fixes, and reply to comments on the PR.' \
+  --label 'PR #{ID} feedback complete' \
+  --summary-label 'Multi-PR feedback'
 ```
 
-4. Output:
-```text
-Multi-PR feedback launched:
-  PRs: #323, #324, #325
-  Panes: 3 new tmux panes created
-  Mode: context-free — each instance handles feedback independently
+The script exits non-zero on a validation failure (`2`), no tmux session (`3`), or missing tmux (`4`). Relay its stderr message to the user and STOP — do not fall back to spawning panes by hand.
 
-Watch progress in the tmux panes. This instance is done.
-```
+3. **STOP.** Do not proceed to Step 1 — the tmux instances handle the feedback.
 
-5. **STOP.** Do not proceed to Step 1 — the tmux instances handle the feedback.
+---
+
+## Step 0.5: Publish mode — `--no-publish` / `--publish-only` (AFK fix loop)
+
+These flags let the AFK **fix loop** run this skill repeatedly on one PR and publish once at the end, instead of posting replies and rewriting the PR body on every pass. Mutually exclusive; default (neither flag) is the normal behavior.
+
+Per-PR staging file, kept **outside the repo working tree** (so a broad `git add` can never sweep it into a commit) and **keyed by repo *and* number** — the system is multi-repo (one scheduled task per target checkout), so two repos that both have a PR #7 must not collide on one file: `SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner | tr '/' '__'); PENDING="${TMPDIR:-/tmp}/rpf-pending-$SLUG-<number>.json"`. The `SLUG` derivation matches afk-fix's cleanup path (`$REPO | tr '/' '__'`), so the fix loop's `rm -f` targets the very same file. It's ephemeral staging for one convergence — afk-fix truncates it at the start of each convergence and on escalation, so a lost `$PENDING` just means a clean re-run, and `--no-publish` / `--publish-only` in the same run agree on the path.
+
+- **default (full)** — unchanged: apply fixes, post replies (Step 4), update the PR body (Step 4.5); the caller commits/pushes as today. Ignore `$PENDING`.
+- **`--no-publish` (defer)** — run Steps 1–4's analysis + code fixes and **commit locally** (each commit message carries `[skip-review]` — this mode only ever runs inside the AFK fix loop, whose `/review --headless` is the gating review, and calsuite's review-gate hook would otherwise block every non-`.md` commit). Do NOT post any reply, do NOT run Step 4.5, and do NOT push. Instead, in Step 4 **write** each reply you would have posted into `$PENDING.replies`. The fix loop clears `$PENDING` at the start of every convergence and calls this mode **once**, so this is a plain write — but key entries by `commentId` anyway (a reply with no inline comment id gets `b:<sha1(body)>`), so a repeated call replaces rather than duplicates. **Never prompt:** this mode runs unattended, so an unclear or ambiguous item is *not* an `AskUserQuestion` — print a terminal `receiving-pr-feedback: cannot proceed — <reason>` line and stop (the fix loop detects that line and escalates). This overrides Step 2.5 and the "escalate via AskUserQuestion" gotcha.
+- **`--publish-only` (flush)** — **skip Steps 1–4 entirely** (no re-analysis, no new fixes). **Push first, and NEVER gate the push on `$PENDING`** — the fix loop's real payload is the *commits*, not the replies (its rounds 2–3 apply findings directly with `Edit`, staging no replies), so a genuinely-fixed PR can legitimately have an empty `$PENDING`. Derive the branch (`gh pr view <number> --json headRefName --jq .headRefName`) and **always attempt** `git push origin HEAD:<branch>` — push `HEAD:<branch>` (not a bare `git push`) so it works on the branch **or in a detached checkout**, which the AFK fix loop uses to dodge worktree conflicts. Do **not** pre-gate on an "is `HEAD` ahead of `origin/<branch>`" check: in a fresh detached worktree the base ref may not be fetched, making that check unanswerable and silently skipping a real push — instead just push, since a redundant push is a harmless `Everything up-to-date` and a genuine non-fast-forward (someone else pushed) surfaces as a non-zero exit. **If the push failed** (a non-zero exit that is *not* `Everything up-to-date` — i.e. rejected because someone pushed first), **stop here and post no replies**: the staged replies claim fixes that never reached the branch, so posting them would be a lie — leave `$PENDING` alone and let the caller (afk-fix) re-verify the head and escalate — it discards the file as part of escalating. **Only when the push succeeded** (or was already up-to-date), and *only if* `$PENDING` has replies, post each and run Step 4.5 once using the tally derived from `$PENDING.replies` (count per `kind`); if `$PENDING` is missing or empty, skip the reply/PR-body step (say "no staged replies") — the commits were already pushed above. A reply whose comment returns **404** (the comment was deleted/resolved since it was staged) is **dropped as no-longer-applicable** — not a failure, and it must not block cleanup. Delete `$PENDING` once every reply is either posted or dropped. This mode is **consume-once**: it does not track per-reply progress, because the caller discards `$PENDING` and re-derives on any retry.
+
+`$PENDING` schema: `{ "replies": [ { "commentId": <inline-comment id | "b:<sha1(body)>" for a reply with no inline comment>, "kind": "accepted"|"pushedBack"|"answered", "body": <str> } ] }`. Written once by `--no-publish`, consumed and deleted once by `--publish-only`; entries are keyed by `commentId` throughout (never a bare `null`, which couldn't dedup). There is no per-reply `posted` flag and no resume protocol — the fix loop clears this file at the start of every convergence, so a partially-flushed file is never re-read. The Step 4.5 tally is **derived** by counting `replies` per `kind`; rounds 2–3 apply findings via direct `Edit` and don't enter `replies`, so add "+ N review-driven fixes" from `git log` when the tally under-reports. A **torn or unparseable** `$PENDING` is treated as **empty**, never a hard error.
+
+If `$ARGUMENTS` contains **both** flags, print "Choose one of --no-publish / --publish-only, not both." and stop. `--multi` is incompatible with either — the spawned panes run full mode.
 
 ---
 
@@ -91,6 +106,8 @@ For each review comment, classify it:
 ## Step 2.5: Clarify ALL unclear items first
 
 Before implementing anything, check if any comments are unclear or ambiguous. If so, **stop and ask for clarification on ALL unclear items before touching any code.**
+
+> **`--no-publish` (AFK fix loop) never prompts.** In that mode this step does *not* call `AskUserQuestion` — it runs unattended and a prompt would hang. Instead, print the terminal `receiving-pr-feedback: cannot proceed — <unclear items>` line and stop; the fix loop detects it and escalates the PR to `auto:needs-human`. The rest of this step (identifying the unclear items) still applies — only the "ask" becomes "emit the terminal line and stop."
 
 Items may be related — partial understanding leads to wrong implementation.
 
@@ -141,6 +158,8 @@ Acknowledge with brief, factual statements: "Fixed — the null check was missin
 
 ## Step 4: Apply fixes
 
+> **Publish mode (Step 0.5):** `--publish-only` never reaches this step (Steps 1–4 are skipped). In `--no-publish`, do the fixes + local commit below, but replace every `gh api … /replies` post with an **upsert into `$PENDING.replies`** — key by `commentId` (replace a same-id entry; append only a `null`-id reply) and carry the reply's `kind` (`accepted`|`pushedBack`|`answered`) — do not post, do not push. No tally to bump; it's derived from the reply set at publish. In full (default) mode, post/commit/push as written.
+
 Implement in this order:
 1. **Blocking issues** (breaks, security) — fix first
 2. **Simple fixes** (typos, imports, one-liners) — batch these
@@ -163,6 +182,8 @@ gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body
 
 ## Step 4.5: Update PR Description
 
+> **Publish mode (Step 0.5):** **skip this step entirely in `--no-publish`** — the PR body is rewritten once, at `--publish-only` time. In `--publish-only` and full mode, run it; in `--publish-only` derive the Revision History tally by counting `$PENDING.replies` per `kind`.
+
 After fixes are applied and commits pushed, update the PR description to reflect the current state. Both `/ship` (Step 8) and this skill follow the same PR body structure defined in `.claude/skills/ship/pr-template.md`.
 
 ### Compute summary data first
@@ -184,19 +205,27 @@ gh pr view <number> --json body --jq '.body'
 
 **b. Parse into sections:**
 
-Split the body on `^## ` at line start (regex). This yields:
-- **Preamble**: any text before the first `## ` header
-- **Sections**: each `## Header` + content until the next `## ` or EOF
+Don't split the body by hand — use the shared parser. It exports `parsePrBody(body)` → `{ preamble, sections: [{ name, content }] }` and `assemblePrBody(parsed)` (the inverse). Splitting is by level-2 `## ` headers; the preamble is any text before the first header; unknown sections are preserved in place. Edit `parsed.sections` in steps c–e, then `assemblePrBody` it in step f.
 
-Identify sections by header name. Known sections: Summary, How It Works, Important Files, Test Results, Pre-Landing Review, Development Flow, Doc Completeness, Revision History. Unknown sections are preserved in their original position.
+```bash
+node -e '
+  const { parsePrBody, assemblePrBody } = require("./.claude/scripts/lib/pr-body-parser.cjs");
+  const body = require("fs").readFileSync(0, "utf8");
+  const parsed = parsePrBody(body);
+  // inspect parsed.sections.map(s => s.name), edit as needed, then:
+  process.stdout.write(assemblePrBody(parsed));
+' <<<"$(gh pr view <number> --json body --jq '.body')"
+```
 
-Reference implementation: `.claude/scripts/lib/pr-body-parser.cjs` (parsePrBody / assemblePrBody). Path is relative to the target project's `.claude/` directory — the installer places calsuite's `scripts/lib/` there. In calsuite itself, the source file lives at `scripts/lib/pr-body-parser.cjs`.
+The module path is `.claude/scripts/lib/pr-body-parser.cjs` inside a target project (the installer places calsuite's `scripts/lib/` under `.claude/`); in calsuite itself it lives at `scripts/lib/pr-body-parser.cjs`. The known section names live in the module's `KNOWN_SECTIONS` export — match against those rather than hardcoding the list here.
 
 **c. Regenerate dynamic sections:**
 
-- **Summary**: Analyze all commits on the branch (`git log origin/main..HEAD --oneline`) and generate updated bullet points summarizing what shipped.
-- **Important Files**: Run `git diff origin/main --stat` and rebuild the file/change table matching the format in `pr-template.md`.
-- **Test Results**: Re-run the project's test suites and rebuild the results table. Omit suites that weren't run.
+First derive the PR's **real base** — do not assume `origin/main`: `--publish-only` runs from the fix loop's detached checkout, which may be a `master`/`develop` repo or a stacked PR, where `git log origin/main..HEAD` is fatal (body rewritten from nothing) or silently walks from the wrong base (includes the parent PR's commits). Resolve it once: `BASE=$(gh pr view <number> --json baseRefName --jq .baseRefName)`, and use `origin/$BASE` below.
+
+- **Summary**: Analyze all commits on the branch (`git log origin/$BASE..HEAD --oneline`) and generate updated bullet points summarizing what shipped.
+- **Important Files**: Run `git diff origin/$BASE --stat` and rebuild the file/change table matching the format in `pr-template.md`.
+- **Test Results**: Re-run the project's test suites and rebuild the results table. Omit suites that weren't run. **In `--publish-only`, do NOT re-run the suites** — reuse whatever `--no-publish` gathered, or omit the section. An unattended run must never launch a watch-mode default (`jest --watch`, a bare `vitest`) that never exits and hangs the loop with `auto:fixing` held until the sweep.
 - **Development Flow**: If `.claude/flow-trace-${CLAUDE_SESSION_ID:-unknown}.jsonl` exists, regenerate the Mermaid diagram. If no trace file exists, skip this section entirely. The `:-unknown` fallback matches the default used by calsuite's session-scoped trackers when `CLAUDE_SESSION_ID` is unset.
 
 **d. Preserve static sections as-is (do not regenerate):**
@@ -223,14 +252,14 @@ Round number = count of lines in the Revision History section matching the ancho
 
 **f. Update the PR:**
 
-Reassemble the body from the parsed/modified sections, then write it to a temp file and update the PR. Use the `Write` tool to write the assembled body — this avoids heredoc sentinel collisions (a PR body can legitimately contain a line that is literally `EOF`, which would terminate a `<<'EOF'` heredoc early):
+Reassemble the body with `assemblePrBody(parsed)` (step b), then write it to a temp file and update the PR from that file. Use the `Write` tool to write the assembled body — this avoids heredoc sentinel collisions (a PR body can legitimately contain a line that is literally `EOF`, which would terminate a `<<'EOF'` heredoc early):
 
 ```bash
 # 1. Create the temp file path
 tmp_body="$(mktemp)"
 trap 'rm -f "$tmp_body"' EXIT
 
-# 2. Write the reassembled body to $tmp_body using the Write tool
+# 2. Write the assembled body (from assemblePrBody) to $tmp_body using the Write tool
 #    (not a shell heredoc — sentinels can collide with body content)
 
 # 3. Update the PR from the file
@@ -253,4 +282,4 @@ PR #N feedback processed:
 - **Never batch-accept all comments.** Process each individually. Reviewers are sometimes wrong.
 - **YAGNI check every "make it more professional" suggestion.** If it adds complexity for hypothetical future use, push back.
 - **Read the full diff context, not just the commented line.** Reviewers sometimes miss surrounding code that explains the pattern.
-- **If the reviewer and you disagree, escalate to the user** via AskUserQuestion rather than going back and forth.
+- **If the reviewer and you disagree, escalate to the user** via AskUserQuestion rather than going back and forth. **Exception — `--no-publish`:** never prompt; emit the terminal `receiving-pr-feedback: cannot proceed — <reason>` line and stop, letting the fix loop escalate.

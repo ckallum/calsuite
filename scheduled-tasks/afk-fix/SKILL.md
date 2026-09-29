@@ -20,8 +20,9 @@ never ask for input — and the loop deliberately invokes **no** skill that prom
 > target repo; that alone selects the repo (no arg needed). This file is symlinked from calsuite.
 > **Install the skill dependencies first.** The loop calls `/review --headless` and
 > `/receiving-pr-feedback --no-publish`, which resolve from *this repo's installed* skills — not from
-> calsuite's source. Run `node "${CALSUITE_DIR:-$HOME/Projects/calsuite}/scripts/configure-claude.js" .`
-> in the target checkout once, or every convergence fails on a stale install. The loop verifies this
-> up front and aborts with the exact command if the installed copies lack the flags.
+> calsuite's source — and the task's isolated worktree contains only what is **committed**. In a target,
+> run `node "${CALSUITE_DIR:-$HOME/Projects/calsuite}/scripts/configure-claude.js" .` and commit
+> `.claude/skills`; in calsuite, run `node scripts/sync-installed-skills.cjs --fix` and commit. The loop
+> verifies this up front and aborts with the fix if the installed copies lack the flags.
 > **Worktree isolation must be ON** — the loop runs `gh pr checkout --detach`, so it needs an isolated
 > checkout it can safely mutate. Suggested schedule: every 7h, offset from the review loop.

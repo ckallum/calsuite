@@ -325,6 +325,8 @@ Run three signal-gated checks against the diff before drafting the PR body. Each
 
 Collect outputs as `PRE_PR_GATE_FINDINGS` for inclusion in the PR body (below Summary, above How It Works).
 
+**If `.claude/ship-config.json` sets `strict: true` and Gate 2 emits its STRICT finding, stop here** — do not continue to Step 7.5 or create the PR. Strict mode is documented to block; collecting the finding and carrying on would open the PR anyway.
+
 Full procedure in [references/pre-pr-gates.md](references/pre-pr-gates.md) — read when actually executing Step 7.4.
 
 ---

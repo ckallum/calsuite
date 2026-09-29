@@ -1,6 +1,6 @@
 ---
 name: receiving-pr-feedback
-version: 1.2.3
+version: 1.2.4
 description: |
   PR feedback, review comments, code review response, address review, respond to feedback,
   handle reviewer suggestions, fix review comments, CR feedback.
@@ -29,7 +29,7 @@ Handle PR review feedback with technical rigor. Verify suggestions before implem
 `--multi` means "new tmux pane, clean context" — works with one PR or many. Each PR gets its own Claude Code instance with a fresh context window.
 
 1. Parse PR numbers from arguments (single number like `323` or comma-separated like `323,324,325`).
-2. Hand the parsed PR numbers to the shared launcher. It validates each number against `^[0-9]+$` (rejecting shell metacharacters before they reach the tmux command), confirms an active tmux session, spawns one pane per PR, and prints the summary. Pass `{ID}` through unexpanded — the script substitutes it per pane.
+2. Hand the parsed PR numbers to the shared launcher. It validates each number against `^[0-9]+$` (rejecting shell metacharacters before they reach the tmux command), confirms an active tmux session, spawns one pane per PR, and prints the summary. Substitute the parsed numbers for the `--ids` placeholder, and pass `{ID}` through unexpanded — the script substitutes it per pane.
 
 ```bash
 calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
@@ -39,7 +39,7 @@ if [ ! -f "$calsuite_dir/scripts/tmux-multi-launch.sh" ]; then
   exit 1
 fi
 bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
-  --mode pr --ids "323,324,325" \
+  --mode pr --ids "<the PR numbers parsed in step 1, comma-separated>" \
   --prompt 'Run /receiving-pr-feedback {ID}. Process all review feedback, apply fixes, and reply to comments on the PR.' \
   --label 'PR #{ID} feedback complete' \
   --summary-label 'Multi-PR feedback'
