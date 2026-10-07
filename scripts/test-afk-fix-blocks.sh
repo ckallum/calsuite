@@ -70,10 +70,10 @@ echo 'supports --headless and --base' > "$ROOT/home/.claude/skills/review/SKILL.
 echo 'supports --no-publish / --publish-only' > "$ROOT/home/.claude/skills/receiving-pr-feedback/SKILL.md"
 export HOME="$ROOT/home"
 
-run() { # run(blockNum, dir) with placeholders substituted, in its OWN process
+run() { # run(blockNum, dir) with placeholders substituted, in its OWN process; RUNSH picks the shell
   local b="$1" d="$2"; shift 2
   block "$b" | sed -e "s|<owner/repo>|${TARGET_REPO:-${GH_REPO:-owner/repo}}|g" -e 's|<N>|7|g' \
-             | ( cd "$d" && env "$@" bash 2>&1 )
+             | ( cd "$d" && env "$@" ${RUNSH:-bash} 2>&1 )
 }
 
 say "=== T1-T4  preconditions (block 1) ==="
@@ -106,6 +106,17 @@ grep -q 'remove-label auto:fixing' "$GH_LOG" && ok "T5a stale claim reclaimed" |
 [ ! -s "$GH_LOG" ] && ok "T5c empty timeline = uncertainty, left" || bad "T5c empty timeline left" "$(cat "$GH_LOG")"
 : > "$GH_LOG"; out=$(run 2 "$ROOT/linked" GH_REPO=o/r GH_LIST=7 GH_TIMELINE_FAIL=1)
 [ ! -s "$GH_LOG" ] && ok "T5d timeline fetch failure -> claim left (continue works in for)" || bad "T5d fetch failure" "$(cat "$GH_LOG")"
+# T5e: zsh doesn't word-split a bare $claimed, so the loop would see one n="7<newline>8". The stub
+# logs that joined arg across two lines — a line starting `8 --repo` still appears — so only the
+# `^7 --repo` line tells the cases apart.
+for RUNSH in bash "zsh -f"; do
+  if ! command -v "${RUNSH%% *}" >/dev/null 2>&1; then say "  NOTICE: ${RUNSH%% *} not found — skipping T5e [${RUNSH%% *}]"; continue; fi
+  : > "$GH_LOG"; ( GH_REPO=o/r; run 2 "$ROOT/linked" GH_REPO=o/r GH_LIST="7 8" GH_TIMELINE="$OLD" >/dev/null )
+  if grep -q '^7 --repo o/r --remove-label auto:fixing' "$GH_LOG" && grep -q '^8 --repo o/r --remove-label auto:fixing' "$GH_LOG"; then
+    ok "T5e [${RUNSH%% *}] two stale claims -> both reclaimed"
+  else bad "T5e [${RUNSH%% *}] two stale claims -> both reclaimed" "$(cat "$GH_LOG")"; fi
+done
+unset RUNSH
 
 say "=== T6-T9  safety gates + checkout (block 5) — the data-loss guards ==="
 echo "PRECIOUS UNCOMMITTED WORK" > "$ROOT/primary/uncommitted.txt"

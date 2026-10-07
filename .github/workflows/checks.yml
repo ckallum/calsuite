@@ -5,7 +5,10 @@
 #   in an isolated worktree, so a stale or uncommitted copy of /review or /receiving-pr-feedback
 #   breaks it. Fix locally with: node scripts/sync-installed-skills.cjs --fix
 # - afk-fix execution harness: runs each bash block of skills/afk-fix/SKILL.md as its own process
-#   against a real git repo with a stubbed gh, which is how the skill actually executes.
+#   against a real git repo with a stubbed gh, which is how the skill actually executes. Its
+#   multi-claim sweep case also runs under zsh.
+# - afk-review execution harness: the same for skills/afk-review/SKILL.md, under bash and zsh. Its gh
+#   stub evaluates --jq with the runner's jq.
 #
 # Plain `pull_request` (read-only token): this job checks out and executes PR code, so it must never
 # run under `pull_request_target`.
@@ -25,12 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Both checks use local git data only; don't leave the token readable by PR code.
+          # Every check uses local data only; don't leave the token readable by PR code.
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Installed skills match source
         run: node scripts/sync-installed-skills.cjs
+      - name: Install zsh
+        # The loops run in the maintainer's shell (zsh); without it both harnesses skip their zsh cases.
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends zsh
       - name: afk-fix execution harness
         run: bash scripts/test-afk-fix-blocks.sh
+      - name: afk-review execution harness
+        run: bash scripts/test-afk-review-blocks.sh
