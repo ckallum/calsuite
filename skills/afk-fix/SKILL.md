@@ -1,6 +1,6 @@
 ---
 name: afk-fix
-version: 0.3.1
+version: 0.3.2
 description: |
   afk fix loop, autonomous PR fix loop, run the fix loop, fix needs-fixes PRs, afk fix cycle.
   The in-session orchestrator for the AFK fix loop: select open PRs labelled auto:needs-fixes,
@@ -33,7 +33,7 @@ You are the **fix loop** of the AFK autonomous system — the **only loop that m
 
 - **A variable set in one block is empty in the next.** Each block re-derives what it needs from `gh`/`git`. Never reference a value assigned in an earlier block.
 - **`Skill:` args are a literal string, not shell.** Write the value you read: `args: "136 --no-publish"`. A `$VAR` there arrives as the literal characters `$VAR`.
-- **`continue`/`break` outside a `for` loop do nothing** — bash and zsh both warn and *fall through*, so a guard written that way fails **open**. Guards below use `exit 1` inside their own block.
+- **`continue`/`break` outside a `for` loop are not guards** — bash warns and falls through, so the guard fails **open**; zsh aborts the block with no status line. Guards below use `exit 1` inside their own block.
 - **Blocks talk to you through stdout.** Each guard prints exactly one status line — `AFKFIX_OK …`, `AFKFIX_ESCALATE <reason>`, or `AFKFIX_ABORT <reason>` — and **you** act on it per the prose. That printed line is the only state that crosses a block boundary.
 - **Anything that needs two values at once lives in ONE block** (push + verify + transition is a single block for this reason).
 
@@ -108,7 +108,9 @@ cutoff=$(date -u -v-90M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '90 minute
 if ! claimed=$(gh pr list --repo "$REPO" --state open --label auto:fixing --limit 200 --json number --jq '.[].number'); then
   echo "AFKFIX_OK sweep skipped (gh error listing auto:fixing)"; exit 0
 fi
-for n in $claimed; do
+# Command substitution, not bare $claimed: zsh doesn't word-split unquoted variables, so with 2+
+# stranded claims the loop would run once with every number on one line.
+for n in $(printf '%s\n' "$claimed"); do
   # Per-page --jq (NOT --slurp — gh >= 2.95 rejects --slurp with --jq). Capture gh on its own line
   # so a real fetch FAILURE trips the guard; `[[ < ]]` for the lexical (== chronological) ISO-8601
   # UTC compare, since POSIX/zsh `[ \< ]` has no `<`. Reclaim only with a timestamp older than the

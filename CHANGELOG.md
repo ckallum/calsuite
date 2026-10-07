@@ -2,7 +2,23 @@
 
 All notable changes to this repository.
 
-Current version: **2.59**
+Current version: **2.60**
+
+## [2.60] — 2026-10-07
+
+### Fixed
+
+- **A stranger's comment could stall any PR in the AFK review loop** ([#141](https://github.com/ckallum/calsuite/issues/141)). afk-review skipped a PR when *any* comment contained `afk-review reviewed sha=<head>`, with no check on who wrote it, so on this public repo anyone could keep a PR at `auto:needs-review`, unreviewed, by posting the marker. afk-review v0.3.0 trusts a marker only when its author is the loop's own login and its body matches exactly; the login and SHA are validated as whole strings before they're spliced into the jq filter, and a failed lookup is an error, never a skip. The afk-fix half of #141 was already gone: the stateless rewrite in 2.58 removed its marker.
+- **afk-review's bash blocks read variables no block had set.** Each block runs in its own shell, but the skip, claim, transition and escalation steps used `$REPO`, `$N` and `$SHA` that no block set. A run that kept `$REPO`/`$N` but lost `$SHA` would have grepped for a bare `sha=` and matched any earlier marker. Every block now takes literal `<owner/repo>`, `<N>`, `<SHA>` and `<VERDICT>` substitutions and prints one `AFKREV_*` status line, the same execution model as afk-fix. The escalation reason goes through a quoted heredoc, so an apostrophe or `$(…)` in it can't break or hijack the block.
+- **Under zsh, the review and fix loops' stale-claim sweeps reclaimed nothing once two or more claims were stranded** (afk-fix v0.3.2). zsh doesn't word-split an unquoted variable, so `for n in $claimed` ran once with every PR number on one line and the timeline lookup failed. The loops run in the maintainer's shell, which is zsh. Both sweeps now iterate over `$(printf '%s\n' "$claimed")`.
+- **The skills' execution notes misdescribed zsh.** They said `continue` outside a loop falls through in bash and zsh; zsh aborts the block instead. Both afk-review and afk-fix now say so.
+
+### Added
+
+- **afk-review checks who it runs as before touching a label.** It reports `running as <login>`, aborts when the token can't label PRs (an empty `GH_TOKEN` silently falls back to gh's active account), and aborts when `AFK_LOOP_LOGIN` names a different login than the token authenticates as.
+- **The SHA marker records the verdict and is written only for a head unchanged across the review**: `<!-- afk-review reviewed sha=<sha> verdict=ready|needs-fixes -->`. Merge/gate needs the verdict to tell a PASS from a BLOCKED review at the same SHA, and `/review pr` diffs whatever the head is when it runs, so a moved head gets no marker (at most one extra review). Old markers without a verdict still count for the skip.
+- **`scripts/test-afk-review-blocks.sh`** — runs each afk-review bash block as its own process against a stub `gh` that evaluates the real `--jq` filters, under bash and zsh, including a writer→reader round trip of the marker. `--mutation-check` proves it fails when the author filter is removed. `scripts/test-afk-fix-blocks.sh` gains a two-claim sweep case under both shells. Both run in `checks`, which now installs zsh.
+- **Merge/gate spec** (`.claude/specs/afk-merge-gate/`) — the fourth AFK loop, which owns `auto:ready`. It moves from the hourly local daemon in `docs/afk-loops.html` to GitHub Actions: zero tokens, runs with the laptop closed, notifies by @mention from `github-actions[bot]`, and never merges. The spec defines the gate table, the review-binding contract with afk-review's SHA-skip, a cause-anchored age cap, and the fail-closed rules.
 
 ## [2.59] — 2026-09-28
 
