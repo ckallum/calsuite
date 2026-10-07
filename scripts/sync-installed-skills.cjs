@@ -15,9 +15,10 @@
  *   calsuite never rewrites a mirror. A `calsuite@<sha>` stamp can't serve here: no commit carrying
  *   the new content exists until the change merges, and squash-merging discards branch shas.
  *
- * Usage: node scripts/sync-installed-skills.cjs [--fix] [skill ...]
+ * Usage: node scripts/sync-installed-skills.cjs [--fix] [--quiet] [skill ...]
  *   (default)  report drift; exit 1 if any
  *   --fix      rewrite drifted mirrors from source and stage them (`git add -f`) for commit
+ *   --quiet    report mode: print only the one-line summary (for git hooks); exit code unchanged
  *   skill ...  also mirror these skills
  */
 const fs = require('fs');
@@ -28,6 +29,7 @@ const { normalizeForCompare, stampOrigin, readOrigin } = require('./lib/origin-p
 const ROOT = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const FIX = args.includes('--fix');
+const QUIET = args.includes('--quiet');
 const extraSkills = args.filter(a => !a.startsWith('--'));
 const CLAIM = 'calsuite-mirror';
 
@@ -109,10 +111,14 @@ const NOTE = {
 };
 
 if (!FIX) {
+  const n = drift.length + untracked.length + orphans.length;
+  if (QUIET) {
+    console.log(n ? `✗ ${n} mirror${n === 1 ? '' : 's'} out of step` : `✓ ${pairs.length} mirrors match source`);
+    return;
+  }
   for (const [m, src, p] of drift) console.log(`  ${p.padEnd(9)} ${m}  (${NOTE[p]}; source: ${src})`);
   for (const m of untracked) console.log(`  untracked ${m}  (current but not committed)`);
   for (const o of orphans) console.log(`  orphan    ${o}  (no source)`);
-  const n = drift.length + untracked.length + orphans.length;
   if (n) {
     console.log(`\n✗ ${n} mirror${n === 1 ? '' : 's'} out of step — run: node scripts/sync-installed-skills.cjs --fix, then commit`);
     process.exitCode = 1;
