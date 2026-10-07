@@ -112,15 +112,14 @@ const NOTE = {
 
 if (!FIX) {
   const n = drift.length + untracked.length + orphans.length;
-  if (QUIET) {
-    console.log(n ? `✗ ${n} mirror${n === 1 ? '' : 's'} out of step` : `✓ ${pairs.length} mirrors match source`);
-    return;
+  if (!QUIET) {
+    for (const [m, src, p] of drift) console.log(`  ${p.padEnd(9)} ${m}  (${NOTE[p]}; source: ${src})`);
+    for (const m of untracked) console.log(`  untracked ${m}  (current but not committed)`);
+    for (const o of orphans) console.log(`  orphan    ${o}  (no source)`);
   }
-  for (const [m, src, p] of drift) console.log(`  ${p.padEnd(9)} ${m}  (${NOTE[p]}; source: ${src})`);
-  for (const m of untracked) console.log(`  untracked ${m}  (current but not committed)`);
-  for (const o of orphans) console.log(`  orphan    ${o}  (no source)`);
   if (n) {
-    console.log(`\n✗ ${n} mirror${n === 1 ? '' : 's'} out of step — run: node scripts/sync-installed-skills.cjs --fix, then commit`);
+    const summary = `✗ ${n} mirror${n === 1 ? '' : 's'} out of step`;
+    console.log(QUIET ? summary : `\n${summary} — run: node scripts/sync-installed-skills.cjs --fix, then commit`);
     process.exitCode = 1;
   } else if (!process.exitCode) {
     console.log(`✓ ${pairs.length} mirrors match source`);
