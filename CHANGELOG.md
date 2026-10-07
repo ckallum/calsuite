@@ -2,7 +2,25 @@
 
 All notable changes to this repository.
 
-Current version: **2.58**
+Current version: **2.59**
+
+## [2.59] — 2026-09-28
+
+### Fixed
+
+- **The AFK fix loop could not run in calsuite.** It runs in an isolated worktree, which contains only committed files, and calsuite gitignores `.claude/`. The installed `/review` had never been committed, and the committed `/receiving-pr-feedback` was v1.0.0, so afk-fix's preconditions aborted before touching any PR. Running `configure-claude.js .` did not help: it installs into the ignored directory, which no fresh worktree sees.
+- **Every force-tracked installed skill in calsuite had gone stale.** Ten of eleven copies under `.claude/skills/` and `.claude/scripts/lib/` lagged their source; the oldest dated from March. Each exactly matched a past version of its source, so refreshing lost nothing. `/ship` also referenced `references/pre-pr-gates.md`, which had no installed copy.
+- **afk-fix's dependency error named the wrong fix** (v0.3.1). It now says the copies must be committed, with the command for calsuite and for a target — or, when the copy that resolved is a personal `~/.claude` one (which shadows the project's), says to update or remove it, since committing can't help.
+- **`/review` could review the wrong change** (v1.4.4). Its diff-gating block read `$PR_NUMBER` without ever setting it — each bash block is a separate shell — so a literal run in PR mode diffed the local checkout while later steps posted to the PR. Agents A–E also hardcoded `origin/main`, reviewing the local checkout in PR mode and the wrong base under `--base`. Agent prompts now use `<DIFF>` / `<FILES>` placeholders the dispatcher fills with this run's literal commands, and the gating block re-resolves `PR_NUMBER` from the arguments. `--headless` now overrides `--multi`, whose panes post comments.
+- **`--multi` launchers showed literal example IDs in their commands** — `/review` (`123,124,125`), `/receiving-pr-feedback` v1.2.4 (`323,324,325`) and `/execute` v2.1.1 — so a literal run would act on unrelated PRs or issues. They are now explicit placeholders with a substitution instruction.
+- **`/ship` strict mode didn't block.** Its docs say `strict: true` in `.claude/ship-config.json` turns the test-presence gate into a blocker, but Step 7.4 only collected the finding and went on to open the PR. It now stops there.
+- **`checks` no longer leaves the checkout token readable by PR code** (`persist-credentials: false`); neither check needs git auth.
+
+### Added
+
+- **`scripts/sync-installed-skills.cjs`** — compares calsuite's tracked installed copies with their source and exits 1 on drift (`--fix` refreshes them). It reuses the installer's `normalizeForCompare`, so `_origin` stamps and auto-added frontmatter never count as drift, and it treats a copy that matches on disk but isn't committed as drift, because a fresh checkout won't have it. Markdown mirrors carry `_origin: calsuite-mirror`, which the installer reads as a claim and skips without reporting, so `configure-claude.js .` run on calsuite never rewrites one. A `calsuite@<sha>` stamp can't work for mirrors: the commit that holds new content doesn't exist until merge, and squash-merges discard branch shas. `--fix` stages what it writes, and the loop's indirect dependencies (`ship`'s `pr-template.md`, `pr-body-parser.cjs`) are mirrored unconditionally.
+- **`.github/workflows/checks.yml`** — runs the drift check and the afk-fix execution harness (`scripts/test-afk-fix-blocks.sh`) on every PR.
+- `/review` is now mirrored into calsuite's `.claude/skills/`.
 
 ## [2.58] — 2026-09-03
 

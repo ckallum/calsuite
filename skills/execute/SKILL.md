@@ -1,6 +1,6 @@
 ---
 name: execute
-version: 2.1.0
+version: 2.1.1
 description: |
   execute this, build this, implement this, start coding, run the plan,
   implement tasks, work through the plan, execute tasks, build from spec,
@@ -116,7 +116,7 @@ Otherwise, parse `$ARGUMENTS`:
 
    If neither form matches (or no identifiers follow), STOP and tell the user: "`--multi` requires `issue:<numbers>` or `spec:<slugs>`. Raw prompts are not supported."
 
-2. Hand the parsed mode and identifiers to the shared launcher. It validates each id, confirms an active tmux session, spawns one pane per id, and prints the summary. Pass the `{ID}` placeholder through unexpanded — the script substitutes it per pane.
+2. Hand the parsed mode and identifiers to the shared launcher. It validates each id, confirms an active tmux session, spawns one pane per id, and prints the summary. Substitute the parsed identifiers for the `--ids` placeholder, and pass the `{ID}` placeholder through unexpanded — the script substitutes it per pane.
 
    ```bash
    calsuite_dir="${CALSUITE_DIR:-$HOME/Projects/calsuite}"
@@ -128,14 +128,14 @@ Otherwise, parse `$ARGUMENTS`:
 
    # For ISSUE mode — each issue gets its own pane:
    bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
-     --mode issue --ids "1,2,3" \
+     --mode issue --ids "<the issue numbers parsed from issue:…, comma-separated>" \
      --prompt 'Run /execute issue {ID}. Implement the issue fully — derive tasks, execute, commit, and report when done.' \
      --label 'Execution of issue #{ID} complete' \
      --summary-label 'Multi execution'
 
    # For SPEC mode — each spec gets its own pane:
    bash "$calsuite_dir/scripts/tmux-multi-launch.sh" \
-     --mode spec --ids "foo,bar" \
+     --mode spec --ids "<the spec names parsed from spec:…, comma-separated>" \
      --prompt 'Run /execute spec {ID}. Execute the spec fully — work through all tasks, commit, and report when done.' \
      --label 'Execution of spec {ID} complete' \
      --summary-label 'Multi execution'

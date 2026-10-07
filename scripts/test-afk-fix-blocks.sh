@@ -86,6 +86,13 @@ out=$(GH_REPO=o/r run 1 "$ROOT/linked" GH_REPO=o/r GH_LABELS="auto:needs-fixes a
 echo 'no flags here' > "$ROOT/home/.claude/skills/review/SKILL.md"
 out=$(GH_REPO=o/r run 1 "$ROOT/linked" GH_REPO=o/r)
 [[ "$out" == *"AFKFIX_ABORT installed /review lacks --headless"* ]] && ok "T4 stale /review install -> ABORT (C3)" || bad "T4 stale /review install -> ABORT (C3)" "$out"
+[[ "$out" == *"your personal copy"* ]] && ok "T4b stale PERSONAL copy -> hint says update/remove it" || bad "T4b personal-copy hint" "$out"
+# project copy only (no personal): the fix is to commit it, not to touch ~/.claude
+mv "$ROOT/home/.claude/skills/review" "$ROOT/home/review.bak"
+mkdir -p "$ROOT/linked/.claude/skills/review" && echo 'no flags here' > "$ROOT/linked/.claude/skills/review/SKILL.md"
+out=$(GH_REPO=o/r run 1 "$ROOT/linked" GH_REPO=o/r)
+[[ "$out" == *"lacks --headless (resolved: .claude/skills/review/SKILL.md)"*"COMMITTED"* ]] && ok "T4c stale PROJECT copy -> hint says commit it" || bad "T4c project-copy hint" "$out"
+rm -rf "$ROOT/linked/.claude/skills/review"; mv "$ROOT/home/review.bak" "$ROOT/home/.claude/skills/review"
 echo 'supports --headless and --base' > "$ROOT/home/.claude/skills/review/SKILL.md"
 
 say "=== T5  sweep (block 2) ==="
