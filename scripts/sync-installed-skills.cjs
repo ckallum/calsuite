@@ -118,8 +118,8 @@ if (!FIX) {
     for (const o of orphans) console.log(`  orphan    ${o}  (no source)`);
   }
   if (n) {
-    const summary = `✗ ${n} mirror${n === 1 ? '' : 's'} out of step`;
-    console.log(QUIET ? summary : `\n${summary} — run: node scripts/sync-installed-skills.cjs --fix, then commit`);
+    const summary = `✗ ${n} mirror${n === 1 ? '' : 's'} out of step — run: node scripts/sync-installed-skills.cjs --fix, then commit`;
+    console.log(QUIET ? summary : `\n${summary}`);
     process.exitCode = 1;
   } else if (!process.exitCode) {
     console.log(`✓ ${pairs.length} mirrors match source`);
