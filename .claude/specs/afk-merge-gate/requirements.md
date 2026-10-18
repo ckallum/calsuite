@@ -21,7 +21,7 @@ This is the fourth AFK loop. The review loop (`skills/afk-review`) and the fix l
 4. **FR-4 Escalate on FAIL.**
    - Comment first, naming the gate in a fixed vocabulary.
    - Then move `auto:ready` → `auto:needs-human`, and only if the comment landed.
-   - Never leave `auto:needs-human` alongside `auto:ready`. The gate skips such a PR silently (it's in the inbox), so a stale `auto:ready` would linger on it.
+   - Never leave `auto:needs-human` alongside `auto:ready`. If both are ever present — a half-finished move, or a human adding `auto:needs-human` — the next run removes the stale `auto:ready` without commenting.
 5. **FR-5 Bounce an unreviewed head.**
    - When no trusted review marker exists for the current head, comment and then move `auto:ready` → `auto:needs-review`, so the review loop re-reviews the new commits.
    - After 3 bounces on one PR, FAIL instead (`bounce-cap`).
@@ -53,7 +53,7 @@ This is the fourth AFK loop. The review loop (`skills/afk-review`) and the fix l
    - Never checks out or runs PR code.
    - Trusts review markers only from the configured loop login, and its own markers only from `github-actions[bot]`.
    - Never echoes strings the PR author controls (titles, branch names) into comments. Check names appear only after sanitising, inside code spans.
-5. **NFR-5 Idempotent.** Any number of runs over unchanged GitHub state produce no new writes.
+5. **NFR-5 Idempotent.** Any number of runs over the same snapshot, configuration and evaluation time produce no new writes. Only the passage of time — the marker-lag window, the label-race window and the age cap — can turn an earlier `WAIT` into a write.
 6. **NFR-6 Fresh-clone test.**
    - Merging the workflow files is the install.
    - Setup is two documented commands: `gh variable set AFK_LOOP_LOGIN` (required), and `gh variable set AFK_GATE_MODE --body on` to leave `dry-run` once the dry-run summary looks right.

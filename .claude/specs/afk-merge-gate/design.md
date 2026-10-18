@@ -113,7 +113,7 @@ Each run builds one snapshot per PR, then evaluates it with a pure function.
 
 1. **A GraphQL page of open `auto:ready` PRs**, `first: 10`, paginated (tested against calsuite at about 11 points a page). Per PR it fetches:
    - `number state isDraft isCrossRepository headRefOid baseRefName mergeable mergeStateStatus reviewDecision`
-   - `labels(first: 30)`
+   - `labels(first: 100)` with `totalCount`
    - `statusCheckRollup.contexts(first: 100)` with `totalCount`:
      - each CheckRun's `name status conclusion startedAt` and its workflow name
      - each StatusContext's `context state description createdAt`
@@ -130,7 +130,7 @@ Snapshot rules (fail closed):
   - A failed REST call for a PR, or a GraphQL `errors` entry whose `path` points into that PR's node, makes that PR `error` for this run. That means no writes and no age cap.
   - Other PRs on the page still evaluate. The runner parses `data` even when `gh` exits 1.
   - After writing the summary, the job exits non-zero if any PR is `error`, so a persistent fault shows as a red run.
-- **`WAIT(truncated)`.** `totalCount` above the nodes fetched, on contexts or threads.
+- **`WAIT(truncated)`.** `totalCount` above the nodes fetched, on labels, contexts or threads. A truncated label list is checked before check 1, because a missing `auto:needs-human` would skip the inbox guard.
 - **`WAIT(unknown-value)`.** An enum value the gate doesn't know, including values GitHub adds later.
 
 ### Markers
@@ -154,9 +154,9 @@ Snapshot rules (fail closed):
 | # | Check | Outcome |
 |---|---|---|
 | 0 | `state != OPEN`, or `auto:ready` gone | `skipped` |
-| 1 | `auto:needs-human` also present | `skipped (in inbox)`: silent, no writes |
+| 1 | `auto:needs-human` also present | `needs-human (cleared stale auto:ready)`: remove `auto:ready` only, no comment. The inbox owns the PR, and `auto:ready` is the gate's own label. This also finishes a FAIL whose remove step failed. |
 | 2 | `isDraft` | `WAIT(draft)` (no age cap) |
-| 3 | another `auto:*` label also present | `WAIT(label-race)` |
+| 3 | another `auto:*` label also present | `WAIT(label-race)` while the newest label event is < 10 min old, since another loop's transition is two mutations and may be mid-flight. After that, `skipped (cleared stale auto:ready)`: remove `auto:ready` only, no comment. The other label's owner moves the PR on. This also finishes a BOUNCE whose remove step failed. |
 | 4 | `isCrossRepository` | `FAIL(fork)`. v1 never announces a fork as ready: the fork author controls its CI (it can edit `checks.yml`), and its content reached the review model unfiltered. |
 | 5 | **review binding** (below) | pass, or `BOUNCE`, `WAIT(marker-lag)`, or `FAIL(review-blocked \| review-unverified \| review-marker-missing \| bounce-cap \| config-mismatch)` |
 | 6 | `reviewDecision` | `CHANGES_REQUESTED` → `FAIL(changes-requested)`; `REVIEW_REQUIRED` → `FAIL(approval-required)`; `null` and `APPROVED` pass. GitHub computes this without protection (seen on an unprotected repo that reported `CLEAN`). |
@@ -178,7 +178,7 @@ Snapshot rules (fail closed):
 | `ci-pending` | the oldest non-completed CheckRun `startedAt`, or PENDING StatusContext `createdAt` |
 | `ci-missing` | the head's last push |
 | `mergeable-unknown` | the later of the head's last push and the base tip's `committedDate` |
-| `marker-lag`, `label-race`, `truncated`, `unknown-value` | when `auto:ready` was applied |
+| `marker-lag`, `truncated`, `unknown-value` | when `auto:ready` was applied |
 
 - A merge to the base therefore restarts the clock for every PR that reads `UNKNOWN` afterwards. A PR announced ready days ago is never escalated by a passing recomputation.
 - A cause whose start can't be determined is never capped. It stays a `WAIT`, visible in every summary.
@@ -230,9 +230,9 @@ Before every write, the gate re-reads the PR with `gh pr view N --json state,lab
 
 - **Each label step runs only after the one before it succeeded.** This copies the comment-before-move rule in afk-review Step 4 and afk-fix Step 4.
 - **Add and remove are separate calls, add first.** `gh` applies them as separate mutations either way. Adding first means a failure leaves one of two states, and never a PR with no AFK label:
-  - `{ready, needs-review}`: the review loop still selects it, and its claim heals the labels
-  - `{ready, needs-human}`: already in the inbox
-- **Retry.** A failed step leaves `auto:ready` in place, and the next run retries; the dedupe skips the comment.
+  - `{ready, needs-review}`: the review loop can still select it, and check 3 removes the stale `auto:ready` once the 10-minute race window has passed
+  - `{ready, needs-human}`: check 1 removes the stale `auto:ready` on the next run
+- **Retry.** A failed comment or add leaves `auto:ready` alone, and the next run retries; the dedupe skips the comment. A failed remove is finished by checks 1 and 3.
 
 Comment bodies use a fixed vocabulary:
 - The only PR-derived values are SHAs (validated as 40 hex) and check names. Check names are sanitised to `[A-Za-z0-9 ._/:-]{1,60}` and put in code spans.
@@ -280,7 +280,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 | Pending forever (stuck CodeRabbit, unknown mergeability) | 24 h cause-anchored cap → `FAIL(stuck)`, never `READY` |
 | A long-ready PR escalated by a routine recomputation | the cap clock starts at the cause, not the label |
 | An unrelated comment cancels the queued sweep | concurrency at job level, behind the comment filter |
-| A partial label move orphans a PR | add before remove, so a failure leaves the PR in a selected or inbox state |
+| A partial label move orphans a PR, or leaves `auto:ready` beside another label | add before remove, so a failure never leaves the PR unlabelled; checks 1 and 3 remove the stale `auto:ready` on a later run |
 | PR-controlled strings in a trusted comment | fixed vocabulary; sanitised check names |
 | Code pushed between the notice and the human's tap on merge | not closed in v1 (the notice names the SHA); closed by [v2 enforced mode](#v2-enforced-mode) |
 | 60 quiet days disable the scheduled workflow | the cron is in its own file, so only the backstop goes dark; `gh workflow enable afk-gate-sweep.yml` |
@@ -289,7 +289,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 
 - **Unit.** `scripts/lib/afk-gate.cjs` exports `evaluate(snapshot, config, now)` and the marker parsers. Fixtures live in `scripts/test-fixtures/afk-gate/`:
   - snapshots captured from real PRs, such as #145's final state and #132's hand-labelled `auto:ready`
-  - synthetic edge cases, one per row of the gate and binding tables, plus "announced ready 30 h ago, base moved 1 min ago, `UNKNOWN`" → `WAIT`
+  - synthetic edge cases, one per row of the gate and binding tables, plus "announced ready 30 h ago, base moved 1 min ago, `UNKNOWN`" → `WAIT`, half-finished label moves (`auto:ready` beside `needs-human` / `needs-review`, inside and outside the race window), and a truncated label list
   - run with `node --test`, in `checks.yml`
 - **Marker drift.** A test asserts that the marker format in `skills/afk-review/SKILL.md` and the regex in `scripts/lib/afk-gate.cjs` describe the same strings. `scripts/test-afk-review-blocks.sh` already round-trips the skill's own writer and reader.
 - **Runner.** A stub-`gh` harness, like `scripts/test-afk-fix-blocks.sh`, covering:
