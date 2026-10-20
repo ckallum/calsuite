@@ -28,7 +28,8 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
   - real-PR captures: #145 final, #132 hand-labelled, #138 `NEUTRAL`
   - one synthetic case per gate-table and binding-table row
   - "ready 30 h ago, base just moved, `UNKNOWN`" → `WAIT`
-  - half-finished label moves and a truncated label list
+  - half-finished label moves (including `auto:ready` beside a claim label) and a truncated label list
+  - a required check still in progress → `WAIT(ci-pending)`, never `FAIL(ci-failed)`
 - [ ] **G4** `node --test` suite, including a marker-drift test (skill literal vs lib regex), in `checks.yml`. — deps: G2, G3
 
 ## Phase 2: Runner

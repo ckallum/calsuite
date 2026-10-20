@@ -24,7 +24,7 @@ You are the **review loop** of the AFK autonomous system. You review open pull r
 
 - **A variable set in one block is empty in the next.** Where a block writes `<owner/repo>`, `<N>`, `<SHA>`, `<VERDICT>` or `<REASON>`, **substitute the literal value**: the repo you resolved, the PR number you are processing, that PR's `headRefOid` from Step 2, the verdict from 3.4, and a one-line escalation reason.
 - **`continue`/`break` outside a `for` loop are not guards.** bash warns and falls through, so the guard fails **open**; zsh aborts the block with no status line. Guards below use `exit 1` inside their own block.
-- **Blocks talk to you through stdout.** Every block prints one status line — `AFKREV_OK …`, `AFKREV_SKIP …`, `AFKREV_PROCEED`, `AFKREV_ERROR <reason>`, or `AFKREV_ABORT <reason>` — and **you** act on it per the prose. Step 2 also prints the PR list as JSON, which is where `<N>` and `<SHA>` come from. A block that ends without a status line counts as `AFKREV_ERROR`.
+- **Blocks talk to you through stdout.** Every block prints one status line — `AFKREV_OK …`, `AFKREV_SKIP …`, `AFKREV_PROCEED`, `AFKREV_ERROR <reason>`, or `AFKREV_ABORT <reason>` — and **you** act on it per the prose. A block that ends without a status line counts as `AFKREV_ERROR` — except Step 2, whose success output is the PR list as JSON (where `<N>` and `<SHA>` come from) rather than a status line.
 
 ## Repo + preconditions
 
@@ -149,12 +149,21 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
 2. **Claim** (first state change, so a second run finds nothing to grab). If the claim fails, do **not** review an unclaimed PR.
    ```bash
    REPO="<owner/repo>"; N=<N>
+   # Re-read first: Step 2's list may be stale, and `gh pr edit --remove-label` succeeds on an
+   # absent label, so claiming a PR another run has moved on would stack a second auto:* label.
+   if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+     echo "AFKREV_ERROR claim label read failed"; exit 1
+   fi
+   if [ "$AUTO" != "auto:needs-review" ]; then
+     echo "AFKREV_SKIP not claimable (auto labels: '$AUTO')"; exit 0
+   fi
    if gh pr edit "$N" --repo "$REPO" --add-label auto:reviewing --remove-label auto:needs-review >/dev/null; then
      echo "AFKREV_OK claimed"
    else
      echo "AFKREV_ERROR claim"; exit 1
    fi
    ```
+   `AFKREV_SKIP` → record `#N → skipped (moved on)` and continue; another run or a human owns it now.
 
 3. **Review.** Use the Skill tool to run the real review in PR mode:
    ```
@@ -169,6 +178,10 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    - else if the output contains `not eligible for review` (draft / closed / trivial PR) → **not a failure**. Release the claim so the PR is re-checked once eligible, write **no** SHA marker, and record `#N → skipped (not eligible)`:
      ```bash
      REPO="<owner/repo>"; N=<N>
+     if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")'); then
+       echo "AFKREV_ERROR claim check failed"; exit 1
+     fi
+     [ "$OWN" = "true" ] || { echo "AFKREV_ERROR lost claim — another run owns it, not releasing"; exit 1; }
      if gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review >/dev/null; then
        echo "AFKREV_OK released (not eligible)"
      else
@@ -181,6 +194,12 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    ```bash
    REPO="<owner/repo>"; N=<N>; SHA="<SHA>"; VERDICT="<VERDICT>"
    case "$VERDICT" in ready|needs-fixes) ;; *) echo "AFKREV_ERROR bad verdict '$VERDICT'"; exit 1 ;; esac
+   # Still ours? A sibling's sweep resets a claim held past its cutoff; transitioning after that
+   # would leave two auto:* labels and a marker that SHA-skips the PR.
+   if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")'); then
+     echo "AFKREV_ERROR claim check failed"; exit 1
+   fi
+   [ "$OWN" = "true" ] || { echo "AFKREV_ERROR lost claim — another run owns it, not transitioning"; exit 1; }
    if ! gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label "auto:$VERDICT" >/dev/null; then
      echo "AFKREV_ERROR transition"; exit 1
    fi

@@ -156,7 +156,7 @@ Snapshot rules (fail closed):
 | 0 | `state != OPEN`, or `auto:ready` gone | `skipped` |
 | 1 | `auto:needs-human` also present | `needs-human (cleared stale auto:ready)`: remove `auto:ready` only, no comment. The inbox owns the PR, and `auto:ready` is the gate's own label. This also finishes a FAIL whose remove step failed. |
 | 2 | `isDraft` | `WAIT(draft)` (no age cap) |
-| 3 | another `auto:*` label also present | `WAIT(label-race)` while the newest label event is < 10 min old, since another loop's transition is two mutations and may be mid-flight. After that, `skipped (cleared stale auto:ready)`: remove `auto:ready` only, no comment. The other label's owner moves the PR on. This also finishes a BOUNCE whose remove step failed. |
+| 3 | another `auto:*` label also present | `WAIT(label-race)` while the other label is a claim (`auto:reviewing`, `auto:fixing`), or while the newest label event is < 10 min old, since another loop's transition is two mutations and may be mid-flight. A claim's owner may be about to re-add `auto:ready`, so removing it there could leave no `auto:*` label at all. Otherwise (a resting label, quiet for 10 min), `skipped (cleared stale auto:ready)`: remove `auto:ready` only, no comment. The other label's owner moves the PR on. This also finishes a BOUNCE whose remove step failed. |
 | 4 | `isCrossRepository` | `FAIL(fork)`. v1 never announces a fork as ready: the fork author controls its CI (it can edit `checks.yml`), and its content reached the review model unfiltered. |
 | 5 | **review binding** (below) | pass, or `BOUNCE`, `WAIT(marker-lag)`, or `FAIL(review-blocked \| review-unverified \| review-marker-missing \| bounce-cap \| config-mismatch)` |
 | 6 | `reviewDecision` | `CHANGES_REQUESTED` → `FAIL(changes-requested)`; `REVIEW_REQUIRED` → `FAIL(approval-required)`; `null` and `APPROVED` pass. GitHub computes this without protection (seen on an unprotected repo that reported `CLEAN`). |
@@ -211,8 +211,8 @@ A force-push back to a SHA reviewed as PASS earlier reads as `verdict=ready`. Th
   - CheckRun with a non-`COMPLETED` status → `WAIT`
   - CheckRun conclusion `SUCCESS`, `NEUTRAL` or `SKIPPED` → pass (#138's "CodeRabbit / Review" was `NEUTRAL` inside a `SUCCESS` rollup); any other conclusion → `FAIL`
   - StatusContext `PENDING` or `EXPECTED` → `WAIT`; `FAILURE` or `ERROR` → `FAIL`; `SUCCESS` → pass
-- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a base rule, must be present and `SUCCESS`.
-  - A missing one → `WAIT(ci-missing)`; one present but not `SUCCESS` → `FAIL(ci-failed)`.
+- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a base rule, must be present and pass.
+  - A missing one → `WAIT(ci-missing)`. A present one is classified by the per-context rules above: `WAIT` → `WAIT(ci-pending)`, `FAIL` → `FAIL(ci-failed)`. A required check still running is the common case, since the review marker that triggers the gate usually lands before CI finishes.
   - An empty required list is a configuration error: the job fails red.
   - Without this rule, zero checks read as green. An unprotected repo with a `null` rollup still reports `CLEAN`, and Actions being disabled, or a first-time contributor's run awaiting approval, look the same.
 - **Never `gh pr checks`.** With zero checks it prints text and exits 1, and exit 1 also means a failure or "no required checks".
@@ -254,7 +254,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 
 | Loop | Change |
 |---|---|
-| afk-review | **This PR (#141).** The marker records `verdict=` and is written only for a head unchanged across the review. The SHA-skip trusts only the loop's own login, matches exactly, and treats any lookup failure as an error, never a skip. Every bash block is self-contained. |
+| afk-review | **This PR (#146, closes #141).** The marker records `verdict=` and is written only for a head unchanged across the review. The SHA-skip trusts only the loop's own login, matches exactly, and treats any lookup failure as an error, never a skip. Every bash block is self-contained. |
 | afk-fix | None. The gate never routes to `auto:needs-fixes`. A conflict or red CI goes to a human, because afk-fix has no sync-with-base step and doesn't read CI logs. Sending those there would burn a convergence and end in its "converged without changing code" escalation, or loop. |
 | afk-enroll | None in v1. It enrols fork PRs, so forks reach the review model (to be filed: tasks.md Follow-ups). |
 | babysit-pr | None in v1. `ci-monitor.cjs` spawns it on every `gh pr create`, and it announces "ready to merge" on green CI regardless of review, which contradicts the gate (to be filed). |

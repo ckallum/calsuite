@@ -479,17 +479,31 @@ suite() {
 
   hdr "claim (block 5) + not-eligible release (block 6)"
   begin C1 "claim succeeds -> exact edit"
-  runblk 5; want_status "AFKREV_OK claimed"
+  runblk 5 "GH_PR_LABELS=bug auto:needs-review"; want_status "AFKREV_OK claimed"
+  want_call "[\"pr\",\"view\",\"7\",\"--repo\",\"$R\",\"--json\",\"labels\",\"--jq\","
   exp ok pr edit 7 --repo "$R" --add-label auto:reviewing --remove-label auto:needs-review; want_writes; done_case
   begin C2 "claim edit fails -> ERROR"
-  runblk 5 GH_EDIT_FAIL=1; want_status "AFKREV_ERROR claim"
+  runblk 5 "GH_PR_LABELS=auto:needs-review" GH_EDIT_FAIL=1; want_status "AFKREV_ERROR claim"
   exp FAIL pr edit 7 --repo "$R" --add-label auto:reviewing --remove-label auto:needs-review; want_writes; done_case
+  begin C3 "escalated by another run -> SKIP, no writes"
+  runblk 5 "GH_PR_LABELS=auto:needs-human"; want_status "AFKREV_SKIP not claimable (auto labels: 'auto:needs-human')"; want_no_writes; done_case
+  begin C3b "needs-review beside another auto label -> SKIP, no writes"
+  runblk 5 "GH_PR_LABELS=auto:needs-review auto:needs-human"
+  want_status "AFKREV_SKIP not claimable (auto labels: 'auto:needs-human auto:needs-review')"; want_no_writes; done_case
+  begin C3c "already claimed by a sibling -> SKIP, no writes"
+  runblk 5 "GH_PR_LABELS=auto:reviewing"; want_status_prefix "AFKREV_SKIP not claimable"; want_no_writes; done_case
+  begin C4 "label read fails -> ERROR, no writes"
+  runblk 5 GH_PR_VIEW_FAIL=1; want_status "AFKREV_ERROR claim label read failed"; want_no_writes; done_case
   begin L1 "release succeeds -> edit, no marker"
   runblk 6; want_status "AFKREV_OK released (not eligible)"
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
   begin L2 "release edit fails -> ERROR"
   runblk 6 GH_EDIT_FAIL=1; want_status "AFKREV_ERROR release"
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
+  begin L3 "claim lost -> ERROR, no writes"
+  runblk 6 "GH_PR_LABELS=auto:needs-human"; want_status "AFKREV_ERROR lost claim — another run owns it, not releasing"; want_no_writes; done_case
+  begin L4 "claim check fails -> ERROR, no writes"
+  runblk 6 GH_PR_VIEW_FAIL=1; want_status "AFKREV_ERROR claim check failed"; want_no_writes; done_case
 
   hdr "transition + mark (block 7)"
   begin W1 "ready -> edit, then exact marker comment"
@@ -504,7 +518,7 @@ suite() {
   exp ok pr comment 7 --repo "$R" --body "<!-- afk-review reviewed sha=$SHA verdict=needs-fixes -->"; want_writes; done_case
   BODY_NF=$(printf '%s\n' "$WRITES" | sed -n 's/^ok //p' | jq -r 'select(.[1] == "comment") | .[index("--body") + 1]')
   begin W2 "edit fails -> ERROR, no comment"
-  runblk 7 GH_EDIT_FAIL=1; want_status "AFKREV_ERROR transition"; want_no_call '["pr","view",'
+  runblk 7 GH_EDIT_FAIL=1; want_status "AFKREV_ERROR transition"; want_no_call '"headRefOid"'
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready; want_writes; done_case
   begin W3 "empty SHA -> edit, no comment, marked=none"
   runblk 7 @SHA=; want_status "AFKREV_OK auto:ready marked=none"
@@ -519,9 +533,12 @@ suite() {
   begin W6 "head moved during review -> edit only, marked=none"
   runblk 7 "GH_PR_HEAD=$OLD_SHA"; want_status "AFKREV_OK auto:ready marked=none"
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready; want_writes; done_case
-  begin W7 "head read fails -> edit only, marked=none"
-  runblk 7 GH_PR_VIEW_FAIL=1; want_status "AFKREV_OK auto:ready marked=none"
-  exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready; want_writes; done_case
+  begin W7 "claim check fails -> ERROR, no writes"
+  runblk 7 GH_PR_VIEW_FAIL=1; want_status "AFKREV_ERROR claim check failed"; want_no_writes; done_case
+  begin W8 "claim lost to an escalation -> ERROR, no writes"
+  runblk 7 "GH_PR_LABELS=auto:needs-human"; want_status "AFKREV_ERROR lost claim — another run owns it, not transitioning"; want_no_writes; done_case
+  begin W8b "claim swept back to needs-review -> ERROR, no writes"
+  runblk 7 "GH_PR_LABELS=auto:needs-review" @VERDICT=needs-fixes; want_status_prefix "AFKREV_ERROR lost claim"; want_no_writes; done_case
   begin W5 "unsubstituted verdict -> ERROR, no gh call"
   runblk 7 '@VERDICT=<VERDICT>'; want_status "AFKREV_ERROR bad verdict '<VERDICT>'"; want_no_calls; done_case
   begin W5b "bad verdict 'pass' -> ERROR, no gh call"
