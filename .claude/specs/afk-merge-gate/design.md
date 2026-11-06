@@ -112,17 +112,17 @@ Repo variables are set with `gh variable set NAME --body VALUE` and read by both
 Each run builds one snapshot per PR, then evaluates it with a pure function.
 
 1. **A GraphQL page of open `auto:ready` PRs**, `first: 10`, paginated (tested against calsuite at about 11 points a page). Per PR it fetches:
-   - `number state isDraft isCrossRepository headRefOid baseRefName mergeable mergeStateStatus reviewDecision`
+   - `number state isDraft isCrossRepository headRefName headRefOid baseRefName mergeable mergeStateStatus reviewDecision`
    - `labels(first: 100)` with `totalCount`
    - `statusCheckRollup.contexts(first: 100)` with `totalCount`:
      - each CheckRun's `name status conclusion startedAt` and its workflow name
      - each StatusContext's `context state description createdAt`
    - `reviewThreads(first: 100)` with `totalCount`, and each thread's `isResolved isOutdated` plus its first comment's author and `authorAssociation`
-   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type } } }`
+   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } } }`
 2. **REST, per PR.** REST reports bots as `name[bot]`; GraphQL drops the suffix.
    - `repos/R/issues/N/comments --paginate`, for markers, with `user.login` and `author_association`.
    - `repos/R/issues/N/timeline --paginate`, for when `auto:ready` was last applied, and `head_ref_force_pushed` events.
-   - **Arrival times.** A commit's own dates say when it was written, and its check runs may predate this ref, so neither says when it *arrived* here. The runner reads `repos/R/activity?ref=refs/heads/<ref>` and takes the latest `push`, `force_push` or `pr_merge` entry whose `after` is that SHA. For the head only, it falls back to the newest `head_ref_force_pushed` timeline event whose `commit_id` is the SHA. Without either, the arrival is undeterminable, and a cause clocked from it is never capped. Forks have already failed at check 4, so the head ref is always in this repo.
+   - **Arrival times.** A commit's own dates say when it was written, and its check runs may predate this ref, so neither says when it *arrived* here. The runner reads `repos/R/activity?ref=refs/heads/<ref>` and takes the latest `push`, `force_push`, `branch_creation` or `pr_merge` entry whose `after` is that SHA (the head ref is `headRefName`). For the head only, it falls back to the newest `head_ref_force_pushed` timeline event whose `commit_id` is the SHA. Without either, the arrival is undeterminable, and a cause clocked from it is never capped. Forks have already failed at check 4, so the head ref is always in this repo.
 3. **REST compare, only for same-repo PRs that reach check 11.** `repos/R/compare/<head>...<base>` gives the behind-by note. A failure drops the note; it never makes the PR `error`.
    - GraphQL `headRef.compare` is not used: on a fork it looks for the base branch in the fork, errors, and would keep the fork from ever reaching `FAIL(fork)`.
 
@@ -180,7 +180,7 @@ Snapshot rules (fail closed):
 | `ci-missing` | the head's arrival |
 | `mergeable-unknown` | the later of the head's and the base tip's arrival |
 | `marker-lag` | when `auto:ready` was applied; if no `labeled auto:ready` event was found, the newest `auto:*` labeled or unlabeled event on the timeline (the review loop's claim lands minutes before its transition), so this case still escalates without capping a lagging read at once |
-| `truncated`, `unknown-value` | when `auto:ready` was applied |
+| `truncated`, `unknown-value` | undeterminable, so never capped: neither says anything about the PR's progress, and the `WAIT` shows in every run's summary |
 
 - A merge to the base therefore restarts the clock for every PR that reads `UNKNOWN` afterwards. A PR announced ready days ago is never escalated by a passing recomputation.
 - A cause whose start can't be determined is never capped. It stays a `WAIT`, visible in every summary.
@@ -213,7 +213,7 @@ A force-push back to a SHA reviewed as PASS earlier reads as `verdict=ready`. Th
   - CheckRun with a non-`COMPLETED` status → `WAIT`
   - CheckRun conclusion `SUCCESS`, `NEUTRAL` or `SKIPPED` → pass (#138's "CodeRabbit / Review" was `NEUTRAL` inside a `SUCCESS` rollup); any other conclusion → `FAIL`
   - StatusContext `PENDING` or `EXPECTED` → `WAIT`; `FAILURE` or `ERROR` → `FAIL`; `SUCCESS` → pass
-- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a base rule, must be present and `SUCCESS`.
+- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a branch-protection rule and every `requiredStatusChecks` context from a base ruleset's `REQUIRED_STATUS_CHECKS` rule, must be present and `SUCCESS`. Folding the ruleset's checks in here is what makes check 9's `REVIEW_REQUIRED` exception safe: a ruleset-required check can't be missing while `BLOCKED` is read as approval-only.
   - A missing one → `WAIT(ci-missing)`. One still running (a non-`COMPLETED` CheckRun, or a `PENDING`/`EXPECTED` StatusContext) → `WAIT(ci-pending)`: the review marker that triggers the gate usually lands before CI finishes. Any other state, `NEUTRAL` and `SKIPPED` included, → `FAIL(ci-failed)`: a required job that didn't run proves nothing.
   - An empty required list is a configuration error: the job fails red.
   - Without this rule, zero checks read as green. An unprotected repo with a `null` rollup still reports `CLEAN`, and Actions being disabled, or a first-time contributor's run awaiting approval, look the same.

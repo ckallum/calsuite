@@ -37,7 +37,7 @@ You are the **fix loop** of the AFK autonomous system — the **only loop that m
 - **Blocks talk to you through stdout.** Each guard prints exactly one status line — `AFKFIX_OK …`, `AFKFIX_ESCALATE <reason>`, or `AFKFIX_ABORT <reason>` — and **you** act on it per the prose. That printed line is the only state that crosses a block boundary.
 - **Anything that needs two values at once lives in ONE block** (push + verify + transition is a single block for this reason).
 
-Where a step writes `<owner/repo>`, `<N>`, `<BASE>`, `<REASON>` or `<PUSHED>`, **substitute the literal value** — the repo you resolved, the PR number you are processing, the base printed by 3.2, and (Step 4) the escalation reason and `push-landed=` value.
+Where a step writes `<owner/repo>`, `<N>`, `<CLAIM>`, `<BASE>`, `<REASON>` or `<PUSHED>`, **substitute the literal value** — the repo you resolved, the PR number you are processing, the `claim=` id printed by 3.1, the base printed by 3.2, and (Step 4) the escalation reason and `push-landed=` value.
 
 **Stateless by design.** There is no completion marker and no saved per-run state. Crash recovery is *re-derivation*: a crashed run leaves a stale `auto:fixing` claim, Step 1's sweep returns it to `auto:needs-fixes`, and the next run re-reads the PR's current head and current review comments and starts over. That costs a redundant convergence but cannot corrupt state — the tradeoff is deliberate.
 
@@ -165,13 +165,26 @@ fi
 if [ "$AUTO" != "auto:needs-fixes" ]; then
   echo "AFKFIX_SKIP #$N not claimable (auto labels: '$AUTO') — moved on"; exit 0
 fi
-if gh pr edit "$N" --repo "$REPO" --add-label auto:fixing --remove-label auto:needs-fixes; then
-  echo "AFKFIX_OK claimed #$N"
-else
+if ! gh pr edit "$N" --repo "$REPO" --add-label auto:fixing --remove-label auto:needs-fixes; then
   echo "AFKFIX_SKIP #$N claim failed — leaving the PR untouched"; exit 1
 fi
+# This run's claim identity: the id of the `labeled auto:fixing` event the edit just created. A sweep
+# resets a claim held past its 90-min cutoff and another run may re-claim, which the label set alone
+# can't tell apart, so 3.4 and Step 4 compare against this id. A missing or old event (a lagging read)
+# leaves the identity unknown: release the claim rather than run unverifiable.
+recent=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+raw=$(gh api "repos/$REPO/issues/$N/timeline" --paginate --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | "\(.id) \(.created_at)"' 2>/dev/null) || raw=""
+last=$(tail -n1 <<<"$raw"); CLAIM=${last%% *}; at=${last#* }
+case "$CLAIM" in *[!0-9]*) CLAIM="" ;; esac
+if [ -z "$CLAIM" ] || [[ "$at" < "$recent" ]]; then
+  if gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-fixes >/dev/null 2>&1; then
+    echo "AFKFIX_SKIP #$N could not read back this run's claim — released it for the next run"; exit 1
+  fi
+  echo "AFKFIX_SKIP #$N could not read back this run's claim, and the release failed — the sweep will reclaim it"; exit 1
+fi
+echo "AFKFIX_OK claimed #$N claim=$CLAIM"
 ```
-On `AFKFIX_SKIP … not claimable`, record `#N → skipped (moved on)`. On any other `AFKFIX_SKIP`, do **not** touch this PR further — record `#N → error (claim)` and move on.
+On `AFKFIX_OK`, note the printed `claim=` value — that is `<CLAIM>` in 3.4 and Step 4. On `AFKFIX_SKIP … not claimable`, record `#N → skipped (moved on)`. On any other `AFKFIX_SKIP`, do **not** touch this PR further — record `#N → error (claim)` and move on.
 
 ### 3.2 Safety gates, checkout, base fetch
 
@@ -275,6 +288,19 @@ fi
 if [ "$AUTO" != "auto:fixing" ]; then
   echo "AFKFIX_ESCALATE no longer the sole owner before publishing (auto labels: '$AUTO') — not pushing"; exit 1
 fi
+# ...and the auto:fixing there is still this run's claim, not a re-claim after a sweep reset ours.
+CLAIM="<CLAIM>"
+case "$CLAIM" in ''|*[!0-9]*) CLAIM="invalid" ;; esac
+# No pipe on gh: --paginate prints pages as they arrive, so a later page failing would otherwise
+# leave an older page's id here and pass the check.
+LATEST=""
+if raw=$(gh api "repos/$REPO/issues/$N/timeline" --paginate --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | .id' 2>/dev/null); then
+  LATEST=$(tail -n1 <<<"$raw")
+fi
+[ -n "$LATEST" ] || LATEST="fetch-failed"
+if [ "$LATEST" != "$CLAIM" ]; then
+  echo "AFKFIX_ESCALATE the auto:fixing claim is not this run's (claim=$CLAIM latest=$LATEST) — not pushing"; exit 1
+fi
 echo "AFKFIX_OK has-commits local=$(git rev-parse HEAD)"
 ```
 
@@ -314,6 +340,18 @@ OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | selec
 if [ "$OWN" != "auto:fixing" ]; then
   echo "AFKFIX_SKIP #$N no longer the sole owner (auto labels: '$OWN') — leaving the terminal edits to the owner"; exit 1
 fi
+CLAIM="<CLAIM>"
+case "$CLAIM" in ''|*[!0-9]*) CLAIM="invalid" ;; esac
+# No pipe on gh: --paginate prints pages as they arrive, so a later page failing would otherwise
+# leave an older page's id here and pass the check.
+LATEST=""
+if raw=$(gh api "repos/$REPO/issues/$N/timeline" --paginate --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | .id' 2>/dev/null); then
+  LATEST=$(tail -n1 <<<"$raw")
+fi
+[ -n "$LATEST" ] || LATEST="fetch-failed"
+if [ "$LATEST" != "$CLAIM" ]; then
+  echo "AFKFIX_SKIP #$N the auto:fixing claim is not this run's (claim=$CLAIM latest=$LATEST) — leaving the terminal edits to the owner"; exit 1
+fi
 
 if gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-review; then
   echo "AFKFIX_OK #$N -> auto:needs-review at $LOCAL"
@@ -350,6 +388,19 @@ if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name
 fi
 if [ "$OWN" != "true" ]; then
   echo "AFKFIX_SKIP #$N no longer holds auto:fixing — not escalating over another run"; exit 1
+fi
+# A re-claim by another run also carries auto:fixing; its staged replies and claim are not ours to touch.
+CLAIM="<CLAIM>"
+case "$CLAIM" in ''|*[!0-9]*) CLAIM="invalid" ;; esac
+# No pipe on gh: --paginate prints pages as they arrive, so a later page failing would otherwise
+# leave an older page's id here and pass the check.
+LATEST=""
+if raw=$(gh api "repos/$REPO/issues/$N/timeline" --paginate --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | .id' 2>/dev/null); then
+  LATEST=$(tail -n1 <<<"$raw")
+fi
+[ -n "$LATEST" ] || LATEST="fetch-failed"
+if [ "$LATEST" != "$CLAIM" ]; then
+  echo "AFKFIX_SKIP #$N the auto:fixing claim is not this run's (claim=$CLAIM latest=$LATEST) — not escalating over another run"; exit 1
 fi
 rm -f "${TMPDIR:-/tmp}/rpf-pending-$(printf '%s' "$REPO" | tr '/' '__')-$N.json"
 # Gate the label on the comment: ordering alone doesn't hold the invariant. A reason-less

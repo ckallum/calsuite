@@ -30,7 +30,8 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
   - "ready 30 h ago, base just moved, `UNKNOWN`" → `WAIT`
   - half-finished label moves (including `auto:ready` beside a claim label) and a truncated label list
   - a required check still in progress → `WAIT(ci-pending)`; one that concluded `SKIPPED` → `FAIL(ci-failed)`
-  - `REVIEW_REQUIRED` + `BLOCKED` → `READY` with the approval note; the same plus `requiresSignatures` → `FAIL(protection)`
+  - `REVIEW_REQUIRED` + `BLOCKED` → `READY` with the approval note; the same plus `requiresSignatures` → `FAIL(protection)`; the same with a ruleset-required check missing → `WAIT(ci-missing)`, never `READY`
+  - a PR ready for days whose contexts become truncated → `WAIT(truncated)`, never `FAIL(stuck)`
   - arrival dates come from the activity log: a force-push back to the PR's first head, then `UNKNOWN` → `WAIT`, not `FAIL(stuck)`
   - marker-lag with no `labeled auto:ready` event: `labeled auto:reviewing` 5 min ago → `WAIT`; newest label event 25 h ago → `FAIL(stuck:marker-lag)`
   - 3 bounces in 24 h → `FAIL(bounce-cap)`; 3 spread over a week → `BOUNCE`
@@ -77,6 +78,7 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
 
 ## Follow-ups (to be filed as issues)
 - [ ] `/receiving-pr-feedback` has no author filter, so afk-fix acts on every commenter's feedback (security).
+- [ ] `/receiving-pr-feedback`'s staged-replies file is keyed by repo and PR only, so two afk-fix runs on one PR (after a sweep reset and re-claim) share it. afk-fix's claim-id check stops the stale run from publishing, but not from staging into the file; key the file by the claim id.
 - [ ] Fork enrolment policy in `afk-enroll.yml`: forks reach the review model and spend tokens.
 - [ ] babysit-pr vs the gate: duplicate "ready" banners, and a CI re-run racing an escalation.
 - [ ] Remove `auto:*` labels from closed PRs (`afk-enroll.yml`, `closed`).
