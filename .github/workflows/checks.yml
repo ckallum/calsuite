@@ -42,3 +42,6 @@ jobs:
         run: bash scripts/test-afk-fix-blocks.sh
       - name: afk-review execution harness
         run: bash scripts/test-afk-review-blocks.sh
+      - name: afk-review harness catches a removed author filter
+        # The only proof the #141 regression can't come back unnoticed.
+        run: bash scripts/test-afk-review-blocks.sh --mutation-check

@@ -37,7 +37,7 @@ You are the **fix loop** of the AFK autonomous system — the **only loop that m
 - **Blocks talk to you through stdout.** Each guard prints exactly one status line — `AFKFIX_OK …`, `AFKFIX_ESCALATE <reason>`, or `AFKFIX_ABORT <reason>` — and **you** act on it per the prose. That printed line is the only state that crosses a block boundary.
 - **Anything that needs two values at once lives in ONE block** (push + verify + transition is a single block for this reason).
 
-Where a step writes `<owner/repo>`, `<N>` or `<BASE>`, **substitute the literal value** — the repo you resolved, the PR number you are processing, and the base printed by 3.2.
+Where a step writes `<owner/repo>`, `<N>`, `<BASE>`, `<REASON>` or `<PUSHED>`, **substitute the literal value** — the repo you resolved, the PR number you are processing, the base printed by 3.2, and (Step 4) the escalation reason and `push-landed=` value.
 
 **Stateless by design.** There is no completion marker and no saved per-run state. Crash recovery is *re-derivation*: a crashed run leaves a stale `auto:fixing` claim, Step 1's sweep returns it to `auto:needs-fixes`, and the next run re-reads the PR's current head and current review comments and starts over. That costs a redundant convergence but cannot corrupt state — the tradeoff is deliberate.
 
@@ -115,15 +115,25 @@ for n in $(printf '%s\n' "$claimed"); do
   # so a real fetch FAILURE trips the guard; `[[ < ]]` for the lexical (== chronological) ISO-8601
   # UTC compare, since POSIX/zsh `[ \< ]` has no `<`. Reclaim only with a timestamp older than the
   # cutoff — an empty result is uncertainty, not age.
+  # Stale means the LATEST auto:fixing event is a `labeled` older than the cutoff.
   if ! raw=$(gh api "repos/$REPO/issues/$n/timeline" --paginate \
-      --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | .created_at'); then
+      --jq '.[] | select((.event=="labeled" or .event=="unlabeled") and .label.name=="auto:fixing") | "\(.event) \(.created_at)"'); then
     echo "  ~ #$n: timeline fetch failed — leaving claim as-is"; continue
   fi
-  applied=$(tail -n1 <<<"$raw")
-  if [[ -n "$applied" && "$applied" < "$cutoff" ]]; then
-    gh pr edit "$n" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-fixes \
-      || echo "  ~ #$n: reclaim failed — will retry next sweep"
+  last=$(tail -n1 <<<"$raw"); ev=${last%% *}; applied=${last#* }
+  [[ "$ev" = labeled && -n "$applied" && "$applied" < "$cutoff" ]] || continue
+  # Re-read just before the edit: the claim's owner may have transitioned since the list was taken.
+  if ! AUTO=$(gh pr view "$n" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+    echo "  ~ #$n: label read failed — leaving claim as-is"; continue
   fi
+  case " $AUTO " in *" auto:fixing "*) ;; *) continue ;; esac
+  # A lone stale claim goes back to needs-fixes; one beside another auto:* label (a human's
+  # needs-human, a half-applied edit) is dropped so that label owns the PR.
+  if [ "$AUTO" = "auto:fixing" ]; then
+    gh pr edit "$n" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-fixes
+  else
+    gh pr edit "$n" --repo "$REPO" --remove-label auto:fixing
+  fi || echo "  ~ #$n: reclaim failed — will retry next sweep"
 done
 echo "AFKFIX_OK sweep done"
 ```
@@ -146,13 +156,22 @@ A gh failure returns empty output, indistinguishable from an empty queue — hen
 
 ```bash
 REPO="<owner/repo>"; N=<N>
+# Re-read first: Step 2's list goes stale over whole convergences, and `gh pr edit --remove-label`
+# succeeds on an absent label, so claiming a PR a human or another run has moved on would stack
+# auto:fixing on it — and this loop pushes code.
+if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+  echo "AFKFIX_SKIP #$N claim label read failed — leaving the PR untouched"; exit 1
+fi
+if [ "$AUTO" != "auto:needs-fixes" ]; then
+  echo "AFKFIX_SKIP #$N not claimable (auto labels: '$AUTO') — moved on"; exit 0
+fi
 if gh pr edit "$N" --repo "$REPO" --add-label auto:fixing --remove-label auto:needs-fixes; then
   echo "AFKFIX_OK claimed #$N"
 else
   echo "AFKFIX_SKIP #$N claim failed — leaving the PR untouched"; exit 1
 fi
 ```
-On `AFKFIX_SKIP`, do **not** touch this PR further — record `#N → error (claim)` and move on.
+On `AFKFIX_SKIP … not claimable`, record `#N → skipped (moved on)`. On any other `AFKFIX_SKIP`, do **not** touch this PR further — record `#N → error (claim)` and move on.
 
 ### 3.2 Safety gates, checkout, base fetch
 
@@ -248,10 +267,18 @@ if [ -z "$REMOTE" ]; then echo "AFKFIX_ESCALATE could not read the PR head from 
 if [ "$(git rev-parse HEAD)" = "$REMOTE" ]; then
   echo "AFKFIX_ESCALATE converged without changing code — nothing to push; needs human adjudication"; exit 1
 fi
+# Push only to a PR this run alone still owns: a human who added auto:needs-human mid-convergence
+# has taken it over.
+if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")' 2>/dev/null); then
+  echo "AFKFIX_ESCALATE could not re-read the labels before publishing"; exit 1
+fi
+if [ "$AUTO" != "auto:fixing" ]; then
+  echo "AFKFIX_ESCALATE no longer the sole owner before publishing (auto labels: '$AUTO') — not pushing"; exit 1
+fi
 echo "AFKFIX_OK has-commits local=$(git rev-parse HEAD)"
 ```
 
-On `AFKFIX_ESCALATE`, go straight to **Step 4** and **do not run `--publish-only`** — a zero-commit convergence means either every finding was pushed back on, or the head was already fixed by an earlier crashed run. Publishing there would re-post staged replies that a crashed run may already have posted (`--publish-only` is consume-once and keeps no per-reply state), and would append a Revision History entry for a run that changed nothing. Neither case may be auto-transitioned either: an unchanged head re-triggers the identical findings and bounces forever.
+On `AFKFIX_ESCALATE`, go straight to **Step 4** and **do not run `--publish-only`** — a zero-commit convergence means either every finding was pushed back on, or the head was already fixed by an earlier crashed run. Publishing there would re-post staged replies that a crashed run may already have posted (`--publish-only` is consume-once and keeps no per-reply state), and would append a Revision History entry for a run that changed nothing. Neither case may be auto-transitioned either: an unchanged head re-triggers the identical findings and bounces forever. The two label escalations from this block (labels unreadable, or no longer the sole owner because a human added `auto:needs-human` or another run moved the PR) also skip the publish: Step 4 tells the owner the fixes were not pushed, or stands down if the claim is gone entirely.
 
 **(2) Publish** — only after step 1 printed `AFKFIX_OK has-commits`:
 
@@ -283,9 +310,9 @@ if [ -z "$NEWSHA" ] || [ "$NEWSHA" != "$LOCAL" ]; then
 fi
 
 # Still ours? Two overlapping runs can both reach here; the loser must not stamp over the winner.
-OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:fixing")' 2>/dev/null)
-if [ "$OWN" != "true" ]; then
-  echo "AFKFIX_SKIP #$N no longer holds auto:fixing (own=${OWN:-fetch-failed}) — leaving the terminal edits to the owner"; exit 1
+OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")' 2>/dev/null) || OWN="fetch-failed"
+if [ "$OWN" != "auto:fixing" ]; then
+  echo "AFKFIX_SKIP #$N no longer the sole owner (auto labels: '$OWN') — leaving the terminal edits to the owner"; exit 1
 fi
 
 if gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-review; then
@@ -301,15 +328,26 @@ On `AFKFIX_ESCALATE`, go to **Step 4** and carry the printed `push-landed=` valu
 
 Escalation hands the PR to a human and **abandons the local changes unpushed** — never push a half-converged branch. Comment **before** moving the label: if the label moves first and the comment fails, the PR sits at `auto:needs-human` with no reason recorded, and the sweep (which queries `auto:fixing`) can no longer see it.
 
+Replace the `<REASON>` line with the one-line reason from the `AFKFIX_ESCALATE` line (any characters, but not the line `AFKFIX_REASON`); the quoted heredoc keeps the shell from interpreting it. `<PUSHED>` is 3.4(3)'s printed `push-landed=` value, `yes` or `no` — every escalation before 3.4(2) is `no`.
+
 ```bash
 REPO="<owner/repo>"; N=<N>
-REASON="<one-line reason from the AFKFIX_ESCALATE line>"
-# Say what actually happened: "No fixes were pushed." is TRUE for every escalation before 3.4's
-# publish step, and FALSE once that push has landed (e.g. a human pushed on top afterwards).
-# Read this from 3.4(3)'s printed push-landed= value; every escalation before 3.4(2) is push-landed=no.
-PUSH_NOTE="<push-landed=no -> 'No fixes were pushed.' | push-landed=yes -> 'Fix commits were pushed; the transition did not complete.'>"
+IFS= read -r REASON <<'AFKFIX_REASON'
+<REASON>
+AFKFIX_REASON
+case "$REASON" in ''|'<'*'>') echo "AFKFIX_SKIP #$N no escalation reason — keeping the claim for the sweep to retry"; exit 1 ;; esac
+PUSHED="<PUSHED>"
+case "$PUSHED" in
+  no)  PUSH_NOTE="No fixes were pushed." ;;
+  yes) PUSH_NOTE="Fix commits were pushed; the transition did not complete." ;;
+  *)   printf '%s\n' "AFKFIX_SKIP #$N bad push-landed value '$PUSHED' — keeping the claim for the sweep to retry"; exit 1 ;;
+esac
 
-OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:fixing")' 2>/dev/null)
+# Presence, not the exact set: escalating is safe from any stacked state. It drops the claim and adds
+# auto:needs-human, which every other check treats as the owner.
+if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:fixing")' 2>/dev/null); then
+  echo "AFKFIX_SKIP #$N claim check failed — keeping the claim for the sweep to retry"; exit 1
+fi
 if [ "$OWN" != "true" ]; then
   echo "AFKFIX_SKIP #$N no longer holds auto:fixing — not escalating over another run"; exit 1
 fi
@@ -320,8 +358,11 @@ rm -f "${TMPDIR:-/tmp}/rpf-pending-$(printf '%s' "$REPO" | tr '/' '__')-$N.json"
 if ! gh pr comment "$N" --repo "$REPO" --body "afk-fix: escalating to needs-human — $REASON $PUSH_NOTE"; then
   echo "AFKFIX_SKIP #$N could not post the escalation reason — keeping the claim for the sweep to retry"; exit 1
 fi
-gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-human
-echo "AFKFIX_OK #$N -> auto:needs-human ($REASON)"
+if ! gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing --add-label auto:needs-human; then
+  echo "AFKFIX_SKIP #$N escalation label move failed — the sweep will reclaim the stale claim"; exit 1
+fi
+# printf, not echo: zsh's echo interprets backslashes in the reason.
+printf '%s\n' "AFKFIX_OK #$N -> auto:needs-human ($REASON)"
 ```
 
 If the label edit fails after the comment posted, record the error and move on — the sweep reclaims the stranded claim.

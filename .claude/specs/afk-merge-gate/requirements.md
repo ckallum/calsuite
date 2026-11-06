@@ -24,7 +24,7 @@ This is the fourth AFK loop. The review loop (`skills/afk-review`) and the fix l
    - Never leave `auto:needs-human` alongside `auto:ready`. If both are ever present — a half-finished move, or a human adding `auto:needs-human` — the next run removes the stale `auto:ready` without commenting.
 5. **FR-5 Bounce an unreviewed head.**
    - When no trusted review marker exists for the current head, comment and then move `auto:ready` → `auto:needs-review`, so the review loop re-reviews the new commits.
-   - After 3 bounces on one PR, FAIL instead (`bounce-cap`).
+   - After 3 bounces on one PR within 24 h, FAIL instead (`bounce-cap`).
 6. **FR-6 Wait.**
    - `WAIT` writes nothing.
    - A `WAIT` whose current cause has lasted more than 24 h becomes `FAIL(stuck)`. The clock starts when that cause began, not when the label was applied: a PR that was announced ready days ago and then briefly reads `UNKNOWN` after a merge to its base must not escalate.

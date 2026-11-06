@@ -118,10 +118,11 @@ Each run builds one snapshot per PR, then evaluates it with a pure function.
      - each CheckRun's `name status conclusion startedAt` and its workflow name
      - each StatusContext's `context state description createdAt`
    - `reviewThreads(first: 100)` with `totalCount`, and each thread's `isResolved isOutdated` plus its first comment's author and `authorAssociation`
-   - `baseRef { target { committedDate } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution } }`
+   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type } } }`
 2. **REST, per PR.** REST reports bots as `name[bot]`; GraphQL drops the suffix.
    - `repos/R/issues/N/comments --paginate`, for markers, with `user.login` and `author_association`.
-   - `repos/R/issues/N/timeline --paginate`, for when `auto:ready` was last applied and when the head was last pushed (`committed` / `head_ref_force_pushed`).
+   - `repos/R/issues/N/timeline --paginate`, for when `auto:ready` was last applied, and `head_ref_force_pushed` events.
+   - **Arrival times.** A commit's own dates say when it was written, and its check runs may predate this ref, so neither says when it *arrived* here. The runner reads `repos/R/activity?ref=refs/heads/<ref>` and takes the latest `push`, `force_push` or `pr_merge` entry whose `after` is that SHA. For the head only, it falls back to the newest `head_ref_force_pushed` timeline event whose `commit_id` is the SHA. Without either, the arrival is undeterminable, and a cause clocked from it is never capped. Forks have already failed at check 4, so the head ref is always in this repo.
 3. **REST compare, only for same-repo PRs that reach check 11.** `repos/R/compare/<head>...<base>` gives the behind-by note. A failure drops the note; it never makes the PR `error`.
    - GraphQL `headRef.compare` is not used: on a fork it looks for the base branch in the fork, errors, and would keep the fork from ever reaching `FAIL(fork)`.
 
@@ -159,12 +160,12 @@ Snapshot rules (fail closed):
 | 3 | another `auto:*` label also present | `WAIT(label-race)` while the other label is a claim (`auto:reviewing`, `auto:fixing`), or while the newest label event is < 10 min old, since another loop's transition is two mutations and may be mid-flight. A claim's owner may be about to re-add `auto:ready`, so removing it there could leave no `auto:*` label at all. Otherwise (a resting label, quiet for 10 min), `skipped (cleared stale auto:ready)`: remove `auto:ready` only, no comment. The other label's owner moves the PR on. This also finishes a BOUNCE whose remove step failed. |
 | 4 | `isCrossRepository` | `FAIL(fork)`. v1 never announces a fork as ready: the fork author controls its CI (it can edit `checks.yml`), and its content reached the review model unfiltered. |
 | 5 | **review binding** (below) | pass, or `BOUNCE`, `WAIT(marker-lag)`, or `FAIL(review-blocked \| review-unverified \| review-marker-missing \| bounce-cap \| config-mismatch)` |
-| 6 | `reviewDecision` | `CHANGES_REQUESTED` → `FAIL(changes-requested)`; `REVIEW_REQUIRED` → `FAIL(approval-required)`; `null` and `APPROVED` pass. GitHub computes this without protection (seen on an unprotected repo that reported `CLEAN`). |
+| 6 | `reviewDecision` | `CHANGES_REQUESTED` → `FAIL(changes-requested)`. `REVIEW_REQUIRED` passes with a note, "needs an approving review": GitHub won't count the PR author's own approval, so the note tells the maintainer to get one or use their bypass; failing it would stop every PR on a repo that requires reviews. `null` and `APPROVED` pass. GitHub computes this without protection (seen on an unprotected repo that reported `CLEAN`). |
 | 7 | `mergeable` | `CONFLICTING` → `FAIL(conflict)`; `UNKNOWN` → `WAIT(mergeable-unknown)`, because GitHub computes it lazily |
 | 8 | **CI** (below) | `FAIL(ci-failed)`, `WAIT(ci-pending \| ci-missing \| truncated)`, or pass |
-| 9 | `mergeStateStatus` | `DIRTY` → `FAIL(conflict)`; `BEHIND` → `FAIL(behind)`; `BLOCKED` → `WAIT` if check 8 waited, else `FAIL(protection)`; `UNKNOWN` → `WAIT(mergeable-unknown)`; `UNSTABLE` → defer to check 8; `CLEAN` and `HAS_HOOKS` pass |
+| 9 | `mergeStateStatus` | `DIRTY` → `FAIL(conflict)`; `BEHIND` → `FAIL(behind)`; `BLOCKED` → `WAIT` if check 8 waited, pass if check 6 saw `REVIEW_REQUIRED` and nothing else can block (`requiresSignatures` is false and every base ruleset rule is `PULL_REQUEST` or `REQUIRED_STATUS_CHECKS`), else `FAIL(protection)`; `UNKNOWN` → `WAIT(mergeable-unknown)`; `UNSTABLE` → defer to check 8; `CLEAN` and `HAS_HOOKS` pass |
 | 10 | review threads | Unresolved, not outdated, and started by a writer (`OWNER`/`MEMBER`/`COLLABORATOR`, not a bot) → `FAIL(unresolved-thread)`. With `requiresConversationResolution`, any unresolved thread fails. Bot threads become a note. |
-| 11 | everything passed | `READY`, with notes: base behind by N (lenient on an unprotected base), CodeRabbit "rate limited" or "skipped", open bot threads |
+| 11 | everything passed | `READY`, with notes: needs an approving review, base behind by N (lenient on an unprotected base), CodeRabbit "rate limited" or "skipped", open bot threads |
 
 **Combining checks.**
 - Checks 0–5 stop at the first decisive result. A `BOUNCE` stops evaluation: CI results for unreviewed commits don't matter.
@@ -176,9 +177,10 @@ Snapshot rules (fail closed):
 | Cause | Start |
 |---|---|
 | `ci-pending` | the oldest non-completed CheckRun `startedAt`, or PENDING StatusContext `createdAt` |
-| `ci-missing` | the head's last push |
-| `mergeable-unknown` | the later of the head's last push and the base tip's `committedDate` |
-| `marker-lag`, `truncated`, `unknown-value` | when `auto:ready` was applied |
+| `ci-missing` | the head's arrival |
+| `mergeable-unknown` | the later of the head's and the base tip's arrival |
+| `marker-lag` | when `auto:ready` was applied; if no `labeled auto:ready` event was found, the newest `auto:*` labeled or unlabeled event on the timeline (the review loop's claim lands minutes before its transition), so this case still escalates without capping a lagging read at once |
+| `truncated`, `unknown-value` | when `auto:ready` was applied |
 
 - A merge to the base therefore restarts the clock for every PR that reads `UNKNOWN` afterwards. A PR announced ready days ago is never escalated by a passing recomputation.
 - A cause whose start can't be determined is never capped. It stays a `WAIT`, visible in every summary.
@@ -198,7 +200,7 @@ This is the gate's half of a contract with afk-review's SHA-skip.
 | latest is legacy (no verdict) | skip | `FAIL(review-unverified)` |
 | none, and `auto:ready` was applied < 10 min ago, or no `labeled auto:ready` event was found | — | `WAIT(marker-lag)` |
 | none, and a trusted `bounce` marker for this SHA exists | review it | `FAIL(review-marker-missing)`: a review was already requested at this exact SHA and left no marker, so a second bounce can't help |
-| none, and the PR has ≥ 3 trusted bounce markers | review it | `FAIL(bounce-cap)`: ready → re-review → ready can't cycle forever |
+| none, and ≥ 3 trusted bounce markers on the PR were posted in the last 24 h | review it | `FAIL(bounce-cap)`: an automatic pusher (a bot's autofix, say) can't cycle ready → re-review → ready forever, while a human pushing follow-ups over days isn't capped |
 | none, and an exact-form review marker exists whose author is not `AFK_LOOP_LOGIN` but whose `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR` | — | `FAIL(config-mismatch)`: `AFK_LOOP_LOGIN` probably names the wrong login, and bouncing would stall the PR. A stranger's marker (association `NONE`) never triggers this. |
 | none | review it | `BOUNCE` |
 
@@ -211,8 +213,8 @@ A force-push back to a SHA reviewed as PASS earlier reads as `verdict=ready`. Th
   - CheckRun with a non-`COMPLETED` status → `WAIT`
   - CheckRun conclusion `SUCCESS`, `NEUTRAL` or `SKIPPED` → pass (#138's "CodeRabbit / Review" was `NEUTRAL` inside a `SUCCESS` rollup); any other conclusion → `FAIL`
   - StatusContext `PENDING` or `EXPECTED` → `WAIT`; `FAILURE` or `ERROR` → `FAIL`; `SUCCESS` → pass
-- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a base rule, must be present and pass.
-  - A missing one → `WAIT(ci-missing)`. A present one is classified by the per-context rules above: `WAIT` → `WAIT(ci-pending)`, `FAIL` → `FAIL(ci-failed)`. A required check still running is the common case, since the review marker that triggers the gate usually lands before CI finishes.
+- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a base rule, must be present and `SUCCESS`.
+  - A missing one → `WAIT(ci-missing)`. One still running (a non-`COMPLETED` CheckRun, or a `PENDING`/`EXPECTED` StatusContext) → `WAIT(ci-pending)`: the review marker that triggers the gate usually lands before CI finishes. Any other state, `NEUTRAL` and `SKIPPED` included, → `FAIL(ci-failed)`: a required job that didn't run proves nothing.
   - An empty required list is a configuration error: the job fails red.
   - Without this rule, zero checks read as green. An unprotected repo with a `null` rollup still reports `CLEAN`, and Actions being disabled, or a first-time contributor's run awaiting approval, look the same.
 - **Never `gh pr checks`.** With zero checks it prints text and exits 1, and exit 1 also means a failure or "no required checks".
@@ -254,7 +256,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 
 | Loop | Change |
 |---|---|
-| afk-review | **This PR (#146, closes #141).** The marker records `verdict=` and is written only for a head unchanged across the review. The SHA-skip trusts only the loop's own login, matches exactly, and treats any lookup failure as an error, never a skip. Every bash block is self-contained. |
+| afk-review | **This PR (#146, closes #141).** The marker records `verdict=` and is written only for a head unchanged across the review. The SHA-skip trusts only the loop's own login, matches exactly, and treats any lookup failure as an error, never a skip. Claims, transitions and sweeps check the exact `auto:*` set, and a stale or out-of-place claim yields to the other label rather than stacking, so the gate rarely sees `auto:ready` beside another loop's label (check 3 covers it when it does). Every bash block is self-contained. |
 | afk-fix | None. The gate never routes to `auto:needs-fixes`. A conflict or red CI goes to a human, because afk-fix has no sync-with-base step and doesn't read CI logs. Sending those there would burn a convergence and end in its "converged without changing code" escalation, or loop. |
 | afk-enroll | None in v1. It enrols fork PRs, so forks reach the review model (to be filed: tasks.md Follow-ups). |
 | babysit-pr | None in v1. `ci-monitor.cjs` spawns it on every `gh pr create`, and it announces "ready to merge" on green CI regardless of review, which contradicts the gate (to be filed). |
@@ -276,7 +278,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 | A forged gate marker suppresses a notice or an escalation reason | author must be `github-actions[bot]` |
 | Force-push back to a BLOCKED SHA | `verdict=` in the marker → `FAIL(review-blocked)` |
 | Gate and review skip disagree, so a PR stalls in `needs-review` | the binding table is the exact complement of the skip; `config-mismatch` catches a wrong login; BOUNCE re-checks markers before moving |
-| Ready → bounce → ready cycles burn review tokens | `review-marker-missing` at one SHA; `bounce-cap` after 3 |
+| Ready → bounce → ready cycles burn review tokens | `review-marker-missing` at one SHA; `bounce-cap` after 3 bounces in 24 h |
 | Pending forever (stuck CodeRabbit, unknown mergeability) | 24 h cause-anchored cap → `FAIL(stuck)`, never `READY` |
 | A long-ready PR escalated by a routine recomputation | the cap clock starts at the cause, not the label |
 | An unrelated comment cancels the queued sweep | concurrency at job level, behind the comment filter |
@@ -289,7 +291,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 
 - **Unit.** `scripts/lib/afk-gate.cjs` exports `evaluate(snapshot, config, now)` and the marker parsers. Fixtures live in `scripts/test-fixtures/afk-gate/`:
   - snapshots captured from real PRs, such as #145's final state and #132's hand-labelled `auto:ready`
-  - synthetic edge cases, one per row of the gate and binding tables, plus "announced ready 30 h ago, base moved 1 min ago, `UNKNOWN`" → `WAIT`, half-finished label moves (`auto:ready` beside `needs-human` / `needs-review`, inside and outside the race window), and a truncated label list
+  - synthetic edge cases: the list in tasks.md G3
   - run with `node --test`, in `checks.yml`
 - **Marker drift.** A test asserts that the marker format in `skills/afk-review/SKILL.md` and the regex in `scripts/lib/afk-gate.cjs` describe the same strings. `scripts/test-afk-review-blocks.sh` already round-trips the skill's own writer and reader.
 - **Runner.** A stub-`gh` harness, like `scripts/test-afk-fix-blocks.sh`, covering:
@@ -348,3 +350,4 @@ This needs `statuses: write`, and the CI classifier must exclude `afk/gate`. It 
 - Whether a failed run that was later re-run successfully still appears in `statusCheckRollup`. Capture a fixture. Until known, any `FAIL` context fails the gate (fail closed).
 - That CodeRabbit's commit statuses fire `status`, and its app check suites fire `check_suite`, for this workflow. Trial PR.
 - That a run whose job is skipped by `if` never displaces a pending sweep, by posting a non-marker comment during a sweep in dry-run.
+- That `GITHUB_TOKEN` can read `repos/R/activity` and GraphQL `Ref.rules` with the job's permissions. Dry-run.

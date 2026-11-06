@@ -22,7 +22,7 @@ You are the **review loop** of the AFK autonomous system. You review open pull r
 
 **You are the loop — bash is not.** Every ```` ```bash ```` block below runs as its **own shell**, and the `Skill:` call is a **separate process**. Nothing carries across that boundary:
 
-- **A variable set in one block is empty in the next.** Where a block writes `<owner/repo>`, `<N>`, `<SHA>`, `<VERDICT>` or `<REASON>`, **substitute the literal value**: the repo you resolved, the PR number you are processing, that PR's `headRefOid` from Step 2, the verdict from 3.4, and a one-line escalation reason.
+- **A variable set in one block is empty in the next.** Where a block writes `<owner/repo>`, `<LOGIN>`, `<N>`, `<SHA>`, `<VERDICT>` or `<REASON>`, **substitute the literal value**: the repo you resolved, the login the preconditions printed, the PR number you are processing, that PR's `headRefOid` from Step 2, the verdict from 3.4, and a one-line escalation reason.
 - **`continue`/`break` outside a `for` loop are not guards.** bash warns and falls through, so the guard fails **open**; zsh aborts the block with no status line. Guards below use `exit 1` inside their own block.
 - **Blocks talk to you through stdout.** Every block prints one status line — `AFKREV_OK …`, `AFKREV_SKIP …`, `AFKREV_PROCEED`, `AFKREV_ERROR <reason>`, or `AFKREV_ABORT <reason>` — and **you** act on it per the prose. A block that ends without a status line counts as `AFKREV_ERROR` — except Step 2, whose success output is the PR list as JSON (where `<N>` and `<SHA>` come from) rather than a status line.
 
@@ -30,7 +30,7 @@ You are the **review loop** of the AFK autonomous system. You review open pull r
 
 Determine `REPO`: the `owner/repo` passed in the invocation (e.g. `/afk-review ckallum/museli`), else the current directory's remote (`gh repo view --json nameWithOwner --jq .nameWithOwner`).
 
-Then run the **hard preconditions** — one block, so a failure stops the run before any label is touched. If it prints `AFKREV_ABORT`, report that line and **stop**; change nothing. Otherwise report the `running as` line: an unexpected account means the routine's token prefix did not apply.
+Then run the **hard preconditions** — one block, so a failure stops the run before any label is touched. If it prints `AFKREV_ABORT`, report that line and **stop**; change nothing. Otherwise report the `running as` line: an unexpected account means the routine's token prefix did not apply. The login it prints is `<LOGIN>` in Step 3.
 
 ```bash
 REPO="<owner/repo>"   # substitute the resolved value
@@ -63,13 +63,18 @@ case "${LOGIN%\[bot\]}" in ''|*[!A-Za-z0-9-]*)
   echo "AFKREV_ABORT cannot resolve the GitHub login this loop runs as — fix gh auth, or set AFK_LOOP_LOGIN"; exit 1 ;;
 esac
 # An empty GH_TOKEN silently falls back to gh's active account, which may be read-only here.
-if ! perm=$(gh api "repos/$REPO" --jq '.permissions.triage // false'); then
+# App/Actions installation tokens get no `permissions` object at all: that's unknown, not false.
+if ! perm=$(gh api "repos/$REPO" --jq '.permissions.triage // (if .permissions then false else "unknown" end)'); then
   echo "AFKREV_ABORT could not read permissions on $REPO (gh error — not a missing-permission condition)"; exit 1
 fi
-if [ "$perm" != "true" ]; then
-  echo "AFKREV_ABORT running as $LOGIN, which cannot label PRs on $REPO — check the routine's GH_TOKEN"; exit 1
-fi
-if [ -n "$TOKEN_LOGIN" ]; then echo "AFKREV_OK running as $LOGIN"; else echo "AFKREV_OK running as $LOGIN (unverified: /user unavailable)"; fi
+NOTE=""
+[ -n "$TOKEN_LOGIN" ] || NOTE=" (unverified: /user unavailable)"
+case "$perm" in
+  true) ;;
+  unknown) NOTE="$NOTE (triage unverified: no permissions in the repo response)" ;;
+  *) echo "AFKREV_ABORT running as $LOGIN, which cannot label PRs on $REPO — check the routine's GH_TOKEN"; exit 1 ;;
+esac
+echo "AFKREV_OK running as $LOGIN$NOTE"
 ```
 
 ## Step 1 — Age-aware stale-claim sweep
@@ -79,37 +84,41 @@ A prior run may have crashed mid-review, leaving a stuck `auto:reviewing` claim.
 REPO="<owner/repo>"
 cutoff=$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
 if ! claimed=$(gh pr list --repo "$REPO" --state open --label auto:reviewing --limit 200 --json number --jq '.[].number'); then
-  echo "AFKREV_OK sweep skipped (gh error listing auto:reviewing)"; exit 0
+  echo "AFKREV_ERROR sweep skipped (gh error listing auto:reviewing)"; exit 1
 fi
-# Command substitution, not bare $claimed: zsh doesn't word-split unquoted variables, so with 2+
-# stranded claims the loop would run once with every number on one line.
+reclaimed=0; failed=0
+# Command substitution, not bare $claimed: zsh doesn't word-split unquoted variables.
 for n in $(printf '%s\n' "$claimed"); do
-  # Per-page --jq, NOT --slurp: gh >= 2.95 rejects `--slurp` together with
-  # `--jq` and exits 1 — which the `|| continue` below would swallow on every
-  # PR, turning the whole sweep into a silent no-op (so a crashed run's claim is
-  # never reclaimed). Applied per page, the filter streams one created_at per
-  # matching `labeled auto:reviewing` event across all pages in chronological
-  # order; `tail -n1` is the most recent application. Capture gh on its own line
-  # so a real fetch FAILURE (rate-limit / auth / network) still trips `||` —
-  # never reclaim on uncertainty, or a claim a still-running sibling legitimately
-  # holds gets yanked.
-  raw=$(gh api "repos/$REPO/issues/$n/timeline" --paginate \
-    --jq '.[] | select(.event=="labeled" and .label.name=="auto:reviewing") | .created_at') \
-    || { echo "  ~ #$n: timeline fetch failed — leaving claim as-is"; continue; }
-  applied=$(tail -n1 <<<"$raw")
-  # Lexical timestamp comparison must use [[ < ]] (bash/zsh keyword), not
-  # [ \< ] — POSIX `test`/`[` has no `<` operator, and under zsh `[ "$a" \< ... ]`
-  # errors out and the failed test reads as "leave the claim", so no stale claim
-  # is ever reclaimed. ISO-8601 UTC strings sort lexically == chronologically.
-  # Reclaim only with a timestamp older than the cutoff — an empty result is a successful fetch
-  # with no labeled event (e.g. read-replica lag), i.e. uncertainty, and must leave the claim.
-  if [[ -n "$applied" && "$applied" < "$cutoff" ]]; then
-    gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review >/dev/null \
-      || echo "  ~ #$n: reclaim failed — will retry next sweep"
+  # Per-page --jq, not --slurp (gh >= 2.95 rejects --slurp with --jq). A failed fetch leaves the
+  # claim: never reclaim on uncertainty. Stale means the LATEST auto:reviewing event is a `labeled`
+  # older than the cutoff. `[[ < ]]` for the lexical (== chronological) ISO-8601 UTC compare, since
+  # POSIX/zsh `[ \< ]` has no `<`. An empty result is uncertainty, not age.
+  if ! raw=$(gh api "repos/$REPO/issues/$n/timeline" --paginate \
+      --jq '.[] | select((.event=="labeled" or .event=="unlabeled") and .label.name=="auto:reviewing") | "\(.event) \(.created_at)"'); then
+    failed=$((failed+1)); continue
   fi
+  last=$(tail -n1 <<<"$raw"); ev=${last%% *}; applied=${last#* }
+  [[ "$ev" = labeled && -n "$applied" && "$applied" < "$cutoff" ]] || continue
+  # Re-read just before the edit: the claim's owner may have transitioned since the list was taken.
+  if ! AUTO=$(gh pr view "$n" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+    failed=$((failed+1)); continue
+  fi
+  case " $AUTO " in *" auto:reviewing "*) ;; *) continue ;; esac
+  # A lone stale claim goes back to needs-review; one beside another auto:* label (a human's
+  # needs-human, a half-applied edit) is dropped so that label owns the PR.
+  if [ "$AUTO" = "auto:reviewing" ]; then
+    gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review >/dev/null
+  else
+    gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing >/dev/null
+  fi && reclaimed=$((reclaimed+1)) || failed=$((failed+1))
 done
-echo "AFKREV_OK sweep done"
+if [ "$failed" -eq 0 ]; then
+  echo "AFKREV_OK sweep done reclaimed=$reclaimed"
+else
+  echo "AFKREV_ERROR sweep incomplete reclaimed=$reclaimed failed=$failed"; exit 1
+fi
 ```
+On `AFKREV_ERROR`, keep the line for the Step 5 report and go on to Step 2: a claim the sweep couldn't check or reset is retried next run.
 
 ## Step 2 — Select
 
@@ -126,17 +135,16 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
 
 1. **Guard + SHA-skip.** Skip only a revision **this loop's own login** already reviewed. On a public repo anyone can comment, so a marker from any other author must not count — trusting one would let a stranger stall a PR in `auto:needs-review` forever.
    ```bash
-   REPO="<owner/repo>"; N=<N>; SHA="<SHA>"
+   REPO="<owner/repo>"; N=<N>; SHA="<SHA>"; LOGIN='<LOGIN>'
    # - Exact body match, so review prose that quotes the marker doesn't count.
-   # - REST on both sides: /user and issues/comments both report bots as `name[bot]`; GraphQL drops it.
+   # - REST issues/comments reports bots as `name[bot]`, as /user does in the preconditions; GraphQL drops it.
    # - LOGIN and SHA are validated before being spliced into the jq program (gh --jq has no --arg).
    # - Any lookup failure is AFKREV_ERROR, never a skip.
    # Whole-string matches: `grep -x` tests each LINE, so a multi-line value would pass it.
    case "$SHA" in *[!0-9a-f]*|'') echo "AFKREV_ERROR no valid head sha ('$SHA')"; exit 1 ;; esac
    [ "${#SHA}" -eq 40 ] || { echo "AFKREV_ERROR no valid head sha ('$SHA')"; exit 1; }
-   LOGIN="${AFK_LOOP_LOGIN:-$(gh api user --jq .login 2>/dev/null)}"
    case "${LOGIN%\[bot\]}" in ''|*[!A-Za-z0-9-]*)
-     echo "AFKREV_ERROR cannot resolve this loop's GitHub login"; exit 1 ;;
+     echo "AFKREV_ERROR no valid login ('$LOGIN') — substitute the login the preconditions printed"; exit 1 ;;
    esac
    M="<!-- afk-review reviewed sha=$SHA"
    if ! hits=$(gh api "repos/$REPO/issues/$N/comments" --paginate --jq ".[] | select(.user.login == \"$LOGIN\" and (.body == \"$M -->\" or .body == \"$M verdict=ready -->\" or .body == \"$M verdict=needs-fixes -->\")) | .id"); then
@@ -178,10 +186,10 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    - else if the output contains `not eligible for review` (draft / closed / trivial PR) → **not a failure**. Release the claim so the PR is re-checked once eligible, write **no** SHA marker, and record `#N → skipped (not eligible)`:
      ```bash
      REPO="<owner/repo>"; N=<N>
-     if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")'); then
+     if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
        echo "AFKREV_ERROR claim check failed"; exit 1
      fi
-     [ "$OWN" = "true" ] || { echo "AFKREV_ERROR lost claim — another run owns it, not releasing"; exit 1; }
+     [ "$OWN" = "auto:reviewing" ] || { echo "AFKREV_ERROR lost claim (auto labels: '$OWN') — not releasing"; exit 1; }
      if gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review >/dev/null; then
        echo "AFKREV_OK released (not eligible)"
      else
@@ -190,31 +198,50 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
      ```
    - else (no recognizable verdict / it errored / it prompted) → **escalate** (Step 4).
 
-5. **Transition + mark** — one block, so a marker can only ever follow a successful transition (a failed transition plus a written marker would strand the PR in `auto:reviewing` *and* SHA-skipped). `<SHA>` is Step 2's head. `/review pr` diffs whatever the head is when it runs, so the marker is written only if the head is **still** `<SHA>` after the review — it never names a revision the review might not have seen. A missing marker costs at most one re-review.
+5. **Transition + mark** — one block, so a marker can only ever follow a successful transition (a failed transition plus a written marker would strand the PR in `auto:reviewing` *and* SHA-skipped). `<SHA>` is Step 2's head. `/review pr` diffs whatever the head is when it runs, so the marker is written only if the head is **still** `<SHA>` after the review — it never names a revision the review might not have seen. A missing marker costs a re-review, or an escalation if the gate already bounced that SHA.
    ```bash
    REPO="<owner/repo>"; N=<N>; SHA="<SHA>"; VERDICT="<VERDICT>"
    case "$VERDICT" in ready|needs-fixes) ;; *) echo "AFKREV_ERROR bad verdict '$VERDICT'"; exit 1 ;; esac
-   # Still ours? A sibling's sweep resets a claim held past its cutoff; transitioning after that
-   # would leave two auto:* labels and a marker that SHA-skips the PR.
-   if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")'); then
+   # Still ours, and only ours? A sibling's sweep resets a claim held past its cutoff, and a human
+   # may add auto:needs-human mid-review; transitioning then would stack two auto:* labels.
+   if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
      echo "AFKREV_ERROR claim check failed"; exit 1
    fi
-   [ "$OWN" = "true" ] || { echo "AFKREV_ERROR lost claim — another run owns it, not transitioning"; exit 1; }
+   [ "$OWN" = "auto:reviewing" ] || { echo "AFKREV_ERROR lost claim (auto labels: '$OWN') — not transitioning"; exit 1; }
    if ! gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label "auto:$VERDICT" >/dev/null; then
      echo "AFKREV_ERROR transition"; exit 1
    fi
    # The verdict lets merge/gate tell a PASS from a BLOCKED review at the same SHA.
-   SHA_OK=no
-   case "$SHA" in *[!0-9a-f]*|'') ;; *) [ "${#SHA}" -eq 40 ] && SHA_OK=yes ;; esac
-   HEAD_NOW=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid 2>/dev/null)
-   if [ "$SHA_OK" = yes ] && [ "$HEAD_NOW" = "$SHA" ] \
-      && gh pr comment "$N" --repo "$REPO" --body "<!-- afk-review reviewed sha=$SHA verdict=$VERDICT -->" >/dev/null; then
-     echo "AFKREV_OK auto:$VERDICT marked=$SHA"
-   else
-     echo "AFKREV_OK auto:$VERDICT marked=none"
+   # Re-read labels first, whatever the head: a writer landing alongside the transition (a sweep's
+   # reset, a human's needs-human) leaves two auto:* labels. Yield ours so one owner remains; a
+   # marker on top would SHA-skip a PR sitting in auto:needs-review.
+   if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")' 2>/dev/null); then
+     echo "AFKREV_OK auto:$VERDICT marked=none (label read failed)"; exit 0
    fi
+   if [ "$AUTO" != "auto:$VERDICT" ]; then
+     case " $AUTO " in *" auto:$VERDICT "*)
+       if gh pr edit "$N" --repo "$REPO" --remove-label "auto:$VERDICT" >/dev/null; then
+         echo "AFKREV_ERROR labels changed under the transition (auto labels: '$AUTO') — removed auto:$VERDICT, no marker"; exit 1
+       fi ;;
+     esac
+     echo "AFKREV_ERROR labels changed under the transition (auto labels: '$AUTO') — no marker"; exit 1
+   fi
+   MARK=""
+   case "$SHA" in *[!0-9a-f]*|'') MARK="none (invalid sha)" ;; *) [ "${#SHA}" -eq 40 ] || MARK="none (invalid sha)" ;; esac
+   if [ -z "$MARK" ]; then
+     if ! HEAD_NOW=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid 2>/dev/null); then
+       MARK="none (head read failed)"
+     elif [ "$HEAD_NOW" != "$SHA" ]; then
+       MARK="none (head moved)"
+     elif ! gh pr comment "$N" --repo "$REPO" --body "<!-- afk-review reviewed sha=$SHA verdict=$VERDICT -->" >/dev/null; then
+       MARK="none (comment failed)"
+     else
+       MARK="$SHA"
+     fi
+   fi
+   echo "AFKREV_OK auto:$VERDICT marked=$MARK"
    ```
-   `AFKREV_OK` → record `#N → ready` or `#N → needs-fixes`.
+   `AFKREV_ERROR labels changed …` → record the error: another writer landed alongside the transition, and the block removed its own verdict label so the other label owns the PR. `AFKREV_OK` → record `#N → ready` or `#N → needs-fixes`. When `marked=none` for any reason but `head moved`, add it to the line (`#N → ready (unmarked: comment failed)`). An unmarked head goes back for review: merge/gate bounces it once, and escalates it to needs-human if it already bounced that SHA.
 
 ## Step 4 — Escalate on failure
 
@@ -227,10 +254,12 @@ AFKREV_REASON
 case "$REASON" in ''|'<'*'>') echo "AFKREV_ERROR no escalation reason"; exit 1 ;; esac
 # Still ours? An overlapping run may already have moved this PR; adding auto:needs-human on top of
 # its label would leave two set.
-OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")' 2>/dev/null)
-if [ "$OWN" != "true" ]; then
-  echo "AFKREV_ERROR lost claim — another run owns it, not escalating"; exit 1
+# Presence, not the exact set: escalating is safe from any stacked state. It drops the claim and adds
+# auto:needs-human, which every other check treats as the owner.
+if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq 'any(.labels[].name; . == "auto:reviewing")' 2>/dev/null); then
+  echo "AFKREV_ERROR claim check failed"; exit 1
 fi
+[ "$OWN" = "true" ] || { echo "AFKREV_ERROR lost claim — another run owns it, not escalating"; exit 1; }
 gh pr comment "$N" --repo "$REPO" --body "afk-review: escalating to needs-human — $REASON" >/dev/null \
   || { echo "AFKREV_ERROR escalation comment failed"; exit 1; }
 gh pr edit "$N" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-human >/dev/null \
@@ -241,7 +270,7 @@ On `AFKREV_ERROR`, record the error and continue — Step 1's sweep reclaims the
 
 ## Step 5 — Report
 
-Print one line per PR — `#N → ready | needs-fixes | needs-human | skipped (unchanged|not eligible) | error (...)` — and the totals. An all-skipped or all-error run is still a clean exit, not a failure. Make no other changes.
+Print the sweep's status line, then one line per PR — `#N → ready | needs-fixes | needs-human | skipped (unchanged|moved on|not eligible) | error (...)`, with any `(unmarked: …)` note from 3.5 — and the totals. An all-skipped or all-error run is still a clean exit, not a failure. Make no other changes.
 
 ## Notes
 
