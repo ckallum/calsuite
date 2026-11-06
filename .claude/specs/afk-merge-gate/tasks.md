@@ -79,6 +79,7 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
 ## Follow-ups (to be filed as issues)
 - [ ] `/receiving-pr-feedback` has no author filter, so afk-fix acts on every commenter's feedback (security).
 - [ ] `/receiving-pr-feedback`'s staged-replies file is keyed by repo and PR only, so two afk-fix runs on one PR (after a sweep reset and re-claim) share it. afk-fix's claim-id check stops the stale run from publishing, but not from staging into the file; key the file by the claim id.
+- [ ] Serialise concurrent afk-fix claims. Two runs passing 3.1's re-read within the same seconds both claim and share one `labeled auto:fixing` event id. A loop-authored claim comment per run, where the earliest one after the latest `labeled` event wins, would leave exactly one owner. Needed only if manual runs overlap the routine.
 - [ ] Fork enrolment policy in `afk-enroll.yml`: forks reach the review model and spend tokens.
 - [ ] babysit-pr vs the gate: duplicate "ready" banners, and a CI re-run racing an escalation.
 - [ ] Remove `auto:*` labels from closed PRs (`afk-enroll.yml`, `closed`).

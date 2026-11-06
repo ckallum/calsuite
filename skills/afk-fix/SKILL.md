@@ -172,6 +172,10 @@ fi
 # resets a claim held past its 90-min cutoff and another run may re-claim, which the label set alone
 # can't tell apart, so 3.4 and Step 4 compare against this id. A missing or old event (a lagging read)
 # leaves the identity unknown: release the claim rather than run unverifiable.
+# Not covered: two runs that both pass the re-read above within the same seconds both claim, and
+# both read the same event (adding a label already present logs none). A second run of the routine
+# that starts later finds this claim in place and is turned away, so the race needs two runs
+# claiming the same PR within seconds, such as a manual /afk-fix landing beside a routine run.
 recent=$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
 raw=$(gh api "repos/$REPO/issues/$N/timeline" --paginate --jq '.[] | select(.event=="labeled" and .label.name=="auto:fixing") | "\(.id) \(.created_at)"' 2>/dev/null) || raw=""
 last=$(tail -n1 <<<"$raw"); CLAIM=${last%% *}; at=${last#* }
