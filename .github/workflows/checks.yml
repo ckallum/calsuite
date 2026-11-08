@@ -4,11 +4,10 @@
 #   force-added installed copies, and `--sync` never refreshes calsuite itself. The AFK fix loop runs
 #   in an isolated worktree, so a stale or uncommitted copy of /review or /receiving-pr-feedback
 #   breaks it. Fix locally with: node scripts/sync-installed-skills.cjs --fix
-# - afk-fix execution harness: runs each bash block of skills/afk-fix/SKILL.md as its own process
-#   against a real git repo with a stubbed gh, which is how the skill actually executes. Its
-#   multi-claim sweep case also runs under zsh.
-# - afk-review execution harness: the same for skills/afk-review/SKILL.md, under bash and zsh. Its gh
-#   stub evaluates --jq with the runner's jq.
+# - afk-fix and afk-review execution harnesses: run each bash block of the skill as its own process
+#   (afk-fix's against a real git repo) with a stubbed gh that evaluates the blocks' real --jq
+#   filters, under bash and zsh, which is how the skills actually execute. AFK_REQUIRE_ZSH makes a
+#   missing zsh a failure here instead of a skipped column.
 #
 # Plain `pull_request` (read-only token): this job checks out and executes PR code, so it must never
 # run under `pull_request_target`.
@@ -25,6 +24,8 @@ permissions:
 jobs:
   guards:
     runs-on: ubuntu-latest
+    env:
+      AFK_REQUIRE_ZSH: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,5 +44,5 @@ jobs:
       - name: afk-review execution harness
         run: bash scripts/test-afk-review-blocks.sh
       - name: afk-review harness catches a removed author filter
-        # The only proof the #141 regression can't come back unnoticed.
+        # Fails if block 4 stops filtering SHA markers by author.
         run: bash scripts/test-afk-review-blocks.sh --mutation-check

@@ -63,7 +63,7 @@ on:
     inputs: { mode: { type: choice, options: [dry-run, on], default: dry-run } }
 jobs:
   gate:
-    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(github.event.comment.body, 'afk-review reviewed sha='))
+    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.comment.user.login == vars.AFK_LOOP_LOGIN && contains(github.event.comment.body, 'afk-review reviewed sha='))
     concurrency: { group: afk-gate, cancel-in-progress: false }   # job-level: a run skipped by `if` never takes the pending slot
 
 # .github/workflows/afk-gate-sweep.yml — the backstop
@@ -75,7 +75,8 @@ jobs:
 - **Every run sweeps all `auto:ready` PRs**, whichever event started it. A burst of qualifying events collapses into at most one running and one pending sweep.
   - Concurrency sits on the job, not the workflow. At workflow level, an unrelated comment's run would take the single pending slot and cancel the marker's queued sweep before its job was skipped.
   - Never cancel a running sweep: it could be stopped between a comment and a label move.
-- **`issue_comment` replaces `pull_request_target: labeled`.** The review loop sets `auto:ready` about 2 s *before* it posts the SHA marker (#145: 10:35:56 → 10:35:58), so a run started by the label would find no marker. A stranger can post text that passes the filter; that only causes an extra sweep, and the gate authenticates every marker it reads.
+- **`issue_comment` replaces `pull_request_target: labeled`.** The review loop sets `auto:ready` about 2 s *before* it posts the SHA marker (#145: 10:35:56 → 10:35:58), so a run started by the label would find no marker.
+- **Only `AFK_LOOP_LOGIN`'s comments start a sweep.** The filter checks the comment's author, so a stranger's comment never starts one. The filter only decides whether a sweep runs: the gate still authenticates every marker it reads, comparing logins case-insensitively. (Expression `==` already ignores case, per GitHub's expression docs.)
 - **No trigger attaches the gate to a PR head.** A `pull_request_target` run attaches its check run to the PR's head SHA — the `afk-enroll` run sits on #145's `2d689e8` — so a gate started that way would see its own in-progress check. Runs started by `issue_comment`, `workflow_run`, `status`, `check_suite` and `schedule` attach to the default branch.
 - **The gate's writes don't retrigger it.** Events created with `GITHUB_TOKEN` start no workflows. The review loop writes with a user token, so its marker comment does fire `issue_comment`.
 - **No `pull_request_review` trigger in v1.** It runs with a read-only token on fork PRs and has no `_target` variant. The hourly sweep picks up requested changes.
@@ -87,7 +88,7 @@ Repo variables are set with `gh variable set NAME --body VALUE` and read by both
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `AFK_LOOP_LOGIN` | **yes** | — | The login the review loop runs as. Only review markers authored by it count. If unset, the job fails red and writes nothing. |
+| `AFK_LOOP_LOGIN` | **yes** | — | The login the review loop runs as. Only review markers authored by it count. Compared lowercased, since GitHub logins are case-insensitive. If unset, the job fails red and writes nothing. |
 | `AFK_NOTIFY` | no | `AFK_LOOP_LOGIN` | Who the READY comment @mentions. |
 | `AFK_GATE_MODE` | no | `dry-run` | `off` exits at once; `dry-run` writes only the job summary; `on` writes. |
 | `AFK_GATE_REQUIRED_CHECKS` | no | `guards` (set in calsuite's workflow) | Comma-separated context names that must be present and `SUCCESS`. |
@@ -120,7 +121,7 @@ Each run builds one snapshot per PR, then evaluates it with a pure function.
    - `reviewThreads(first: 100)` with `totalCount`, and each thread's `isResolved isOutdated` plus its first comment's author and `authorAssociation`
    - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } } }`
 2. **REST, per PR.** REST reports bots as `name[bot]`; GraphQL drops the suffix.
-   - `repos/R/issues/N/comments --paginate`, for markers, with `user.login` and `author_association`.
+   - `repos/R/issues/N/comments --paginate`, for markers, with `user.login`, `author_association`, `created_at` and `updated_at`.
    - `repos/R/issues/N/timeline --paginate`, for when `auto:ready` was last applied, and `head_ref_force_pushed` events.
    - **Arrival times.** A commit's own dates say when it was written, and its check runs may predate this ref, so neither says when it *arrived* here. The runner reads `repos/R/activity?ref=refs/heads/<ref>` and takes the latest `push`, `force_push`, `branch_creation` or `pr_merge` entry whose `after` is that SHA (the head ref is `headRefName`). For the head only, it falls back to the newest `head_ref_force_pushed` timeline event whose `commit_id` is the SHA. Without either, the arrival is undeterminable, and a cause clocked from it is never capped. Forks have already failed at check 4, so the head ref is always in this repo.
 3. **REST compare, only for same-repo PRs that reach check 11.** `repos/R/compare/<head>...<base>` gives the behind-by note. A failure drops the note; it never makes the PR `error`.
@@ -145,6 +146,11 @@ Snapshot rules (fail closed):
 
 - **afk-review writes its marker only if the head is still the SHA it selected after `/review` finished** (v0.3.0, block 7). So a marker never names a revision the review might not have seen.
 - **Matching.** Review markers need a whole-body match, so a review that quotes the marker in prose doesn't count. Gate comments carry human text, so their markers match a whole line.
+- **Grammar.**
+  - Every marker's SHA is lowercase `[0-9a-f]{40}`.
+  - The escalate marker's `<id>` is `[a-z-]+`, optionally followed by `:` and `[a-z-]+` for `stuck:<cause>`.
+- **Unedited only.** Every trusted marker also needs `updated_at == created_at`: repo admins and maintainers can edit anyone's comment, and afk-review's SHA-skip applies the same rule, so the gate and the skip stay exact complements.
+- **Logins compare case-insensitively** everywhere: review-marker trust, `github-actions[bot]`, and `config-mismatch`. GitHub logins are case-insensitive.
 - **Strangers can't post as `github-actions[bot]`.** A fork's `pull_request` workflow gets a read-only token.
 - **The head's verdict** comes from the *latest* trusted review marker whose SHA equals the head.
 
@@ -180,6 +186,7 @@ Snapshot rules (fail closed):
 | `ci-missing` | the head's arrival |
 | `mergeable-unknown` | the later of the head's and the base tip's arrival |
 | `marker-lag` | when `auto:ready` was applied; if no `labeled auto:ready` event was found, the newest `auto:*` labeled or unlabeled event on the timeline (the review loop's claim lands minutes before its transition), so this case still escalates without capping a lagging read at once |
+| `label-race` | not capped: beside a resting label it ends within 10 min when check 3 clears `auto:ready`, and beside a claim label the claim's own loop moves the PR on or its sweep drops the stale claim |
 | `truncated`, `unknown-value` | undeterminable, so never capped: neither says anything about the PR's progress, and the `WAIT` shows in every run's summary |
 
 - A merge to the base therefore restarts the clock for every PR that reads `UNKNOWN` afterwards. A PR announced ready days ago is never escalated by a passing recomputation.
@@ -192,6 +199,8 @@ This is the gate's half of a contract with afk-review's SHA-skip.
 - The review loop skips a PR when **any** trusted marker exists for its head.
 - So the gate may send a PR to `auto:needs-review` **only** when no trusted marker exists for its head.
 - If the gate bounced a PR whose head had a marker, the review loop would skip it on every run, and the PR would sit in `auto:needs-review` forever.
+
+Rows are evaluated top to bottom; the first match wins.
 
 | Trusted review markers at the head | afk-review would | Gate outcome |
 |---|---|---|
@@ -228,7 +237,8 @@ Before every write, the gate re-reads the PR with `gh pr view N --json state,lab
 | `READY` | a `ready` marker for this SHA exists → `ready (already notified)` | comment |
 | `BOUNCE` | a `bounce` marker for this SHA exists → that's `FAIL(review-marker-missing)` instead | comment; add `auto:needs-review`; remove `auto:ready` |
 | `FAIL(g)` | an `escalate` marker for (g, SHA) exists → skip the comment | comment; add `auto:needs-human`; remove `auto:ready` |
-| `WAIT`, `skipped`, `error` | — | none |
+| `needs-human (cleared stale auto:ready)`, `skipped (cleared stale auto:ready)` | — | remove `auto:ready` |
+| `WAIT`, any other `skipped`, `error` | — | none |
 
 - **Each label step runs only after the one before it succeeded.** This copies the comment-before-move rule in afk-review Step 4 and afk-fix Step 4.
 - **Add and remove are separate calls, add first.** `gh` applies them as separate mutations either way. Adding first means a failure leaves one of two states, and never a PR with no AFK label:
@@ -237,7 +247,7 @@ Before every write, the gate re-reads the PR with `gh pr view N --json state,lab
 - **Retry.** A failed comment or add leaves `auto:ready` alone, and the next run retries; the dedupe skips the comment. A failed remove is finished by checks 1 and 3.
 
 Comment bodies use a fixed vocabulary:
-- The only PR-derived values are SHAs (validated as 40 hex) and check names. Check names are sanitised to `[A-Za-z0-9 ._/:-]{1,60}` and put in code spans.
+- The only PR-derived values are SHAs (validated as lowercase 40 hex) and check names. Check names are sanitised to `[A-Za-z0-9 ._/:-]{1,60}` and put in code spans.
 - No titles, branch names or descriptions: the gate posts as a trusted identity, so echoing them would allow @mention spam or link injection.
 
 ```text
@@ -256,8 +266,8 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 
 | Loop | Change |
 |---|---|
-| afk-review | **This PR (#146, closes #141).** The marker records `verdict=` and is written only for a head unchanged across the review. The SHA-skip trusts only the loop's own login, matches exactly, and treats any lookup failure as an error, never a skip. Claims, transitions and sweeps check the exact `auto:*` set, and a stale or out-of-place claim yields to the other label rather than stacking, so the gate rarely sees `auto:ready` beside another loop's label (check 3 covers it when it does). Every bash block is self-contained. |
-| afk-fix | None. The gate never routes to `auto:needs-fixes`. A conflict or red CI goes to a human, because afk-fix has no sync-with-base step and doesn't read CI logs. Sending those there would burn a convergence and end in its "converged without changing code" escalation, or loop. |
+| afk-review | **This PR (#146, closes #141).** The marker records `verdict=` and is written only for a head unchanged across the review. The SHA-skip trusts only unedited comments by the loop's own login, matches exactly, and treats any lookup failure as an error, never a skip. Claims, transitions and sweeps check the exact `auto:*` set, and a stale or out-of-place claim yields to the other label rather than stacking, so the gate rarely sees `auto:ready` beside another loop's label (check 3 covers it when it does). Every bash block is self-contained. |
+| afk-fix | **This PR (v0.3.2).** Claims check the exact `auto:*` set, and each run has its own claim identity: the id of the `labeled auto:fixing` event its claim created. A run checks it is still the claim's sole owner before it publishes and before it transitions. Its sweep yields a stale claim to any other `auto:*` label rather than stacking. The gate itself never routes to `auto:needs-fixes`. A conflict or red CI goes to a human, because afk-fix has no sync-with-base step and doesn't read CI logs. Sending those there would burn a convergence and end in its "converged without changing code" escalation, or loop. |
 | afk-enroll | None in v1. It enrols fork PRs, so forks reach the review model (to be filed: tasks.md Follow-ups). |
 | babysit-pr | None in v1. `ci-monitor.cjs` spawns it on every `gh pr create`, and it announces "ready to merge" on green CI regardless of review, which contradicts the gate (to be filed). |
 | Human inbox | See below. |
@@ -273,9 +283,9 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 |---|---|
 | Zero or missing checks read as green | required contexts must be present and `SUCCESS`; an empty list fails the job |
 | Truncated or partial GraphQL hides a failure | `totalCount` check → `WAIT`; `errors` → `error` and a red run |
-| A forged review marker passes unreviewed code | author must be `AFK_LOOP_LOGIN`, exact body |
+| A forged review marker passes unreviewed code | author must be `AFK_LOOP_LOGIN`, exact body, never edited |
 | A marker names a SHA the review never saw | afk-review marks only a head unchanged across the review |
-| A forged gate marker suppresses a notice or an escalation reason | author must be `github-actions[bot]` |
+| A forged gate marker suppresses a notice or an escalation reason | author must be `github-actions[bot]`, never edited |
 | Force-push back to a BLOCKED SHA | `verdict=` in the marker → `FAIL(review-blocked)` |
 | Gate and review skip disagree, so a PR stalls in `needs-review` | the binding table is the exact complement of the skip; `config-mismatch` catches a wrong login; BOUNCE re-checks markers before moving |
 | Ready → bounce → ready cycles burn review tokens | `review-marker-missing` at one SHA; `bounce-cap` after 3 bounces in 24 h |
@@ -303,7 +313,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
   - `dry-run` and `off` writing nothing
 - **Live, after merge, in `dry-run`.**
   1. Run `workflow_dispatch` and read the summary.
-  2. Switch to `on` and run a trial PR through each path:
+  2. Once the `/receiving-pr-feedback` author filter has shipped, switch to `on` and run a trial PR through each path:
      - ready → notify
      - push → bounce
      - an induced conflict → `FAIL(conflict)`
@@ -319,7 +329,7 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 | Conflict / red CI | `FAIL` to `auto:needs-human` | afk-fix can't resolve either |
 | Forks | never `READY` | the fork controls its CI, and its content reached the model |
 | Claim label (`auto:gating`) | none | a single runner via the concurrency group, plus a re-read before every write; a claim would need bootstrap changes and its own sweep |
-| Default mode | `dry-run` | rollout safety; go live with one `gh variable set` |
+| Default mode | `dry-run` | rollout safety; go live with one `gh variable set`, once `/receiving-pr-feedback` filters by author |
 | Merging | never | "prepare, don't merge", as in the original design |
 
 ## v2: enforced mode
@@ -336,12 +346,14 @@ This needs `statuses: write`, and the CI classifier must exclude `afk/gate`. It 
 ## Security considerations
 
 - **Public repo.** Anyone can comment or open a fork PR. The gate's trust boundary is:
-  - comments by `AFK_LOOP_LOGIN` or `github-actions[bot]` in exact marker form
+  - unedited comments by `AFK_LOOP_LOGIN` or `github-actions[bot]` in exact marker form
   - labels, which need triage rights
   - fields GitHub computes
 - **Execution.** The job runs only default-branch code, with a job-scoped token and no secrets.
 - **Same-repo PR authors are collaborators.** They can already edit `checks.yml`, and the gate trusts them as much as the review loop does.
-- **Related, out of scope (to be filed).** `/receiving-pr-feedback` reads every PR comment with no author filter, and afk-fix acts on what it returns. So a stranger's comment on a same-repo PR counts as review feedback.
+- **What marker trust rests on.** A trusted review marker is only as trustworthy as every session that holds `AFK_LOOP_LOGIN`'s token.
+  - The fix loop is one of those sessions, and it reads PR comments. `/receiving-pr-feedback` returns every PR comment with no author filter, and afk-fix acts on what it returns. So a stranger's comment on a same-repo PR counts as review feedback, inside a session that can post as `AFK_LOOP_LOGIN`.
+  - That makes the author filter (tasks.md Follow-ups) a prerequisite for `AFK_GATE_MODE=on`. `dry-run` writes only the job summary, so it doesn't wait for the filter.
 
 ## To verify while building
 

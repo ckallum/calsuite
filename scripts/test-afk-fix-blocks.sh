@@ -8,6 +8,9 @@ SKILL="${1:-$(dirname "$0")/../skills/afk-fix/SKILL.md}"
 # absolute — the harness cd's into its sandbox, so a relative path would break mid-run
 SKILL=$(cd "$(dirname "$SKILL")" && pwd)/$(basename "$SKILL")
 command -v jq >/dev/null 2>&1 || { echo "jq is required (the gh stub evaluates --jq with it)"; exit 2; }
+if [ "${AFK_REQUIRE_ZSH-}" = 1 ] && ! command -v zsh >/dev/null 2>&1; then
+  echo "FAIL: AFK_REQUIRE_ZSH=1 but zsh is not on PATH — install zsh, or unset AFK_REQUIRE_ZSH to run bash only"; exit 1
+fi
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/afk-fix-blocks.XXXXXX")
 trap 'rm -rf "$ROOT"' EXIT
 PASS=0; FAIL=0
@@ -28,6 +31,8 @@ block() { awk -v want="$1" '/^```bash$/{inb=1;n++;next} /^```$/{if(inb)inb=0;nex
 # - GH_TIMELINE_PARTIAL: tokens as above for page 1 only. The stub prints that page through --jq, then
 #   exits 1, as a --paginate read whose page 2 (holding any later re-claim) fails.
 # - GH_EDIT_FAIL fails every pr edit; GH_EDIT_FAIL_NTH=<k> fails only the k-th pr edit since $GH_CALLS was reset.
+# - GH_HEADOID_FAIL fails the headRefOid read. GH_LABELS_VIEW_FAIL_FIRST=<k> / GH_TIMELINE_FAIL_FIRST=<k>
+#   fail only the first k label / timeline reads since $GH_CALLS was reset, then answer normally.
 # - GH_PR_LABELS: the PR's labels (default auto:fixing); GH_LABELS_VIEW_FAIL makes that read fail.
 mkdir -p "$ROOT/bin" "$ROOT/tmp"
 cat > "$ROOT/bin/gh" <<'GHEOF'
@@ -46,6 +51,7 @@ case "$sub" in
   label) printf '%s\n' ${GH_LABELS:-auto:needs-fixes auto:fixing auto:needs-review auto:needs-human} ;;
   api)
     [ -n "$GH_TIMELINE_FAIL" ] && exit 1
+    if [ -n "$GH_TIMELINE_FAIL_FIRST" ] && [ "$(grep -c '/timeline' "$GH_CALLS")" -le "$GH_TIMELINE_FAIL_FIRST" ]; then exit 1; fi
     src=${GH_TIMELINE-labeled@$(date -u +%Y-%m-%dT%H:%M:%SZ)#$GH_CLAIM_DEFAULT}
     [ -n "$GH_TIMELINE_PARTIAL" ] && src=$GH_TIMELINE_PARTIAL
     tl=$(jq -cn --arg s "$src" '
@@ -67,8 +73,9 @@ case "$sub" in
           *isCrossRepository*) [ -n "$GH_FORKFAIL" ] && exit 1; echo "${GH_FORK:-false}" ;;
           *baseRefName*)       echo "${GH_BASE-main}" ;;
           *headRefName*)       echo "${GH_BRANCH-feature}" ;;
-          *headRefOid*)        echo "${GH_HEADOID-}" ;;
+          *headRefOid*)        [ -n "$GH_HEADOID_FAIL" ] && exit 1; echo "${GH_HEADOID-}" ;;
           *labels*)            [ -n "$GH_LABELS_VIEW_FAIL" ] && exit 1
+                               if [ -n "$GH_LABELS_VIEW_FAIL_FIRST" ] && [ "$(grep -c -- '--json labels' "$GH_CALLS")" -le "$GH_LABELS_VIEW_FAIL_FIRST" ]; then exit 1; fi
                                jq -cn --arg s "${GH_PR_LABELS-auto:fixing}" '{labels: ($s | split(" ") | map(select(length > 0) | {name: .}))}' \
                                  | jq -r "${want:-.}" ;;
           *) echo "" ;;
@@ -148,6 +155,9 @@ want_no_writes() { [ ! -s "$GH_LOG" ] || why "writes: $(cat "$GH_LOG")"; }
 want_no_calls() { [ ! -s "$GH_CALLS" ] || why "gh calls: $(cat "$GH_CALLS")"; }
 want_call_has() { grep -qF -- "$1" "$GH_CALLS" || why "no gh call containing '$1'"; }
 want_no_call_has() { ! grep -qF -- "$1" "$GH_CALLS" || why "unexpected gh call containing '$1'"; }
+want_calls_n() { local n; n=$(grep -cF -- "$1" "$GH_CALLS"); [ "$n" = "$2" ] || why "want $2 gh calls containing '$1', got $n"; }
+# ago <seconds> — UTC timestamp that many seconds before now, in GitHub's created_at format
+ago() { date -u -v-"$1"S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "$1 seconds ago" +%Y-%m-%dT%H:%M:%SZ; }
 want_no_pwned() { [ ! -e "$ROOT/pwned" ] || why "reason text was executed: $ROOT/pwned exists"; }
 chk() { if [ -z "$WHY" ]; then ok "$1"; else bad "$1" "$WHY| $out"; fi; WHY=""; }
 
@@ -294,52 +304,93 @@ for RUNSH in bash "zsh -f"; do
 done
 unset RUNSH
 
-say "=== T12-T14  publish verify + transition (block 7) ==="
+say "=== T12-T14  verify + transition after the push (3.4(3), block 7) ==="
 LOCALSHA=$( cd "$ROOT/linked" && git rev-parse HEAD )
-out=$(run 7 "$ROOT/linked" GH_REPO=o/r GH_BRANCH=feature GH_HEADOID="$UNCHANGED")
-[[ "$out" == *"publish/push did not land"*"push-landed=no"* ]] && ok "T12a push rejected -> ESCALATE push-landed=no" || bad "T12a push-not-landed" "$out"
-# our commit is an ANCESTOR of the remote head => it landed and someone pushed on top
+# our commit is an ANCESTOR of ONTOP => the push landed and someone pushed on top
 ONTOP=$( cd "$ROOT/linked" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m ontop && git rev-parse HEAD && git reset -q --hard HEAD~1 )
-out=$(run 7 "$ROOT/linked" GH_REPO=o/r GH_BRANCH=feature GH_HEADOID="$ONTOP")
-[[ "$out" == *"push landed but the head moved on"*"push-landed=yes"* ]] && ok "T12c landed-then-moved -> push-landed=yes" || bad "T12c landed-then-moved" "$out"
-out=$(run 7 "$ROOT/linked" GH_REPO=o/r GH_BRANCH=feature GH_HEADOID=)
-[[ "$out" == *"AFKFIX_ESCALATE publish/push did not land"* ]] && ok "T12b empty remote head -> ESCALATE" || bad "T12b empty head" "$out"
-TERM_TAIL="— leaving the terminal edits to the owner"
+P3="pushed at $LOCALSHA, but"
+TO_REVIEW="7 --repo o/r --remove-label auto:fixing --add-label auto:needs-review"
+GONE="— its owner continues from the pushed head"
 for RUNSH in bash "zsh -f"; do
   SH=${RUNSH%% *}
-  if ! command -v "$SH" >/dev/null 2>&1; then say "  NOTICE: $SH not found — skipping T13 [$SH]"; continue; fi
-  go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-human
-  want_st "AFKFIX_SKIP #7 no longer the sole owner (auto labels: 'auto:needs-human') $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13 [$SH] lost claim -> SKIP, no double-label"
-  go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-human"
-  want_st "AFKFIX_SKIP #7 no longer the sole owner (auto labels: 'auto:fixing auto:needs-human') $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13b [$SH] auto:fixing beside auto:needs-human -> SKIP, no transition edit"
-  go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" GH_LABELS_VIEW_FAIL=1
-  want_st "AFKFIX_SKIP #7 no longer the sole owner (auto labels: 'fetch-failed') $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13c [$SH] ownership read fails -> SKIP as 'fetch-failed', no transition edit"
-  NOTOURS7="AFKFIX_SKIP #7 the auto:fixing claim is not this run's"
-  go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" GH_TIMELINE="labeled@$OLD#4242 labeled@$NEW#5001"
-  want_st "$NOTOURS7 (claim=4242 latest=5001) $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13d [$SH] re-claimed by another run (newer id) -> SKIP, no transition edit"
-  CLAIM_ID='<CLAIM>' go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA"
-  want_st "$NOTOURS7 (claim=invalid latest=4242) $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13e [$SH] unsubstituted <CLAIM> -> claim=invalid, SKIP, no transition edit"
-  go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" GH_TIMELINE_FAIL=1
-  want_st "$NOTOURS7 (claim=4242 latest=fetch-failed) $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13f [$SH] timeline read fails -> latest=fetch-failed, SKIP, no transition edit"
-  CLAIM_ID=5001 go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" GH_TIMELINE="labeled@$OLD#4242 labeled@$NEW#5001"
-  want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0
-  want_log "7 --repo o/r --remove-label auto:fixing --add-label auto:needs-review"
-  chk "T13g [$SH] claim id is the newest claim event -> transition"
-  go 7 GH_BRANCH=feature GH_HEADOID="$LOCALSHA" GH_TIMELINE_PARTIAL="labeled@$OLD#4242"
-  want_st "$NOTOURS7 (claim=4242 latest=fetch-failed) $TERM_TAIL"; want_rc 1; want_no_writes
-  chk "T13h [$SH] page 1 has our claim, page 2 fails -> latest=fetch-failed, SKIP, no transition edit"
+  if ! command -v "$SH" >/dev/null 2>&1; then say "  NOTICE: $SH not found — skipping T12-T14 [$SH]"; continue; fi
+  go 7 GH_HEADOID="$UNCHANGED"
+  want_st "AFKFIX_ESCALATE publish/push did not land (remote=$UNCHANGED local=$LOCALSHA) push-landed=no"; want_rc 1; want_no_writes
+  chk "T12a [$SH] push rejected -> ESCALATE push-landed=no, remote=<sha> shown"
+  go 7 GH_HEADOID=
+  want_st "AFKFIX_ESCALATE could not read the PR head after publishing (local=$LOCALSHA) push-landed=unknown"; want_rc 1; want_no_writes
+  chk "T12b [$SH] empty remote head -> ESCALATE push-landed=unknown"
+  go 7 GH_HEADOID="$ONTOP"
+  want_st "AFKFIX_ESCALATE push landed but the head moved on (remote=$ONTOP local=$LOCALSHA) push-landed=yes"; want_rc 1; want_no_writes
+  chk "T12c [$SH] landed, then someone pushed on top -> ESCALATE push-landed=yes"
+  go 7 GH_HEADOID="$LOCALSHA" GH_HEADOID_FAIL=1
+  want_st "AFKFIX_ESCALATE could not read the PR head after publishing (local=$LOCALSHA) push-landed=unknown"; want_rc 1; want_no_writes
+  chk "T12d [$SH] head read fails -> ESCALATE push-landed=unknown"
+  go 7 GH_HEADOID="$LOCALSHA" GH_LABELS_VIEW_FAIL=1
+  want_st "AFKFIX_ESCALATE $P3 the labels could not be re-read (gh error) push-landed=yes"; want_rc 1; want_no_writes
+  want_calls_n "--json labels" 2
+  chk "T13a [$SH] labels read fails twice -> ESCALATE push-landed=yes"
+  go 7 GH_HEADOID="$LOCALSHA" GH_LABELS_VIEW_FAIL_FIRST=1
+  want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"; want_calls_n "--json labels" 2
+  chk "T13b [$SH] labels read fails once, then succeeds -> transition"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-human
+  want_st "AFKFIX_ESCALATE $P3 a human took the PR over during publish (auto labels: 'auto:needs-human') push-landed=yes"; want_rc 1
+  want_no_writes
+  chk "T13c [$SH] a human moved it to auto:needs-human -> ESCALATE push-landed=yes"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-human"
+  want_st "AFKFIX_ESCALATE $P3 a human took the PR over during publish (auto labels: 'auto:fixing auto:needs-human') push-landed=yes"
+  want_rc 1; want_no_writes
+  chk "T13d [$SH] auto:needs-human beside the claim -> ESCALATE, no edit"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-fixes
+  want_st "AFKFIX_OK #7 pushed at $LOCALSHA; the claim had been reset, moved to auto:needs-review"; want_rc 0
+  want_log "7 --repo o/r --remove-label auto:needs-fixes --add-label auto:needs-review"; want_no_call_has "/timeline"
+  chk "T13e [$SH] claim reset to auto:needs-fixes, nobody re-claimed -> moved to auto:needs-review"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-fixes GH_EDIT_FAIL=1
+  want_st "AFKFIX_ESCALATE $P3 the claim had been reset and the move to auto:needs-review failed push-landed=yes"; want_rc 1
+  chk "T13f [$SH] claim reset, move to auto:needs-review fails -> ESCALATE push-landed=yes"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-review"
+  want_st "AFKFIX_OK #7 pushed at $LOCALSHA; yielded the claim (auto labels: 'auto:fixing auto:needs-review')"; want_rc 0
+  want_log "7 --repo o/r --remove-label auto:fixing"; want_no_call_has "/timeline"
+  chk "T13g [$SH] claim beside another state label -> claim removed only, OK"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-review" GH_EDIT_FAIL=1
+  want_st "AFKFIX_SKIP #7 $P3 the claim is gone (auto labels: 'auto:fixing auto:needs-review') $GONE"; want_rc 1
+  chk "T13h [$SH] that yield edit fails -> SKIP, the claim is gone"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-review
+  want_st "AFKFIX_SKIP #7 $P3 the claim is gone (auto labels: 'auto:needs-review') $GONE"; want_rc 1; want_no_writes
+  chk "T13i [$SH] no auto:fixing at all -> SKIP, no edit"
+  go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE_FAIL=1
+  want_st "AFKFIX_ESCALATE $P3 the claim could not be verified (gh error or no claim event) push-landed=yes"; want_rc 1; want_no_writes
+  want_calls_n "/timeline" 2
+  chk "T13j [$SH] identity read fails twice -> ESCALATE push-landed=yes"
+  go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE_FAIL_FIRST=1
+  want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"; want_calls_n "/timeline" 2
+  chk "T13k [$SH] identity read fails once, then succeeds -> transition"
+  go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE_PARTIAL="labeled@$OLD#4242"
+  want_st "AFKFIX_ESCALATE $P3 the claim could not be verified (gh error or no claim event) push-landed=yes"; want_rc 1; want_no_writes
+  want_calls_n "/timeline" 2
+  chk "T13l [$SH] page 1 has our claim, page 2 fails, twice -> ESCALATE, not a transition"
+  go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE=""
+  want_st "AFKFIX_ESCALATE $P3 the claim could not be verified (gh error or no claim event) push-landed=yes"; want_rc 1; want_no_writes
+  chk "T13m [$SH] identity read returns no claim event -> ESCALATE push-landed=yes"
+  go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE="labeled@$OLD#4242 labeled@$NEW#5001"
+  want_st "AFKFIX_SKIP #7 $P3 the claim is another run's (claim=4242 latest=5001) — it continues from the pushed head"; want_rc 1
+  want_no_writes
+  chk "T13n [$SH] re-claimed by another run (newer id) -> SKIP, no transition edit"
+  CLAIM_ID='<CLAIM>' go 7 GH_HEADOID="$LOCALSHA"
+  want_st "AFKFIX_SKIP #7 $P3 the claim is another run's (claim=invalid latest=4242) — it continues from the pushed head"; want_rc 1
+  want_no_writes
+  chk "T13o [$SH] unsubstituted <CLAIM> -> claim=invalid, SKIP"
+  go 7 GH_HEADOID="$LOCALSHA" GH_EDIT_FAIL=1
+  want_st "AFKFIX_ESCALATE $P3 the transition to auto:needs-review failed push-landed=yes"; want_rc 1
+  chk "T13p [$SH] transition edit fails -> ESCALATE push-landed=yes (was a SKIP)"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=bug auto:fixing"
+  want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"
+  chk "T14a [$SH] landed, sole owner, our claim -> transition"
+  CLAIM_ID=5001 go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE="labeled@$OLD#4242 labeled@$NEW#5001"
+  want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"
+  chk "T14b [$SH] claim id is the newest claim event -> transition"
 done
 unset RUNSH
-: > "$GH_LOG"
-out=$(run 7 "$ROOT/linked" GH_REPO=o/r GH_BRANCH=feature GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=bug auto:fixing")
-[[ "$out" == *"AFKFIX_OK"*"-> auto:needs-review at"* ]] && ok "T14a landed, sole owner -> OK transition" || bad "T14a transition" "$out"
-[ "$(cat "$GH_LOG")" = "7 --repo o/r --remove-label auto:fixing --add-label auto:needs-review" ] && ok "T14b label actually moved" || bad "T14b label moved" "$(cat "$GH_LOG")"
 
 say "=== T15  escalate (Step 4, block $ESC) — comment BEFORE label ==="
 esc() { go "$ESC" "$@"; }
@@ -367,6 +418,10 @@ for RUNSH in bash "zsh -f"; do
   ESC_PUSHED=yes esc
   want_st "AFKFIX_OK #7 -> auto:needs-human ($REASON_TXT)"; want_body "$PFX $REASON_TXT $PUSHED_NOTE"
   chk "T15d [$SH] PUSHED=yes -> 'Fix commits were pushed; ...'"
+  ESC_PUSHED=unknown esc
+  want_st "AFKFIX_OK #7 -> auto:needs-human ($REASON_TXT)"; want_rc 0
+  want_body "$PFX $REASON_TXT Whether the fixes were pushed could not be verified; check the PR head."
+  chk "T15s [$SH] PUSHED=unknown -> 'Whether the fixes were pushed could not be verified; ...'"
   esc GH_LABELS_VIEW_FAIL=1
   want_st "AFKFIX_SKIP #7 claim check failed $SKIP_TAIL"; want_rc 1; want_no_writes
   chk "T15e [$SH] ownership read fails -> SKIP, no writes"
@@ -420,12 +475,13 @@ unset RUNSH
 say "=== T16  claim (3.1, block $CLAIM) — re-read before claiming, read back the claim id ==="
 CLAIM7="7 --repo o/r --add-label auto:fixing --remove-label auto:needs-fixes"
 RELEASE7="7 --repo o/r --remove-label auto:fixing --add-label auto:needs-fixes"
-NOREAD="AFKFIX_SKIP #7 could not read back this run's claim — released it for the next run"
-NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # fresh: 3.1 treats a claim event older than 10 min as unread
+NOREAD="AFKFIX_SKIP #7 could not read back this run's claim (no labeled event from this claim yet) — released it for the next run"
+NOREAD_TL="AFKFIX_SKIP #7 could not read back this run's claim (timeline read failed) — released it for the next run"
+# Claim-event timestamps come from ago() at each call: 3.1 rejects one from more than 60 s before its edit.
 for RUNSH in bash "zsh -f"; do
   SH=${RUNSH%% *}
   if ! command -v "$SH" >/dev/null 2>&1; then say "  NOTICE: $SH not found — skipping T16 [$SH]"; continue; fi
-  go "$CLAIM" "GH_PR_LABELS=bug auto:needs-fixes" GH_TIMELINE="labeled@$NOW#5001"
+  go "$CLAIM" "GH_PR_LABELS=bug auto:needs-fixes" GH_TIMELINE="labeled@$(ago 0)#5001"
   want_st "AFKFIX_OK claimed #7 claim=5001"; want_rc 0; want_log "$CLAIM7"
   [ "$(cut -d' ' -f1-2 "$GH_CALLS" | tr '\n' ',')" = "pr view,pr edit,api repos/o/r/issues/7/timeline," ] \
     || why "gh call order is not re-read, claim edit, timeline: $(cat "$GH_CALLS")"
@@ -435,20 +491,27 @@ for RUNSH in bash "zsh -f"; do
   chk "T16h [$SH] timeline has no auto:fixing event -> release edit, SKIP"
   go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$OLD#5001"
   want_st "$NOREAD"; want_rc 1; want_log "$CLAIM7"$'\n'"$RELEASE7"
-  chk "T16i [$SH] latest claim event older than 10 min -> release edit, SKIP"
+  chk "T16i [$SH] latest claim event from hours ago -> release edit, SKIP"
   go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE_FAIL=1
-  want_st "$NOREAD"; want_rc 1; want_log "$CLAIM7"$'\n'"$RELEASE7"
+  want_st "$NOREAD_TL"; want_rc 1; want_log "$CLAIM7"$'\n'"$RELEASE7"
   chk "T16j [$SH] timeline read fails -> release edit, SKIP"
-  go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$NOW#null"
+  go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$(ago 0)#null"
   want_st "$NOREAD"; want_rc 1; want_log "$CLAIM7"$'\n'"$RELEASE7"
   chk "T16k [$SH] claim event with a non-numeric id -> release edit, SKIP"
-  go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$OLD#4001 unlabeled@$OLD2#4002 labeled@$NOW#5001"
+  go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$OLD#4001 unlabeled@$OLD2#4002 labeled@$(ago 0)#5001"
   want_st "AFKFIX_OK claimed #7 claim=5001"; want_rc 0; want_log "$CLAIM7"
   chk "T16l [$SH] several claim events -> the newest id"
   go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="" GH_EDIT_FAIL_NTH=2
-  want_st "AFKFIX_SKIP #7 could not read back this run's claim, and the release failed — the sweep will reclaim it"; want_rc 1
+  want_st "AFKFIX_SKIP #7 could not read back this run's claim (no labeled event from this claim yet), and the release failed — the sweep will reclaim it"
+  want_rc 1
   want_log "$CLAIM7"; [ "$(grep -c '^pr edit 7 ' "$GH_CALLS")" = 2 ] || why "want 2 edit attempts: $(cat "$GH_CALLS")"
   chk "T16m [$SH] read-back fails and the release edit fails -> 'release failed' SKIP"
+  go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$(ago 30)#5001"
+  want_st "AFKFIX_OK claimed #7 claim=5001"; want_rc 0; want_log "$CLAIM7"
+  chk "T16n [$SH] claim event 30 s before now -> accepted (inside the 60 s skew allowance)"
+  go "$CLAIM" GH_PR_LABELS=auto:needs-fixes GH_TIMELINE="labeled@$(ago 300)#5001"
+  want_st "$NOREAD"; want_rc 1; want_log "$CLAIM7"$'\n'"$RELEASE7"
+  chk "T16o [$SH] claim event 5 min before now -> an earlier run's claim, release edit, SKIP"
   go "$CLAIM" GH_PR_LABELS=auto:needs-human
   want_st "AFKFIX_SKIP #7 not claimable (auto labels: 'auto:needs-human') — moved on"; want_rc 0; want_no_writes; want_no_call_has "pr edit"
   chk "T16b [$SH] escalated to auto:needs-human -> no edit"

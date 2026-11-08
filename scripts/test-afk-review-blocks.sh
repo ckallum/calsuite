@@ -22,6 +22,9 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required (the gh stub evaluates -
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/afk-review-blocks.XXXXXX")
 trap 'rm -rf "$ROOT"' EXIT
 say() { printf '%s\n' "$*"; }
+if [ "${AFK_REQUIRE_ZSH-}" = 1 ] && ! command -v zsh >/dev/null 2>&1; then
+  say "FAIL: AFK_REQUIRE_ZSH=1 but zsh is not on PATH — install zsh, or unset AFK_REQUIRE_ZSH to run bash only"; exit 1
+fi
 NL=$'\n'
 R=acme/widgets; N=7; ME=loopbot; BOT='afk-loop[bot]'
 SHA=0123456789abcdef0123456789abcdef01234567
@@ -31,7 +34,7 @@ if [ "$MODE" = mutation ]; then
   # Cases whose fixture is a marker by a login other than the one block 4 is given.
   MUT_AUTHOR_CASES="R2 R2b R7 R8"
   MUTANT="$ROOT/SKILL.md"
-  sed 's/\.user\.login == \\"\$LOGIN\\" and //' "$SKILL" > "$MUTANT"
+  sed 's/(\.user\.login | ascii_downcase) == \\"\$LC_LOGIN\\" and //' "$SKILL" > "$MUTANT"
   d=$(diff "$SKILL" "$MUTANT")
   if [ "$(printf '%s\n' "$d" | grep -c '^<')" != 1 ] || ! printf '%s\n' "$d" | grep -q '^<.*issues/\$N/comments'; then
     say "MUTATION CHECK: mutation did not apply to exactly block 4's comments filter — its author check changed shape; update the sed"; exit 2
@@ -292,7 +295,8 @@ LOGIN_NL="$ME${NL}$LOGIN_JQ"
 cfx() { # cfx <name> <login> <body> [<login> <body>]... → GH_FX dir; appends one page to comments-7.json
   local d="$ROOT/fx/$1"; shift; mkdir -p "$d"
   printf '%s\037' "$@" | jq -Rsc --argjson base "$(( $(cat "$d/comments-$N.json" 2>/dev/null | wc -l) * 100 + 1000 ))" \
-    'split("\u001f")[:-1] as $a | [range(0; $a | length; 2) as $i | {id: ($base + $i), user: {login: $a[$i], type: "User"}, body: $a[$i + 1]}]' \
+    'split("\u001f")[:-1] as $a | [range(0; $a | length; 2) as $i | {id: ($base + $i), user: {login: $a[$i], type: "User"}, body: $a[$i + 1],
+       created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"}]' \
     >> "$d/comments-$N.json"
   printf '%s' "$d"
 }
@@ -324,8 +328,13 @@ FX_R3=$(cfx r3 "$ME" "## Review${NL}No blockers.${NL}${NL}$MK$SHA verdict=ready 
 FX_R4=$(cfx r4 "$ME" "$MK$OLD_SHA verdict=ready -->")
 FX_R11=$(cfx r11 "$BOT" "$MK$SHA verdict=ready -->")
 FX_R12=$(cfx r12 "$ME" "$MK$SHA verdict=maybe -->")
+cfx_edit() { # cfx_edit <dir> — every comment in the fixture was edited after posting
+  local f="$1/comments-$N.json"; jq -c 'map(.updated_at = "2026-01-02T00:00:00Z")' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; printf '%s' "$1"
+}
 cfx r13 alice "first page" bob "still first page" >/dev/null
 FX_R13=$(cfx r13 "$ME" "$MK$SHA verdict=needs-fixes -->")
+FX_R15B=$(cfx r15b LoopBot "$MK$SHA verdict=ready -->")
+FX_R16=$(cfx_edit "$(cfx r16 "$ME" "$MK$SHA verdict=ready -->")")
 
 FX_STALE=$(tfx stale 7 "$OLD")
 FX_FRESH=$(tfx fresh 7 "$NEW")
@@ -490,6 +499,8 @@ suite() {
   begin P9 "override differs from /user -> ABORT"
   runblk 1 "AFK_LOOP_LOGIN=other-bot"; want_status "AFKREV_ABORT AFK_LOOP_LOGIN is other-bot but the token authenticates as $ME"
   want_no_writes; done_case
+  begin P11 "override differs from /user only in case -> OK, not ABORT"
+  runblk 1 "AFK_LOOP_LOGIN=LoopBot"; want_status "AFKREV_OK running as LoopBot"; want_no_writes; done_case
   begin P10 "override equals /user -> OK, verified"
   runblk 1 "AFK_LOOP_LOGIN=$ME"; want_status "AFKREV_OK running as $ME"; want_out_lacks unverified; want_no_writes; done_case
 
@@ -621,6 +632,12 @@ suite() {
   runblk 4 "GH_FX=$FX_R11" "@LOGIN=$BOT"; want_status "AFKREV_SKIP sha=$SHA already reviewed by $BOT"; want_no_writes; done_case
   begin R12 "unknown verdict value -> PROCEED"
   runblk 4 "GH_FX=$FX_R12"; want_status "AFKREV_PROCEED"; want_no_writes; done_case
+  begin R15 "mixed-case <LOGIN> vs author loopbot -> SKIP"
+  runblk 4 "GH_FX=$FX_R1B" @LOGIN=LoopBot; want_status "AFKREV_SKIP sha=$SHA already reviewed by LoopBot"; want_no_writes; done_case
+  begin R15b "author LoopBot vs <LOGIN> loopbot -> SKIP"
+  runblk 4 "GH_FX=$FX_R15B"; want_status "AFKREV_SKIP sha=$SHA already reviewed by $ME"; want_no_writes; done_case
+  begin R16 "own marker edited after posting -> PROCEED"
+  runblk 4 "GH_FX=$FX_R16"; want_status "AFKREV_PROCEED"; want_no_writes; done_case
   begin R13 "own marker on page 2 -> SKIP"
   runblk 4 "GH_FX=$FX_R13"; want_status "AFKREV_SKIP sha=$SHA already reviewed by $ME"; want_no_writes; done_case
 
@@ -730,6 +747,22 @@ suite() {
   want_status "$LC (auto labels: 'auto:needs-review auto:ready') — no marker"; want_labels 7 "auto:needs-review auto:ready"
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:ready; want_writes; done_case
+  CV="AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: 'auto:needs-fixes auto:ready')"
+  begin W15 "ready; auto:needs-fixes lands with the edit -> add auto:needs-human, ERROR, no yield, no marker"
+  runblk 7 GH_EDIT_RACE_ADD=auto:needs-fixes; want_status "$CV — added auto:needs-human, no marker"
+  want_calls "pr view labels" "pr edit" "pr view labels" "pr edit"; want_labels 7 "auto:needs-fixes auto:needs-human auto:ready"
+  exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
+  exp ok pr edit 7 --repo "$R" --add-label auto:needs-human; want_writes; done_case
+  begin W15b "needs-fixes; auto:ready lands with the edit -> add auto:needs-human, ERROR"
+  runblk 7 @VERDICT=needs-fixes GH_EDIT_RACE_ADD=auto:ready; want_status "$CV — added auto:needs-human, no marker"
+  want_labels 7 "auto:needs-fixes auto:needs-human auto:ready"
+  exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-fixes
+  exp ok pr edit 7 --repo "$R" --add-label auto:needs-human; want_writes; done_case
+  begin W15c "conflicting verdicts, auto:needs-human add fails -> ERROR without 'added'"
+  runblk 7 GH_EDIT_RACE_ADD=auto:needs-fixes GH_EDIT_FAIL_NTH=2; want_status "$CV — no marker"
+  want_labels 7 "auto:needs-fixes auto:ready"
+  exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
+  exp FAIL pr edit 7 --repo "$R" --add-label auto:needs-human; want_writes; done_case
   begin W11 "post-edit label read fails -> OK marked=none (label read failed), no head read, no comment"
   runblk 7 GH_LABELS_VIEW_FAIL_AFTER_EDIT=1; want_status "AFKREV_OK auto:ready marked=none (label read failed)"
   want_calls "pr view labels" "pr edit" "pr view labels"

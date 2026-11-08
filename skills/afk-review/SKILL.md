@@ -54,7 +54,8 @@ done
 # tokens that can't call /user (GitHub App / Actions tokens), but never contradicts one that can.
 # On failure gh still prints the JSON error body to stdout, so keep the exit status.
 TOKEN_LOGIN=$(gh api user --jq .login 2>/dev/null) || TOKEN_LOGIN=""
-if [ -n "$AFK_LOOP_LOGIN" ] && [ -n "$TOKEN_LOGIN" ] && [ "$TOKEN_LOGIN" != "$AFK_LOOP_LOGIN" ]; then
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }   # GitHub logins are case-insensitive
+if [ -n "$AFK_LOOP_LOGIN" ] && [ -n "$TOKEN_LOGIN" ] && [ "$(lc "$TOKEN_LOGIN")" != "$(lc "$AFK_LOOP_LOGIN")" ]; then
   echo "AFKREV_ABORT AFK_LOOP_LOGIN is $AFK_LOOP_LOGIN but the token authenticates as $TOKEN_LOGIN"; exit 1
 fi
 LOGIN="${AFK_LOOP_LOGIN:-$TOKEN_LOGIN}"
@@ -137,7 +138,9 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    ```bash
    REPO="<owner/repo>"; N=<N>; SHA="<SHA>"; LOGIN='<LOGIN>'
    # - Exact body match, so review prose that quotes the marker doesn't count.
-   # - REST issues/comments reports bots as `name[bot]`, as /user does in the preconditions; GraphQL drops it.
+   # - REST issues/comments reports bots as `name[bot]`, the form the preconditions print; GraphQL drops it.
+   # - Logins compare case-insensitively (GitHub's are). A marker edited after posting doesn't count:
+   #   maintainers can edit anyone's comment, and merge/gate applies the same rule.
    # - LOGIN and SHA are validated before being spliced into the jq program (gh --jq has no --arg).
    # - Any lookup failure is AFKREV_ERROR, never a skip.
    # Whole-string matches: `grep -x` tests each LINE, so a multi-line value would pass it.
@@ -146,8 +149,9 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    case "${LOGIN%\[bot\]}" in ''|*[!A-Za-z0-9-]*)
      echo "AFKREV_ERROR no valid login ('$LOGIN') — substitute the login the preconditions printed"; exit 1 ;;
    esac
+   LC_LOGIN=$(printf '%s' "$LOGIN" | tr '[:upper:]' '[:lower:]')
    M="<!-- afk-review reviewed sha=$SHA"
-   if ! hits=$(gh api "repos/$REPO/issues/$N/comments" --paginate --jq ".[] | select(.user.login == \"$LOGIN\" and (.body == \"$M -->\" or .body == \"$M verdict=ready -->\" or .body == \"$M verdict=needs-fixes -->\")) | .id"); then
+   if ! hits=$(gh api "repos/$REPO/issues/$N/comments" --paginate --jq ".[] | select((.user.login | ascii_downcase) == \"$LC_LOGIN\" and .updated_at == .created_at and (.body == \"$M -->\" or .body == \"$M verdict=ready -->\" or .body == \"$M verdict=needs-fixes -->\")) | .id"); then
      echo "AFKREV_ERROR comments fetch failed"; exit 1
    fi
    if [ -n "$hits" ]; then echo "AFKREV_SKIP sha=$SHA already reviewed by $LOGIN"; else echo "AFKREV_PROCEED"; fi
@@ -219,6 +223,14 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
      echo "AFKREV_OK auto:$VERDICT marked=none (label read failed)"; exit 0
    fi
    if [ "$AUTO" != "auto:$VERDICT" ]; then
+     # Two overlapping runs reaching opposite verdicts would each yield its own label and leave none.
+     both=no; case " $AUTO " in *" auto:needs-fixes "*) case " $AUTO " in *" auto:ready "*) both=yes ;; esac ;; esac
+     if [ "$both" = yes ]; then
+       if gh pr edit "$N" --repo "$REPO" --add-label auto:needs-human >/dev/null; then
+         echo "AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: '$AUTO') — added auto:needs-human, no marker"; exit 1
+       fi
+       echo "AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: '$AUTO') — no marker"; exit 1
+     fi
      case " $AUTO " in *" auto:$VERDICT "*)
        if gh pr edit "$N" --repo "$REPO" --remove-label "auto:$VERDICT" >/dev/null; then
          echo "AFKREV_ERROR labels changed under the transition (auto labels: '$AUTO') — removed auto:$VERDICT, no marker"; exit 1
@@ -241,7 +253,9 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    fi
    echo "AFKREV_OK auto:$VERDICT marked=$MARK"
    ```
-   `AFKREV_ERROR labels changed …` → record the error: another writer landed alongside the transition, and the block removed its own verdict label so the other label owns the PR. `AFKREV_OK` → record `#N → ready` or `#N → needs-fixes`. When `marked=none` for any reason but `head moved`, add it to the line (`#N → ready (unmarked: comment failed)`). An unmarked head goes back for review: merge/gate bounces it once, and escalates it to needs-human if it already bounced that SHA.
+   - `AFKREV_ERROR labels changed … — removed auto:<V>, no marker` → record the error: another writer landed alongside the transition, and the block dropped its own verdict label so the other label owns the PR.
+   - `AFKREV_ERROR labels changed … — no marker` (nothing removed) or `AFKREV_ERROR conflicting verdicts …` → record the error and flag it for a human in the report: the PR may carry two `auto:*` labels, or none.
+   - `AFKREV_OK` → record `#N → ready` or `#N → needs-fixes`. When `marked=none` for any reason but `head moved`, add it to the line (`#N → ready (unmarked: comment failed)`). Once merge/gate is built, an unmarked head goes back for review: the gate bounces it once, and escalates it to needs-human if it already bounced that SHA.
 
 ## Step 4 — Escalate on failure
 

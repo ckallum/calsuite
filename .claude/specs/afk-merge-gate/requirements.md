@@ -13,7 +13,9 @@ This is the fourth AFK loop. The review loop (`skills/afk-review`) and the fix l
 ## Functional requirements
 
 1. **FR-1 Select.** Every run evaluates all **open** PRs labelled `auto:ready`. Closed and merged PRs keep their labels today: #132, #139, #144 and #145 all still carry `auto:ready`. So selection must filter on state.
-2. **FR-2 Evaluate.** Each PR gets exactly one outcome from the [gate table](design.md#gate-table): `READY`, `WAIT`, `BOUNCE`, `FAIL(gate)`, `skipped` or `error`.
+2. **FR-2 Evaluate.** Each PR gets exactly one outcome from the [gate table](design.md#gate-table):
+   - `READY`, `WAIT`, `BOUNCE`, `FAIL(gate)`, `skipped` or `error`
+   - or a clean-up that only removes a stale `auto:ready`: `needs-human (cleared stale auto:ready)` (check 1) or `skipped (cleared stale auto:ready)` (check 3)
 3. **FR-3 Notify on READY.**
    - Post one comment per (PR, head SHA). It @mentions the notify target and carries a hidden `afk-gate ready` marker.
    - The label stays `auto:ready`.
@@ -28,17 +30,19 @@ This is the fourth AFK loop. The review loop (`skills/afk-review`) and the fix l
 6. **FR-6 Wait.**
    - `WAIT` writes nothing.
    - A `WAIT` whose current cause has lasted more than 24 h becomes `FAIL(stuck)`. The clock starts when that cause began, not when the label was applied: a PR that was announced ready days ago and then briefly reads `UNKNOWN` after a merge to its base must not escalate.
-   - Drafts are held with no cap. A human drafted the PR on purpose.
+   - Two kinds of `WAIT` are never capped. They stay `WAIT` and show in every run's summary:
+     - drafts, since a human drafted the PR on purpose
+     - causes whose start can't be determined: `truncated`, `unknown-value`, or a cause clocked from an arrival the gate can't determine
 7. **FR-7 Never merge.**
    - v1 has no merge path.
    - A future merge mode must use `gh pr merge --match-head-commit <sha>` and never `--auto`. `--auto` enables auto-merge when required checks haven't passed.
 8. **FR-8 Modes.**
    - A repo variable selects `off`, `dry-run` or `on`.
    - The default is `dry-run`, which writes only the run summary.
-9. **FR-9 Report.** Each run writes a job summary with one line per PR: `#N → ready (notified | already notified) | wait (<cause>) | needs-review (unreviewed head) | needs-human (<gate>) | skipped (<why>) | error (<why>)`.
+9. **FR-9 Report.** Each run writes a job summary with one line per PR: `#N → ready (notified | already notified) | wait (<cause>) | needs-review (unreviewed head) | needs-human (<gate> | cleared stale auto:ready) | skipped (<why> | cleared stale auto:ready) | error (<why>)`.
 10. **FR-10 Authenticated review markers.** Delivered with this spec; closes #141.
     - The review loop's SHA marker records its verdict.
-    - The marker counts only when its author is the loop's own login.
+    - The marker counts only when its author is the loop's own login and the comment was never edited.
 
 ## Non-functional requirements
 
@@ -51,12 +55,12 @@ This is the fourth AFK loop. The review loop (`skills/afk-review`) and the fix l
    - Missing required configuration fails the job loudly and writes nothing.
 4. **NFR-4 Safe on a public repo.**
    - Never checks out or runs PR code.
-   - Trusts review markers only from the configured loop login, and its own markers only from `github-actions[bot]`.
+   - Trusts review markers only from the configured loop login, and its own markers only from `github-actions[bot]`, comparing logins case-insensitively. An edited marker comment is never trusted.
    - Never echoes strings the PR author controls (titles, branch names) into comments. Check names appear only after sanitising, inside code spans.
 5. **NFR-5 Idempotent.** Any number of runs over the same snapshot, configuration and evaluation time produce no new writes. Only the passage of time — the marker-lag window, the label-race window and the age cap — can turn an earlier `WAIT` into a write.
 6. **NFR-6 Fresh-clone test.**
    - Merging the workflow files is the install.
-   - Setup is two documented commands: `gh variable set AFK_LOOP_LOGIN` (required), and `gh variable set AFK_GATE_MODE --body on` to leave `dry-run` once the dry-run summary looks right.
+   - Setup is two documented commands: `gh variable set AFK_LOOP_LOGIN` (required), and `gh variable set AFK_GATE_MODE --body on` to leave `dry-run` once the dry-run summary looks right and `/receiving-pr-feedback` filters comments by author (see design.md, Security considerations).
    - No maintainer paths and nothing untracked.
 7. **NFR-7 Latency.**
    - Common case: about 1 minute from the review loop's marker comment to the notification.
