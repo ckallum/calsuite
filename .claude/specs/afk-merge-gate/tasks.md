@@ -34,9 +34,9 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
   - a PR ready for days whose contexts become truncated → `WAIT(truncated)`, never `FAIL(stuck)`
   - a ruleset check with an `integrationId` satisfied by a same-name check from another app → `WAIT(ci-missing)`
   - `auto:ready` beside a claim label applied 25 h ago → `FAIL(stuck:label-race)`; applied 5 min ago → `WAIT`
-  - a bounce marker with no `labeled auto:needs-review` after it → `BOUNCE` (comment skipped); with one → `FAIL(review-marker-missing)`
+  - a bounce marker with no `labeled auto:needs-review` after it → `BOUNCE` (comment skipped); with one → `FAIL(review-marker-missing)`; an unfinished bounce on a PR that already has 3 bounces in 24 h → `BOUNCE`, not `FAIL(bounce-cap)`
   - arrival dates come from the activity log: a force-push back to the PR's first head, then `UNKNOWN` → `WAIT`, not `FAIL(stuck)`
-  - marker-lag with no `labeled auto:ready` event: `labeled auto:reviewing` 5 min ago → `WAIT`; newest label event 25 h ago → `FAIL(stuck:marker-lag)`
+  - marker-lag with no `labeled auto:ready` event → `WAIT`, never capped, even when the newest other label event is 25 h old
   - 3 bounces in 24 h → `FAIL(bounce-cap)`; 3 spread over a week → `BOUNCE`
   - an edited marker (`updated_at != created_at`) is untrusted; a login that differs only in case is trusted
 - [ ] **G4** `node --test` suite, including a marker-drift test (skill literal vs lib regex), in `checks.yml`. — deps: G2, G3
