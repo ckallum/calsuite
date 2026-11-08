@@ -408,7 +408,7 @@ fi
 
 ## Step 4 — Escalate
 
-Escalation hands the PR to a human and **abandons the local changes unpushed** — never push a half-converged branch. Comment **before** moving the label: if the label moves first and the comment fails, the PR sits at `auto:needs-human` with no reason recorded, and the sweep (which queries `auto:fixing`) can no longer see it.
+Escalation hands the PR to a human. Before the publish step (`push-landed=no`), it **abandons the local changes unpushed** — never push a half-converged branch. After it (`push-landed=yes` or `unknown`), the fixes may already be public, and the comment says so. Comment **before** moving the label: if the label moves first and the comment fails, the PR sits at `auto:needs-human` with no reason recorded, and the sweep (which queries `auto:fixing`) can no longer see it.
 
 Replace the `<REASON>` line with the one-line reason from the `AFKFIX_ESCALATE` line (any characters, but not the line `AFKFIX_REASON`); the quoted heredoc keeps the shell from interpreting it. `<PUSHED>` is 3.4(3)'s printed `push-landed=` value, `yes`, `no` or `unknown` — every escalation before 3.4(2) is `no`.
 
@@ -465,7 +465,7 @@ If the label edit fails after the comment posted, record the error and move on �
 
 ## Step 5 — Report
 
-Print one line per PR — `#N → needs-review | needs-human | error (...)` — and the totals. An all-skipped or all-error run is still a clean exit, not a failure.
+Print one line per PR — `#N → needs-review | pushed (<reason>) | needs-human | skipped (moved on) | error (...)` — and the totals. An all-skipped or all-error run is still a clean exit, not a failure.
 
 ## Notes
 
@@ -474,4 +474,4 @@ Print one line per PR — `#N → needs-review | needs-human | error (...)` — 
 - **Publish once.** `--no-publish` defers replies/body/push through every convergence pass; `--publish-only` flushes them once at the end. A crash before that leaves nothing pushed — a clean retry.
 - **Headless-safe.** Every decision is escalate-not-ask. `/receiving-pr-feedback --no-publish`/`--publish-only` and `/review --headless` are non-interactive by contract; if either prompts or hangs, treat it as a failure and escalate. The loop never invokes a skill without a headless mode (`/improve-architecture`, `/prevent`, interactive `/review`).
 - **Prerequisites.** Labels bootstrapped, cwd a checkout of `REPO`, and `/review` + `/receiving-pr-feedback` **installed and committed** at versions carrying `--headless` / `--no-publish` (the isolated worktree sees only committed files; in calsuite, `scripts/sync-installed-skills.cjs` keeps those copies current). The precondition checks whichever copy actually resolves — personal before project — so a stale personal copy aborts with its own fix. Worktree isolation must also be on; the loop can't read that setting but detects its effect and refuses to reset a primary checkout.
-- **Downstream.** `auto:needs-review` → the review loop re-verifies the pushed fixes and can bounce it back to `auto:needs-fixes` (the review↔fix cycle). `auto:needs-human` → a human; the branch is left unpushed.
+- **Downstream.** `auto:needs-review` → the review loop re-verifies the pushed fixes and can bounce it back to `auto:needs-fixes` (the review↔fix cycle). `auto:needs-human` → a human; the escalation comment says whether the fixes were pushed (`push-landed=yes`, `no` or `unknown`).

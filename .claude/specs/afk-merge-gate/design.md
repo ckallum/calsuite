@@ -116,10 +116,10 @@ Each run builds one snapshot per PR, then evaluates it with a pure function.
    - `number state isDraft isCrossRepository headRefName headRefOid baseRefName mergeable mergeStateStatus reviewDecision`
    - `labels(first: 100)` with `totalCount`
    - `statusCheckRollup.contexts(first: 100)` with `totalCount`:
-     - each CheckRun's `name status conclusion startedAt` and its workflow name
+     - each CheckRun's `name status conclusion startedAt`, its workflow name, and its app (`checkSuite { app { databaseId } }`)
      - each StatusContext's `context state description createdAt`
    - `reviewThreads(first: 100)` with `totalCount`, and each thread's `isResolved isOutdated` plus its first comment's author and `authorAssociation`
-   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } } }`
+   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context integrationId } } } } } }`
 2. **REST, per PR.** REST reports bots as `name[bot]`; GraphQL drops the suffix.
    - `repos/R/issues/N/comments --paginate`, for markers, with `user.login`, `author_association`, `created_at` and `updated_at`.
    - `repos/R/issues/N/timeline --paginate`, for when `auto:ready` was last applied, and `head_ref_force_pushed` events.
@@ -185,8 +185,8 @@ Snapshot rules (fail closed):
 | `ci-pending` | the oldest non-completed CheckRun `startedAt`, or PENDING StatusContext `createdAt` |
 | `ci-missing` | the head's arrival |
 | `mergeable-unknown` | the later of the head's and the base tip's arrival |
-| `marker-lag` | when `auto:ready` was applied; if no `labeled auto:ready` event was found, the newest `auto:*` labeled or unlabeled event on the timeline (the review loop's claim lands minutes before its transition), so this case still escalates without capping a lagging read at once |
-| `label-race` | not capped: beside a resting label it ends within 10 min when check 3 clears `auto:ready`, and beside a claim label the claim's own loop moves the PR on or its sweep drops the stale claim |
+| `marker-lag` | when `auto:ready` was applied. If no `labeled auto:ready` event was found, the start is undeterminable and the wait is never capped: an unrelated label event can be days older than the lag, and the `WAIT` shows in every run's summary |
+| `label-race` | beside a resting label, not capped: it ends within 10 min when check 3 clears `auto:ready`. Beside a claim label, when that claim label was last applied: a claim older than 24 h belongs to a loop that has stopped, so `FAIL(stuck:label-race)` hands the PR to a human, and `auto:needs-human` then makes the claim's own loop stand down (its exact-set checks fail, and its sweep drops the stale claim) |
 | `truncated`, `unknown-value` | undeterminable, so never capped: neither says anything about the PR's progress, and the `WAIT` shows in every run's summary |
 
 - A merge to the base therefore restarts the clock for every PR that reads `UNKNOWN` afterwards. A PR announced ready days ago is never escalated by a passing recomputation.
@@ -208,7 +208,7 @@ Rows are evaluated top to bottom; the first match wins.
 | latest is `verdict=needs-fixes` | skip | `FAIL(review-blocked)`: reviewed BLOCKED at this SHA, so it was relabelled by hand or force-pushed back |
 | latest is legacy (no verdict) | skip | `FAIL(review-unverified)` |
 | none, and `auto:ready` was applied < 10 min ago, or no `labeled auto:ready` event was found | — | `WAIT(marker-lag)` |
-| none, and a trusted `bounce` marker for this SHA exists | review it | `FAIL(review-marker-missing)`: a review was already requested at this exact SHA and left no marker, so a second bounce can't help |
+| none, a trusted `bounce` marker for this SHA exists, and a `labeled auto:needs-review` event follows it on the timeline | review it | `FAIL(review-marker-missing)`: a review was already requested at this exact SHA and left no marker, so a second bounce can't help. A bounce marker with no such event is an unfinished bounce (its comment landed, its label move didn't): that is `BOUNCE` again, and the dedupe skips the comment |
 | none, and ≥ 3 trusted bounce markers on the PR were posted in the last 24 h | review it | `FAIL(bounce-cap)`: an automatic pusher (a bot's autofix, say) can't cycle ready → re-review → ready forever, while a human pushing follow-ups over days isn't capped |
 | none, and an exact-form review marker exists whose author is not `AFK_LOOP_LOGIN` but whose `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR` | — | `FAIL(config-mismatch)`: `AFK_LOOP_LOGIN` probably names the wrong login, and bouncing would stall the PR. A stranger's marker (association `NONE`) never triggers this. |
 | none | review it | `BOUNCE` |
@@ -222,7 +222,7 @@ A force-push back to a SHA reviewed as PASS earlier reads as `verdict=ready`. Th
   - CheckRun with a non-`COMPLETED` status → `WAIT`
   - CheckRun conclusion `SUCCESS`, `NEUTRAL` or `SKIPPED` → pass (#138's "CodeRabbit / Review" was `NEUTRAL` inside a `SUCCESS` rollup); any other conclusion → `FAIL`
   - StatusContext `PENDING` or `EXPECTED` → `WAIT`; `FAILURE` or `ERROR` → `FAIL`; `SUCCESS` → pass
-- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a branch-protection rule and every `requiredStatusChecks` context from a base ruleset's `REQUIRED_STATUS_CHECKS` rule, must be present and `SUCCESS`. Folding the ruleset's checks in here is what makes check 9's `REVIEW_REQUIRED` exception safe: a ruleset-required check can't be missing while `BLOCKED` is read as approval-only.
+- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a branch-protection rule and every `requiredStatusChecks` context from a base ruleset's `REQUIRED_STATUS_CHECKS` rule, must be present and `SUCCESS`. A ruleset check that names an `integrationId` is satisfied only by a CheckRun whose app `databaseId` matches it; a same-name check from another app, or a StatusContext (which can't prove its app), leaves it `WAIT(ci-missing)`. Folding the ruleset's checks in here is what makes check 9's `REVIEW_REQUIRED` exception safe: a ruleset-required check can't be missing while `BLOCKED` is read as approval-only.
   - A missing one → `WAIT(ci-missing)`. One still running (a non-`COMPLETED` CheckRun, or a `PENDING`/`EXPECTED` StatusContext) → `WAIT(ci-pending)`: the review marker that triggers the gate usually lands before CI finishes. Any other state, `NEUTRAL` and `SKIPPED` included, → `FAIL(ci-failed)`: a required job that didn't run proves nothing.
   - An empty required list is a configuration error: the job fails red.
   - Without this rule, zero checks read as green. An unprotected repo with a `null` rollup still reports `CLEAN`, and Actions being disabled, or a first-time contributor's run awaiting approval, look the same.
@@ -235,7 +235,7 @@ Before every write, the gate re-reads the PR with `gh pr view N --json state,lab
 | Outcome | Dedupe (trusted gate markers) | Writes, in order |
 |---|---|---|
 | `READY` | a `ready` marker for this SHA exists → `ready (already notified)` | comment |
-| `BOUNCE` | a `bounce` marker for this SHA exists → that's `FAIL(review-marker-missing)` instead | comment; add `auto:needs-review`; remove `auto:ready` |
+| `BOUNCE` | a `bounce` marker for this SHA exists → skip the comment and redo the label steps (a *completed* bounce never gets here: the binding table turns it into `FAIL(review-marker-missing)`) | comment; add `auto:needs-review`; remove `auto:ready` |
 | `FAIL(g)` | an `escalate` marker for (g, SHA) exists → skip the comment | comment; add `auto:needs-human`; remove `auto:ready` |
 | `needs-human (cleared stale auto:ready)`, `skipped (cleared stale auto:ready)` | — | remove `auto:ready` |
 | `WAIT`, any other `skipped`, `error` | — | none |

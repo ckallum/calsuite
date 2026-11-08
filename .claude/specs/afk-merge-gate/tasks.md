@@ -32,6 +32,9 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
   - a required check still in progress → `WAIT(ci-pending)`; one that concluded `SKIPPED` → `FAIL(ci-failed)`
   - `REVIEW_REQUIRED` + `BLOCKED` → `READY` with the approval note; the same plus `requiresSignatures` → `FAIL(protection)`; the same with a ruleset-required check missing → `WAIT(ci-missing)`, never `READY`
   - a PR ready for days whose contexts become truncated → `WAIT(truncated)`, never `FAIL(stuck)`
+  - a ruleset check with an `integrationId` satisfied by a same-name check from another app → `WAIT(ci-missing)`
+  - `auto:ready` beside a claim label applied 25 h ago → `FAIL(stuck:label-race)`; applied 5 min ago → `WAIT`
+  - a bounce marker with no `labeled auto:needs-review` after it → `BOUNCE` (comment skipped); with one → `FAIL(review-marker-missing)`
   - arrival dates come from the activity log: a force-push back to the PR's first head, then `UNKNOWN` → `WAIT`, not `FAIL(stuck)`
   - marker-lag with no `labeled auto:ready` event: `labeled auto:reviewing` 5 min ago → `WAIT`; newest label event 25 h ago → `FAIL(stuck:marker-lag)`
   - 3 bounces in 24 h → `FAIL(bounce-cap)`; 3 spread over a week → `BOUNCE`
