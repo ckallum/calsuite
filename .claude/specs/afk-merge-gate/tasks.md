@@ -38,7 +38,7 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
   - base rules truncated past the page → `WAIT(truncated)`; an app-bound required check reported as a commit status → `WAIT(ci-missing)`, named in the summary
   - the auto:* set changes between snapshot and write (a sweep drops the stale claim) → `skipped (changed during run)`, no escalation
   - a claim removed and re-applied between snapshot and write (same set, newer `labeled` event) → `skipped (changed during run)`, not `FAIL(stuck:label-race)`
-  - branch protection requiring a check from one app, satisfied only by another app's same-name check → `WAIT(ci-missing)`; protection bindings unreadable + `REVIEW_REQUIRED` + `BLOCKED` → `FAIL(protection)`
+  - branch protection requiring a check from one app, satisfied only by another app's same-name check → `WAIT(ci-missing)`; protection bindings unreadable while required contexts exist → `error (protection bindings unreadable)` for every merge state (`CLEAN`, `UNSTABLE`, `BLOCKED`), never `READY`
   - arrival dates come from the activity log: a force-push back to the PR's first head, then `UNKNOWN` → `WAIT`, not `FAIL(stuck)`
   - marker-lag with no `labeled auto:ready` event → `WAIT`, never capped, even when the newest other label event is 25 h old
   - 3 bounces in 24 h → `FAIL(bounce-cap)`; 3 spread over a week → `BOUNCE`
