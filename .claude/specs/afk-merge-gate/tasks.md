@@ -61,7 +61,7 @@ Requirements: [requirements.md](requirements.md). Design: [design.md](design.md)
   - has a timeout
   - never falls back to another account
 - [ ] **R3** Runner harness with a stub `gh`: — deps: R1, R2
-  - write order: comment, add, remove
+  - write order: comment, add, remove, run as one full sequence: the add updates the expected set, so the remove still runs; a sweep's change between the steps stops it
   - dedupe; BOUNCE marker re-check; abort on a changed head or lost label
   - `dry-run` and `off` write nothing
   - a missing `AFK_LOOP_LOGIN` fails loudly
