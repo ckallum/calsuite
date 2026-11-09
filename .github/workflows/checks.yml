@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Every check uses local data only; don't leave the token readable by PR code.
+          # No step needs git credentials; don't leave the token readable by PR code.
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:

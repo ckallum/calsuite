@@ -31,10 +31,10 @@ SHA=0123456789abcdef0123456789abcdef01234567
 OLD_SHA=fedcba9876543210fedcba9876543210fedcba98
 
 if [ "$MODE" = mutation ]; then
-  # Cases whose fixture is a marker by a login other than the one block 4 is given.
-  MUT_AUTHOR_CASES="R2 R2b R7 R8"
+  # Cases whose fixture is a marker by a login other than the one block 4 is given (R17b: no login).
+  MUT_AUTHOR_CASES="R2 R2b R7 R8 R17b"
   MUTANT="$ROOT/SKILL.md"
-  sed 's/(\.user\.login | ascii_downcase) == \\"\$LC_LOGIN\\" and //' "$SKILL" > "$MUTANT"
+  sed 's/((\.user\.login \/\/ [^)]*) | ascii_downcase) == \\"\$LC_LOGIN\\" and //' "$SKILL" > "$MUTANT"
   d=$(diff "$SKILL" "$MUTANT")
   if [ "$(printf '%s\n' "$d" | grep -c '^<')" != 1 ] || ! printf '%s\n' "$d" | grep -q '^<.*issues/\$N/comments'; then
     say "MUTATION CHECK: mutation did not apply to exactly block 4's comments filter — its author check changed shape; update the sed"; exit 2
@@ -334,6 +334,13 @@ cfx_edit() { # cfx_edit <dir> — every comment in the fixture was edited after 
 cfx r13 alice "first page" bob "still first page" >/dev/null
 FX_R13=$(cfx r13 "$ME" "$MK$SHA verdict=needs-fixes -->")
 FX_R15B=$(cfx r15b LoopBot "$MK$SHA verdict=ready -->")
+nullfx() { # nullfx <name> [<login> <body>]... — page 1 is a marker comment with "user": null, then cfx's comments
+  local d="$ROOT/fx/$1"; shift; mkdir -p "$d"
+  jq -cn --arg b "$MK$SHA verdict=ready -->" '[{id: 999, user: null, body: $b, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"}]' > "$d/comments-$N.json"
+  [ $# -gt 0 ] && cfx "${d##*/}" "$@" >/dev/null; printf '%s' "$d"
+}
+FX_R17=$(nullfx r17 "$ME" "$MK$SHA verdict=ready -->")
+FX_R17B=$(nullfx r17b mallory "LGTM")
 FX_R16=$(cfx_edit "$(cfx r16 "$ME" "$MK$SHA verdict=ready -->")")
 
 FX_STALE=$(tfx stale 7 "$OLD")
@@ -516,9 +523,9 @@ suite() {
   begin SW3 "list gh error -> ERROR, sweep skipped"
   runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" GH_PR_LIST_FAIL=1
   want_status "AFKREV_ERROR sweep skipped (gh error listing auto:reviewing)"; want_calls "pr list"; want_no_writes; done_case
-  begin SW4 "timeline fetch fails -> ERROR, claim left"
+  begin SW4 "timeline fetch fails -> ERROR naming #7:timeline, claim left"
   runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" GH_TIMELINE_FAIL=1
-  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1"; want_no_writes; done_case
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1 (#7:timeline)"; want_no_writes; done_case
   begin SW5 "two stale claims -> both reclaimed"
   runblk 2 "GH_PRS=$PRS_SWEEP2" "GH_FX=$FX_TWO"; want_status "AFKREV_OK sweep done reclaimed=2"
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review
@@ -527,17 +534,17 @@ suite() {
   runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_REAPPLIED"; want_status "AFKREV_OK sweep done reclaimed=0"; want_no_writes; done_case
   begin SW7 "no labeled event -> left"
   runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_NOEVT"; want_status "AFKREV_OK sweep done reclaimed=0"; want_no_writes; done_case
-  begin SW8 "reclaim edit fails -> ERROR, counted"
-  runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" GH_EDIT_FAIL=1; want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1"
+  begin SW8 "reclaim edit fails -> ERROR naming #7:edit"
+  runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" GH_EDIT_FAIL=1; want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1 (#7:edit)"
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
   begin SW9 "#7 timeline fails -> #8 still reclaimed, ERROR"
   runblk 2 "GH_PRS=$PRS_SWEEP2" "GH_FX=$FX_TWO" GH_TIMELINE_FAIL_PR=7
-  want_status "AFKREV_ERROR sweep incomplete reclaimed=1 failed=1"
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=1 failed=1 (#7:timeline)"
   want_calls "pr list" "api repos/$R/issues/7/timeline" "api repos/$R/issues/8/timeline" "pr view labels" "pr edit"
   exp ok pr edit 8 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
   begin SW10 "#7 reclaim edit fails -> #8 still reclaimed, ERROR"
   runblk 2 "GH_PRS=$PRS_SWEEP2" "GH_FX=$FX_TWO" GH_EDIT_FAIL_PR=7
-  want_status "AFKREV_ERROR sweep incomplete reclaimed=1 failed=1"
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=1 failed=1 (#7:edit)"
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review
   exp ok pr edit 8 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
   begin SW11 "latest auto:reviewing event is unlabeled -> left, no re-read"
@@ -556,17 +563,25 @@ suite() {
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing; want_writes; done_case
   begin SW12d "remove-only edit fails -> ERROR, failed=1"
   runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" "GH_PR_LABELS=auto:reviewing auto:needs-human" GH_EDIT_FAIL=1
-  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1"
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1 (#7:edit)"
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:reviewing; want_writes; done_case
-  begin SW13 "re-read fails -> ERROR, failed=1, no edit"
+  begin SW13 "re-read fails -> ERROR naming #7:labels, no edit"
   runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" GH_PR_VIEW_FAIL=1
-  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1"; want_no_writes; done_case
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=1 (#7:labels)"; want_no_writes; done_case
   begin SW14 "mix: #7 re-read fails, #8 moved on, #9 unlabeled, #10 reclaimed"
   runblk 2 "GH_PRS=$PRS_SWEEP4" "GH_FX=$FX_MIX" GH_PR_VIEW_FAIL_PR=7 GH_PR_LABELS_8=auto:ready
-  want_status "AFKREV_ERROR sweep incomplete reclaimed=1 failed=1"
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=1 failed=1 (#7:labels)"
   want_calls "pr list" "api repos/$R/issues/7/timeline" "pr view labels" "api repos/$R/issues/8/timeline" "pr view labels" \
     "api repos/$R/issues/9/timeline" "api repos/$R/issues/10/timeline" "pr view labels" "pr edit"
   exp ok pr edit 10 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
+  begin SW15 "two failures -> tags in processing order (#7:timeline #8:edit)"
+  runblk 2 "GH_PRS=$PRS_SWEEP2" "GH_FX=$FX_TWO" GH_TIMELINE_FAIL_PR=7 GH_EDIT_FAIL_PR=8
+  want_status "AFKREV_ERROR sweep incomplete reclaimed=0 failed=2 (#7:timeline #8:edit)"
+  exp FAIL pr edit 8 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
+  begin SW16 "stray auto:merge beside a lone stale claim -> full reclaim, not a yield"
+  runblk 2 "GH_PRS=$PRS_SWEEP1" "GH_FX=$FX_STALE" "GH_PR_LABELS=auto:merge auto:reviewing"
+  want_status "AFKREV_OK sweep done reclaimed=1"; want_labels 7 "auto:merge auto:needs-review"
+  exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-review; want_writes; done_case
 
   hdr "select (block 3)"
   begin S1 "prints open needs-review PRs; repo reaches gh"
@@ -638,6 +653,10 @@ suite() {
   runblk 4 "GH_FX=$FX_R15B"; want_status "AFKREV_SKIP sha=$SHA already reviewed by $ME"; want_no_writes; done_case
   begin R16 "own marker edited after posting -> PROCEED"
   runblk 4 "GH_FX=$FX_R16"; want_status "AFKREV_PROCEED"; want_no_writes; done_case
+  begin R17 "a null-user marker, then our own marker -> no error, SKIP"
+  runblk 4 "GH_FX=$FX_R17"; want_status "AFKREV_SKIP sha=$SHA already reviewed by $ME"; want_no_writes; done_case
+  begin R17b "a null-user marker and no own marker -> no error, PROCEED"
+  runblk 4 "GH_FX=$FX_R17B"; want_status "AFKREV_PROCEED"; want_no_writes; done_case
   begin R13 "own marker on page 2 -> SKIP"
   runblk 4 "GH_FX=$FX_R13"; want_status "AFKREV_SKIP sha=$SHA already reviewed by $ME"; want_no_writes; done_case
 
@@ -645,6 +664,9 @@ suite() {
   begin C1 "claim succeeds -> exact edit"
   runblk 5 "GH_PR_LABELS=bug auto:needs-review"; want_status "AFKREV_OK claimed"
   want_call "[\"pr\",\"view\",\"7\",\"--repo\",\"$R\",\"--json\",\"labels\",\"--jq\","
+  exp ok pr edit 7 --repo "$R" --add-label auto:reviewing --remove-label auto:needs-review; want_writes; done_case
+  begin C1b "stray auto:merge beside auto:needs-review -> claimed"
+  runblk 5 "GH_PR_LABELS=auto:merge auto:needs-review"; want_status "AFKREV_OK claimed"
   exp ok pr edit 7 --repo "$R" --add-label auto:reviewing --remove-label auto:needs-review; want_writes; done_case
   begin C2 "claim edit fails -> ERROR"
   runblk 5 "GH_PR_LABELS=auto:needs-review" GH_EDIT_FAIL=1; want_status "AFKREV_ERROR claim"
@@ -688,6 +710,10 @@ suite() {
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-fixes
   exp ok pr comment 7 --repo "$R" --body "<!-- afk-review reviewed sha=$SHA verdict=needs-fixes -->"; want_writes; done_case
   BODY_NF=$(printf '%s\n' "$WRITES" | sed -n 's/^ok //p' | jq -r 'select(.[1] == "comment") | .[index("--body") + 1]')
+  begin W1c "stray auto:merge on the PR -> transition and marker as usual"
+  runblk 7 "GH_PR_LABELS=auto:merge auto:reviewing"; want_status "AFKREV_OK auto:ready marked=$SHA"; want_labels 7 "auto:merge auto:ready"
+  exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
+  exp ok pr comment 7 --repo "$R" --body "<!-- afk-review reviewed sha=$SHA verdict=ready -->"; want_writes; done_case
   begin W2 "edit fails -> ERROR, no comment"
   runblk 7 GH_EDIT_FAIL=1; want_status "AFKREV_ERROR transition"; want_calls "pr view labels" "pr edit"
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready; want_writes; done_case
@@ -748,21 +774,21 @@ suite() {
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
   exp FAIL pr edit 7 --repo "$R" --remove-label auto:ready; want_writes; done_case
   CV="AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: 'auto:needs-fixes auto:ready')"
-  begin W15 "ready; auto:needs-fixes lands with the edit -> add auto:needs-human, ERROR, no yield, no marker"
-  runblk 7 GH_EDIT_RACE_ADD=auto:needs-fixes; want_status "$CV — added auto:needs-human, no marker"
-  want_calls "pr view labels" "pr edit" "pr view labels" "pr edit"; want_labels 7 "auto:needs-fixes auto:needs-human auto:ready"
+  begin W15 "ready; auto:needs-fixes lands with the edit -> move to auto:needs-human, ERROR, no marker"
+  runblk 7 GH_EDIT_RACE_ADD=auto:needs-fixes; want_status "$CV — moved to auto:needs-human, no marker"
+  want_calls "pr view labels" "pr edit" "pr view labels" "pr edit"; want_labels 7 auto:needs-human
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
-  exp ok pr edit 7 --repo "$R" --add-label auto:needs-human; want_writes; done_case
-  begin W15b "needs-fixes; auto:ready lands with the edit -> add auto:needs-human, ERROR"
-  runblk 7 @VERDICT=needs-fixes GH_EDIT_RACE_ADD=auto:ready; want_status "$CV — added auto:needs-human, no marker"
-  want_labels 7 "auto:needs-fixes auto:needs-human auto:ready"
+  exp ok pr edit 7 --repo "$R" --add-label auto:needs-human --remove-label auto:ready --remove-label auto:needs-fixes; want_writes; done_case
+  begin W15b "needs-fixes; auto:ready lands with the edit -> move to auto:needs-human, ERROR"
+  runblk 7 @VERDICT=needs-fixes GH_EDIT_RACE_ADD=auto:ready; want_status "$CV — moved to auto:needs-human, no marker"
+  want_labels 7 auto:needs-human
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:needs-fixes
-  exp ok pr edit 7 --repo "$R" --add-label auto:needs-human; want_writes; done_case
-  begin W15c "conflicting verdicts, auto:needs-human add fails -> ERROR without 'added'"
+  exp ok pr edit 7 --repo "$R" --add-label auto:needs-human --remove-label auto:ready --remove-label auto:needs-fixes; want_writes; done_case
+  begin W15c "conflicting verdicts, the move fails -> ERROR ending '— no marker', both verdicts left"
   runblk 7 GH_EDIT_RACE_ADD=auto:needs-fixes GH_EDIT_FAIL_NTH=2; want_status "$CV — no marker"
   want_labels 7 "auto:needs-fixes auto:ready"
   exp ok pr edit 7 --repo "$R" --remove-label auto:reviewing --add-label auto:ready
-  exp FAIL pr edit 7 --repo "$R" --add-label auto:needs-human; want_writes; done_case
+  exp FAIL pr edit 7 --repo "$R" --add-label auto:needs-human --remove-label auto:ready --remove-label auto:needs-fixes; want_writes; done_case
   begin W11 "post-edit label read fails -> OK marked=none (label read failed), no head read, no comment"
   runblk 7 GH_LABELS_VIEW_FAIL_AFTER_EDIT=1; want_status "AFKREV_OK auto:ready marked=none (label read failed)"
   want_calls "pr view labels" "pr edit" "pr view labels"

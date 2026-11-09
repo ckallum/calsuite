@@ -87,7 +87,7 @@ cutoff=$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 minute
 if ! claimed=$(gh pr list --repo "$REPO" --state open --label auto:reviewing --limit 200 --json number --jq '.[].number'); then
   echo "AFKREV_ERROR sweep skipped (gh error listing auto:reviewing)"; exit 1
 fi
-reclaimed=0; failed=0
+reclaimed=0; failed=0; failed_prs=""
 # Command substitution, not bare $claimed: zsh doesn't word-split unquoted variables.
 for n in $(printf '%s\n' "$claimed"); do
   # Per-page --jq, not --slurp (gh >= 2.95 rejects --slurp with --jq). A failed fetch leaves the
@@ -96,13 +96,13 @@ for n in $(printf '%s\n' "$claimed"); do
   # POSIX/zsh `[ \< ]` has no `<`. An empty result is uncertainty, not age.
   if ! raw=$(gh api "repos/$REPO/issues/$n/timeline" --paginate \
       --jq '.[] | select((.event=="labeled" or .event=="unlabeled") and .label.name=="auto:reviewing") | "\(.event) \(.created_at)"'); then
-    failed=$((failed+1)); continue
+    failed=$((failed+1)); failed_prs="$failed_prs #${n}:timeline"; continue
   fi
   last=$(tail -n1 <<<"$raw"); ev=${last%% *}; applied=${last#* }
   [[ "$ev" = labeled && -n "$applied" && "$applied" < "$cutoff" ]] || continue
   # Re-read just before the edit: the claim's owner may have transitioned since the list was taken.
-  if ! AUTO=$(gh pr view "$n" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
-    failed=$((failed+1)); continue
+  if ! AUTO=$(gh pr view "$n" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")'); then
+    failed=$((failed+1)); failed_prs="$failed_prs #${n}:labels"; continue
   fi
   case " $AUTO " in *" auto:reviewing "*) ;; *) continue ;; esac
   # A lone stale claim goes back to needs-review; one beside another auto:* label (a human's
@@ -111,12 +111,12 @@ for n in $(printf '%s\n' "$claimed"); do
     gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing --add-label auto:needs-review >/dev/null
   else
     gh pr edit "$n" --repo "$REPO" --remove-label auto:reviewing >/dev/null
-  fi && reclaimed=$((reclaimed+1)) || failed=$((failed+1))
+  fi && reclaimed=$((reclaimed+1)) || { failed=$((failed+1)); failed_prs="$failed_prs #${n}:edit"; }
 done
 if [ "$failed" -eq 0 ]; then
   echo "AFKREV_OK sweep done reclaimed=$reclaimed"
 else
-  echo "AFKREV_ERROR sweep incomplete reclaimed=$reclaimed failed=$failed"; exit 1
+  echo "AFKREV_ERROR sweep incomplete reclaimed=$reclaimed failed=$failed (${failed_prs# })"; exit 1
 fi
 ```
 On `AFKREV_ERROR`, keep the line for the Step 5 report and go on to Step 2: a claim the sweep couldn't check or reset is retried next run.
@@ -151,7 +151,7 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    esac
    LC_LOGIN=$(printf '%s' "$LOGIN" | tr '[:upper:]' '[:lower:]')
    M="<!-- afk-review reviewed sha=$SHA"
-   if ! hits=$(gh api "repos/$REPO/issues/$N/comments" --paginate --jq ".[] | select((.user.login | ascii_downcase) == \"$LC_LOGIN\" and .updated_at == .created_at and (.body == \"$M -->\" or .body == \"$M verdict=ready -->\" or .body == \"$M verdict=needs-fixes -->\")) | .id"); then
+   if ! hits=$(gh api "repos/$REPO/issues/$N/comments" --paginate --jq ".[] | select(((.user.login // \"\") | ascii_downcase) == \"$LC_LOGIN\" and .updated_at == .created_at and (.body == \"$M -->\" or .body == \"$M verdict=ready -->\" or .body == \"$M verdict=needs-fixes -->\")) | .id"); then
      echo "AFKREV_ERROR comments fetch failed"; exit 1
    fi
    if [ -n "$hits" ]; then echo "AFKREV_SKIP sha=$SHA already reviewed by $LOGIN"; else echo "AFKREV_PROCEED"; fi
@@ -163,7 +163,7 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    REPO="<owner/repo>"; N=<N>
    # Re-read first: Step 2's list may be stale, and `gh pr edit --remove-label` succeeds on an
    # absent label, so claiming a PR another run has moved on would stack a second auto:* label.
-   if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+   if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")'); then
      echo "AFKREV_ERROR claim label read failed"; exit 1
    fi
    if [ "$AUTO" != "auto:needs-review" ]; then
@@ -190,7 +190,7 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    - else if the output contains `not eligible for review` (draft / closed / trivial PR) → **not a failure**. Release the claim so the PR is re-checked once eligible, write **no** SHA marker, and record `#N → skipped (not eligible)`:
      ```bash
      REPO="<owner/repo>"; N=<N>
-     if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+     if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")'); then
        echo "AFKREV_ERROR claim check failed"; exit 1
      fi
      [ "$OWN" = "auto:reviewing" ] || { echo "AFKREV_ERROR lost claim (auto labels: '$OWN') — not releasing"; exit 1; }
@@ -208,7 +208,7 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    case "$VERDICT" in ready|needs-fixes) ;; *) echo "AFKREV_ERROR bad verdict '$VERDICT'"; exit 1 ;; esac
    # Still ours, and only ours? A sibling's sweep resets a claim held past its cutoff, and a human
    # may add auto:needs-human mid-review; transitioning then would stack two auto:* labels.
-   if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+   if ! OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")'); then
      echo "AFKREV_ERROR claim check failed"; exit 1
    fi
    [ "$OWN" = "auto:reviewing" ] || { echo "AFKREV_ERROR lost claim (auto labels: '$OWN') — not transitioning"; exit 1; }
@@ -219,15 +219,15 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    # Re-read labels first, whatever the head: a writer landing alongside the transition (a sweep's
    # reset, a human's needs-human) leaves two auto:* labels. Yield ours so one owner remains; a
    # marker on top would SHA-skip a PR sitting in auto:needs-review.
-   if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")' 2>/dev/null); then
+   if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")' 2>/dev/null); then
      echo "AFKREV_OK auto:$VERDICT marked=none (label read failed)"; exit 0
    fi
    if [ "$AUTO" != "auto:$VERDICT" ]; then
      # Two overlapping runs reaching opposite verdicts would each yield its own label and leave none.
      both=no; case " $AUTO " in *" auto:needs-fixes "*) case " $AUTO " in *" auto:ready "*) both=yes ;; esac ;; esac
      if [ "$both" = yes ]; then
-       if gh pr edit "$N" --repo "$REPO" --add-label auto:needs-human >/dev/null; then
-         echo "AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: '$AUTO') — added auto:needs-human, no marker"; exit 1
+       if gh pr edit "$N" --repo "$REPO" --add-label auto:needs-human --remove-label auto:ready --remove-label auto:needs-fixes >/dev/null; then
+         echo "AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: '$AUTO') — moved to auto:needs-human, no marker"; exit 1
        fi
        echo "AFKREV_ERROR conflicting verdicts from overlapping runs (auto labels: '$AUTO') — no marker"; exit 1
      fi
@@ -254,8 +254,9 @@ On `AFKREV_ABORT`, report it and stop. If the list is empty, report "no PRs awai
    echo "AFKREV_OK auto:$VERDICT marked=$MARK"
    ```
    - `AFKREV_ERROR labels changed … — removed auto:<V>, no marker` → record the error: another writer landed alongside the transition, and the block dropped its own verdict label so the other label owns the PR.
-   - `AFKREV_ERROR labels changed … — no marker` (nothing removed) or `AFKREV_ERROR conflicting verdicts …` → record the error and flag it for a human in the report: the PR may carry two `auto:*` labels, or none.
-   - `AFKREV_OK` → record `#N → ready` or `#N → needs-fixes`. When `marked=none` for any reason but `head moved`, add it to the line (`#N → ready (unmarked: comment failed)`). Once merge/gate is built, an unmarked head goes back for review: the gate bounces it once, and escalates it to needs-human if it already bounced that SHA.
+   - `AFKREV_ERROR labels changed … — no marker` (nothing removed) → record the error and flag it for a human in the report: the PR may carry two `auto:*` labels, or none.
+   - `AFKREV_ERROR conflicting verdicts … — moved to auto:needs-human` → record the error: two overlapping runs disagreed, and the PR now waits for a human. If the line ends `— no marker` instead, the move failed and a human should check the labels.
+   - `AFKREV_OK` → record `#N → ready` or `#N → needs-fixes`. When `marked=none`, add its reason to the line (`#N → ready (unmarked: head moved)`): the verdict label is on, but no marker binds it to a revision. Once merge/gate is built, an unmarked head goes back for review: the gate bounces it once, and escalates it to needs-human if it already bounced that SHA.
 
 ## Step 4 — Escalate on failure
 

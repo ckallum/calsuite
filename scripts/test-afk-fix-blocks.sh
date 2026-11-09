@@ -217,6 +217,9 @@ for RUNSH in bash "zsh -f"; do
   go 2 GH_LIST=7 GH_TIMELINE="labeled@$OLD" GH_EDIT_FAIL=1; want_st "AFKFIX_OK sweep done"
   want_out_has "  ~ #7: reclaim failed — will retry next sweep"; want_no_writes
   chk "T5k [$SH] reclaim edit fails -> noted, sweep done"
+  go 2 GH_LIST=7 GH_TIMELINE="labeled@$OLD" GH_PR_LABELS="auto:fixing auto:merge"; want_st "AFKFIX_OK sweep done"
+  want_log "$REC7"
+  chk "T5l [$SH] stray auto:merge beside a lone stale claim -> full reclaim, not a yield"
   go 2 GH_LIST=7 GH_TIMELINE="labeled@$OLD" GH_LABELS_VIEW_FAIL=1; want_st "AFKFIX_OK sweep done"
   want_out_has "  ~ #7: label read failed — leaving claim as-is"; want_no_writes
   chk "T5i [$SH] re-read fails -> left"
@@ -306,11 +309,25 @@ unset RUNSH
 
 say "=== T12-T14  verify + transition after the push (3.4(3), block 7) ==="
 LOCALSHA=$( cd "$ROOT/linked" && git rev-parse HEAD )
-# our commit is an ANCESTOR of ONTOP => the push landed and someone pushed on top
-ONTOP=$( cd "$ROOT/linked" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m ontop && git rev-parse HEAD && git reset -q --hard HEAD~1 )
+# Someone else's clone: its commits reach the bare remote but never the linked worktree, so 3.4(3)
+# has to fetch them before merge-base can answer. Our fix commit is published as the PR head first.
+git clone -q "$ROOT/remote.git" "$ROOT/other" 2>/dev/null
+git -C "$ROOT/other" config user.email o@o; git -C "$ROOT/other" config user.name other
+( cd "$ROOT/linked" && git push -q origin HEAD:refs/heads/pr7 )
+# remote_commit <base> <ref> <msg> — a new commit on <base>, pushed to <ref> on the remote; prints its sha
+remote_commit() {
+  ( cd "$ROOT/other" && git fetch -q origin "$1" && git checkout -q --detach FETCH_HEAD \
+    && git commit -q --allow-empty -m "$3" && git push -q origin "HEAD:refs/heads/$2" && git rev-parse HEAD )
+}
+not_local() { ! git -C "$ROOT/linked" cat-file -e "$1^{commit}" 2>/dev/null || why "precondition: $1 is already in the worktree"; }
 P3="pushed at $LOCALSHA, but"
 TO_REVIEW="7 --repo o/r --remove-label auto:fixing --add-label auto:needs-review"
-GONE="— its owner continues from the pushed head"
+GONE="— that label's loop continues from the pushed head"
+NOTE_PFX="afk-fix: fix commits were pushed (head \`$LOCALSHA\`), but"
+NOTE_HUMAN="$NOTE_PFX a human took the PR over during publish, so this run stops here."
+NOTE_LEFT="$NOTE_PFX every AFK label was removed from the PR, so this run stops here."
+NOTE_RESET="$NOTE_PFX its claim had been reset and the move to auto:needs-review failed, so this run stops here."
+HUMAN_OK="AFKFIX_OK #7 pushed at $LOCALSHA; a human owns the PR"
 for RUNSH in bash "zsh -f"; do
   SH=${RUNSH%% *}
   if ! command -v "$SH" >/dev/null 2>&1; then say "  NOTICE: $SH not found — skipping T12-T14 [$SH]"; continue; fi
@@ -320,9 +337,18 @@ for RUNSH in bash "zsh -f"; do
   go 7 GH_HEADOID=
   want_st "AFKFIX_ESCALATE could not read the PR head after publishing (local=$LOCALSHA) push-landed=unknown"; want_rc 1; want_no_writes
   chk "T12b [$SH] empty remote head -> ESCALATE push-landed=unknown"
-  go 7 GH_HEADOID="$ONTOP"
-  want_st "AFKFIX_ESCALATE push landed but the head moved on (remote=$ONTOP local=$LOCALSHA) push-landed=yes"; want_rc 1; want_no_writes
-  chk "T12c [$SH] landed, then someone pushed on top -> ESCALATE push-landed=yes"
+  THEIRS=$(remote_commit pr7 pr7 "on top of the fix [$SH]"); not_local "$THEIRS"
+  go 7 GH_HEADOID="$THEIRS"
+  want_st "AFKFIX_ESCALATE push landed but the head moved on (remote=$THEIRS local=$LOCALSHA) push-landed=yes"; want_rc 1; want_no_writes
+  chk "T12c [$SH] someone pushed on top of ours (only on the remote) -> fetched, ESCALATE push-landed=yes"
+  RIVAL=$(remote_commit "$UNCHANGED" "rival-$SH" "rival without our fix [$SH]"); not_local "$RIVAL"
+  go 7 GH_HEADOID="$RIVAL"
+  want_st "AFKFIX_ESCALATE publish/push did not land (remote=$RIVAL local=$LOCALSHA) push-landed=no"; want_rc 1; want_no_writes
+  chk "T12e [$SH] remote head is a commit without ours (only on the remote) -> fetched, ESCALATE push-landed=no"
+  go 7 GH_HEADOID=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+  want_st "AFKFIX_ESCALATE could not tell whether the push landed (remote=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef local=$LOCALSHA) push-landed=unknown"
+  want_rc 1; want_no_writes
+  chk "T12f [$SH] remote head doesn't exist anywhere -> merge-base errors, ESCALATE push-landed=unknown"
   go 7 GH_HEADOID="$LOCALSHA" GH_HEADOID_FAIL=1
   want_st "AFKFIX_ESCALATE could not read the PR head after publishing (local=$LOCALSHA) push-landed=unknown"; want_rc 1; want_no_writes
   chk "T12d [$SH] head read fails -> ESCALATE push-landed=unknown"
@@ -334,30 +360,56 @@ for RUNSH in bash "zsh -f"; do
   want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"; want_calls_n "--json labels" 2
   chk "T13b [$SH] labels read fails once, then succeeds -> transition"
   go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-human
-  want_st "AFKFIX_ESCALATE $P3 a human took the PR over during publish (auto labels: 'auto:needs-human') push-landed=yes"; want_rc 1
-  want_no_writes
-  chk "T13c [$SH] a human moved it to auto:needs-human -> ESCALATE push-landed=yes"
+  want_st "$HUMAN_OK (auto labels: 'auto:needs-human') — commented"; want_rc 0; want_body "$NOTE_HUMAN"
+  want_log "commented: 7 --repo o/r --body $NOTE_HUMAN"
+  chk "T13c [$SH] a human moved it to auto:needs-human -> note, no edit, OK"
   go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-human"
-  want_st "AFKFIX_ESCALATE $P3 a human took the PR over during publish (auto labels: 'auto:fixing auto:needs-human') push-landed=yes"
+  want_st "$HUMAN_OK (auto labels: 'auto:fixing auto:needs-human') — commented"; want_rc 0; want_body "$NOTE_HUMAN"
+  want_log "commented: 7 --repo o/r --body $NOTE_HUMAN"$'\n'"7 --repo o/r --remove-label auto:fixing"
+  chk "T13d [$SH] auto:needs-human beside the claim -> note, then the claim removed, OK"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-human GH_COMMENT_FAIL=1
+  want_st "${HUMAN_OK/AFKFIX_OK/AFKFIX_SKIP} (auto labels: 'auto:needs-human') — the note could not be posted"; want_rc 1; want_no_writes
+  chk "T13q [$SH] needs-human, the note fails -> SKIP naming the failed note"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-human" GH_EDIT_FAIL=1
+  want_st "$HUMAN_OK (auto labels: 'auto:fixing auto:needs-human') — commented; auto:fixing could not be removed"; want_rc 0
+  want_log "commented: 7 --repo o/r --body $NOTE_HUMAN"
+  chk "T13r [$SH] needs-human beside the claim, the removal fails -> OK naming it"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-human" GH_COMMENT_FAIL=1 GH_EDIT_FAIL=1
+  want_st "${HUMAN_OK/AFKFIX_OK/AFKFIX_SKIP} (auto labels: 'auto:fixing auto:needs-human') — the note could not be posted; auto:fixing could not be removed"
   want_rc 1; want_no_writes
-  chk "T13d [$SH] auto:needs-human beside the claim -> ESCALATE, no edit"
+  chk "T13s [$SH] needs-human beside the claim, both writes fail -> SKIP naming both"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=bug auto:merge"
+  want_st "AFKFIX_OK #7 pushed at $LOCALSHA; the PR left the AFK loop — commented"; want_rc 0; want_body "$NOTE_LEFT"
+  want_log "commented: 7 --repo o/r --body $NOTE_LEFT"
+  chk "T13t [$SH] every AFK label removed (only non-AFK labels left) -> note, OK"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS= GH_COMMENT_FAIL=1
+  want_st "AFKFIX_SKIP #7 pushed at $LOCALSHA; the PR left the AFK loop and the note could not be posted"; want_rc 1; want_no_writes
+  chk "T13u [$SH] every AFK label removed, the note fails -> SKIP"
   go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-fixes
   want_st "AFKFIX_OK #7 pushed at $LOCALSHA; the claim had been reset, moved to auto:needs-review"; want_rc 0
   want_log "7 --repo o/r --remove-label auto:needs-fixes --add-label auto:needs-review"; want_no_call_has "/timeline"
   chk "T13e [$SH] claim reset to auto:needs-fixes, nobody re-claimed -> moved to auto:needs-review"
   go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-fixes GH_EDIT_FAIL=1
-  want_st "AFKFIX_ESCALATE $P3 the claim had been reset and the move to auto:needs-review failed push-landed=yes"; want_rc 1
-  chk "T13f [$SH] claim reset, move to auto:needs-review fails -> ESCALATE push-landed=yes"
+  want_st "AFKFIX_SKIP #7 pushed at $LOCALSHA; the claim had been reset and the move to auto:needs-review failed — commented"; want_rc 1
+  want_body "$NOTE_RESET"; want_log "commented: 7 --repo o/r --body $NOTE_RESET"
+  chk "T13f [$SH] claim reset, the move to auto:needs-review fails -> note, SKIP"
+  go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-fixes GH_EDIT_FAIL=1 GH_COMMENT_FAIL=1
+  want_st "AFKFIX_SKIP #7 pushed at $LOCALSHA; the claim had been reset, the move to auto:needs-review and the note both failed"
+  want_rc 1; want_no_writes
+  chk "T13v [$SH] claim reset, the move and the note both fail -> SKIP naming both"
   go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-review"
   want_st "AFKFIX_OK #7 pushed at $LOCALSHA; yielded the claim (auto labels: 'auto:fixing auto:needs-review')"; want_rc 0
   want_log "7 --repo o/r --remove-label auto:fixing"; want_no_call_has "/timeline"
   chk "T13g [$SH] claim beside another state label -> claim removed only, OK"
   go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:needs-review" GH_EDIT_FAIL=1
-  want_st "AFKFIX_SKIP #7 $P3 the claim is gone (auto labels: 'auto:fixing auto:needs-review') $GONE"; want_rc 1
-  chk "T13h [$SH] that yield edit fails -> SKIP, the claim is gone"
+  want_st "AFKFIX_ESCALATE $P3 yielding the claim to 'auto:fixing auto:needs-review' failed push-landed=yes"; want_rc 1
+  chk "T13h [$SH] that yield edit fails -> ESCALATE push-landed=yes (was a SKIP)"
   go 7 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-review
   want_st "AFKFIX_SKIP #7 $P3 the claim is gone (auto labels: 'auto:needs-review') $GONE"; want_rc 1; want_no_writes
   chk "T13i [$SH] no auto:fixing at all -> SKIP, no edit"
+  go 7 GH_HEADOID="$LOCALSHA" "GH_PR_LABELS=auto:fixing auto:merge"
+  want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"
+  chk "T13w [$SH] stray auto:merge beside the claim -> still the sole owner, transition"
   go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE_FAIL=1
   want_st "AFKFIX_ESCALATE $P3 the claim could not be verified (gh error or no claim event) push-landed=yes"; want_rc 1; want_no_writes
   want_calls_n "/timeline" 2
@@ -389,6 +441,32 @@ for RUNSH in bash "zsh -f"; do
   CLAIM_ID=5001 go 7 GH_HEADOID="$LOCALSHA" GH_TIMELINE="labeled@$OLD#4242 labeled@$NEW#5001"
   want_st "AFKFIX_OK #7 -> auto:needs-review at $LOCALSHA"; want_rc 0; want_log "$TO_REVIEW"
   chk "T14b [$SH] claim id is the newest claim event -> transition"
+done
+unset RUNSH
+
+say "=== T17  sequence: 3.4(3), then Step 4 if it escalates — a human's takeover still gets a note ==="
+# seq34 [VAR=value...] — the loop's dispatch over one log: 3.4(3); on ESCALATE, Step 4 with its reason and push-landed.
+# Sets out st (both status lines, joined by =>) body (the last comment's --body).
+seq34() {
+  local out2 pl
+  : > "$GH_LOG"; : > "$GH_CALLS"; rm -f "$GH_BODY"
+  out=$(run 7 "$ROOT/linked" GH_REPO=o/r "$@"); st=$(printf '%s\n' "$out" | grep -E '^AFKFIX_')
+  case "$st" in AFKFIX_ESCALATE*)
+    pl=${st##*push-landed=}
+    out2=$(ESC_REASON="${st#AFKFIX_ESCALATE }" ESC_PUSHED="$pl" run "$ESC" "$ROOT/linked" GH_REPO=o/r "$@")
+    st="$st => $(printf '%s\n' "$out2" | grep -E '^AFKFIX_')"; out="$out$NL$out2" ;;
+  esac
+  body=$(cat "$GH_BODY" 2>/dev/null)
+}
+NL=$'\n'
+for RUNSH in bash "zsh -f"; do
+  SH=${RUNSH%% *}
+  if ! command -v "$SH" >/dev/null 2>&1; then say "  NOTICE: $SH not found — skipping T17 [$SH]"; continue; fi
+  seq34 GH_HEADOID="$LOCALSHA" GH_PR_LABELS=auto:needs-human
+  case "$st" in AFKFIX_OK*) ;; *) why "3.4(3) did not finish the PR itself: $st" ;; esac
+  [ "$(grep -c '^commented: ' "$GH_LOG")" = 1 ] || why "want exactly one comment over the sequence: $(cat "$GH_LOG")"
+  want_body "$NOTE_HUMAN"
+  chk "T17 [$SH] human-owned PR (no auto:fixing) after the push -> exactly one comment, the note; Step 4 not needed"
 done
 unset RUNSH
 
@@ -532,6 +610,9 @@ for RUNSH in bash "zsh -f"; do
   want_st "AFKFIX_SKIP #7 claim failed — leaving the PR untouched"; want_rc 1; want_no_writes; want_call_has "pr edit 7 --repo o/r"
   want_no_call_has "/timeline"
   chk "T16g [$SH] claim edit fails -> SKIP"
+  go "$CLAIM" "GH_PR_LABELS=auto:merge auto:needs-fixes" GH_TIMELINE="labeled@$(ago 0)#5001"
+  want_st "AFKFIX_OK claimed #7 claim=5001"; want_rc 0; want_log "$CLAIM7"
+  chk "T16p [$SH] stray auto:merge beside auto:needs-fixes -> claimed"
 done
 unset RUNSH
 

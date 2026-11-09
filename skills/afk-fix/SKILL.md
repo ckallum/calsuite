@@ -123,7 +123,7 @@ for n in $(printf '%s\n' "$claimed"); do
   last=$(tail -n1 <<<"$raw"); ev=${last%% *}; applied=${last#* }
   [[ "$ev" = labeled && -n "$applied" && "$applied" < "$cutoff" ]] || continue
   # Re-read just before the edit: the claim's owner may have transitioned since the list was taken.
-  if ! AUTO=$(gh pr view "$n" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+  if ! AUTO=$(gh pr view "$n" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")'); then
     echo "  ~ #$n: label read failed — leaving claim as-is"; continue
   fi
   case " $AUTO " in *" auto:fixing "*) ;; *) continue ;; esac
@@ -159,7 +159,7 @@ REPO="<owner/repo>"; N=<N>
 # Re-read first: Step 2's list goes stale over whole convergences, and `gh pr edit --remove-label`
 # succeeds on an absent label, so claiming a PR a human or another run has moved on would stack
 # auto:fixing on it — and this loop pushes code.
-if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")'); then
+if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")'); then
   echo "AFKFIX_SKIP #$N claim label read failed — leaving the PR untouched"; exit 1
 fi
 if [ "$AUTO" != "auto:needs-fixes" ]; then
@@ -292,7 +292,7 @@ if [ "$(git rev-parse HEAD)" = "$REMOTE" ]; then
 fi
 # Push only to a PR this run alone still owns: a human who added auto:needs-human mid-convergence
 # has taken it over.
-if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")' 2>/dev/null); then
+if ! AUTO=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")' 2>/dev/null); then
   echo "AFKFIX_ESCALATE could not re-read the labels before publishing"; exit 1
 fi
 if [ "$AUTO" != "auto:fixing" ]; then
@@ -337,12 +337,15 @@ if ! NEWSHA=$(gh pr view "$N" --repo "$REPO" --json headRefOid --jq .headRefOid 
 fi
 if [ "$NEWSHA" != "$LOCAL" ]; then
   # Our commit being an ANCESTOR of the remote head means the push DID land and someone committed on
-  # top; otherwise our non-force push was rejected and nothing of ours is public. Step 4 reports this.
-  if git merge-base --is-ancestor "$LOCAL" "$NEWSHA" 2>/dev/null; then
-    echo "AFKFIX_ESCALATE push landed but the head moved on (remote=$NEWSHA local=$LOCAL) push-landed=yes"
-  else
-    echo "AFKFIX_ESCALATE publish/push did not land (remote=$NEWSHA local=$LOCAL) push-landed=no"
-  fi
+  # top; otherwise our non-force push was rejected and nothing of ours is public. A commit pushed on
+  # top isn't in this worktree yet, so fetch it first; any answer but yes/no is "unknown".
+  git fetch -q origin "$NEWSHA" 2>/dev/null
+  git merge-base --is-ancestor "$LOCAL" "$NEWSHA" 2>/dev/null; rc=$?
+  case $rc in
+    0) echo "AFKFIX_ESCALATE push landed but the head moved on (remote=$NEWSHA local=$LOCAL) push-landed=yes" ;;
+    1) echo "AFKFIX_ESCALATE publish/push did not land (remote=$NEWSHA local=$LOCAL) push-landed=no" ;;
+    *) echo "AFKFIX_ESCALATE could not tell whether the push landed (remote=$NEWSHA local=$LOCAL) push-landed=unknown" ;;
+  esac
   exit 1
 fi
 
@@ -351,30 +354,51 @@ fi
 # ownership verdict.
 OWN="fetch-failed"
 for try in 1 2; do
-  if OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(startswith("auto:"))] | sort | join(" ")' 2>/dev/null); then break; fi
+  if OWN=$(gh pr view "$N" --repo "$REPO" --json labels --jq '[.labels[].name | select(. == "auto:needs-review" or . == "auto:reviewing" or . == "auto:needs-fixes" or . == "auto:fixing" or . == "auto:ready" or . == "auto:needs-human")] | sort | join(" ")' 2>/dev/null); then break; fi
   OWN="fetch-failed"
 done
 if [ "$OWN" = "fetch-failed" ]; then
   echo "AFKFIX_ESCALATE pushed at $LOCAL, but the labels could not be re-read (gh error) push-landed=yes"; exit 1
 fi
+# Step 4 acts only while auto:fixing is present, so when this run can't hand the PR to a loop it
+# leaves its own note: fixed wording, nothing taken from the PR.
+note() { gh pr comment "$N" --repo "$REPO" --body "afk-fix: fix commits were pushed (head \`$LOCAL\`), but $1, so this run stops here." >/dev/null; }
 case " $OWN " in *" auto:needs-human "*)
-  echo "AFKFIX_ESCALATE pushed at $LOCAL, but a human took the PR over during publish (auto labels: '$OWN') push-landed=yes"; exit 1 ;;
+  NOTED=yes; NOTE="commented"
+  note "a human took the PR over during publish" || { NOTED=no; NOTE="the note could not be posted"; }
+  case " $OWN " in *" auto:fixing "*)
+    gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing >/dev/null || NOTE="$NOTE; auto:fixing could not be removed" ;;
+  esac
+  if [ "$NOTED" = yes ]; then
+    echo "AFKFIX_OK #$N pushed at $LOCAL; a human owns the PR (auto labels: '$OWN') — $NOTE"; exit 0
+  fi
+  echo "AFKFIX_SKIP #$N pushed at $LOCAL; a human owns the PR (auto labels: '$OWN') — $NOTE"; exit 1 ;;
 esac
+if [ -z "$OWN" ]; then
+  # Every AFK label was removed: someone took the PR out of the loop.
+  if note "every AFK label was removed from the PR"; then
+    echo "AFKFIX_OK #$N pushed at $LOCAL; the PR left the AFK loop — commented"; exit 0
+  fi
+  echo "AFKFIX_SKIP #$N pushed at $LOCAL; the PR left the AFK loop and the note could not be posted"; exit 1
+fi
 if [ "$OWN" = "auto:needs-fixes" ]; then
   # A sweep reset this run's overlong claim and nobody re-claimed: the pushed fixes still need review.
   if gh pr edit "$N" --repo "$REPO" --remove-label auto:needs-fixes --add-label auto:needs-review >/dev/null; then
     echo "AFKFIX_OK #$N pushed at $LOCAL; the claim had been reset, moved to auto:needs-review"; exit 0
   fi
-  echo "AFKFIX_ESCALATE pushed at $LOCAL, but the claim had been reset and the move to auto:needs-review failed push-landed=yes"; exit 1
+  note "its claim had been reset and the move to auto:needs-review failed" \
+    && { echo "AFKFIX_SKIP #$N pushed at $LOCAL; the claim had been reset and the move to auto:needs-review failed — commented"; exit 1; }
+  echo "AFKFIX_SKIP #$N pushed at $LOCAL; the claim had been reset, the move to auto:needs-review and the note both failed"; exit 1
 fi
 if [ "$OWN" != "auto:fixing" ]; then
   case " $OWN " in *" auto:fixing "*)
     # Another state label (a human's auto:needs-review, say) owns the PR now: drop the claim for it.
     if gh pr edit "$N" --repo "$REPO" --remove-label auto:fixing >/dev/null; then
       echo "AFKFIX_OK #$N pushed at $LOCAL; yielded the claim (auto labels: '$OWN')"; exit 0
-    fi ;;
+    fi
+    echo "AFKFIX_ESCALATE pushed at $LOCAL, but yielding the claim to '$OWN' failed push-landed=yes"; exit 1 ;;
   esac
-  echo "AFKFIX_SKIP #$N pushed at $LOCAL, but the claim is gone (auto labels: '$OWN') — its owner continues from the pushed head"; exit 1
+  echo "AFKFIX_SKIP #$N pushed at $LOCAL, but the claim is gone (auto labels: '$OWN') — that label's loop continues from the pushed head"; exit 1
 fi
 CLAIM="<CLAIM>"
 case "$CLAIM" in ''|*[!0-9]*) CLAIM="invalid" ;; esac
@@ -402,9 +426,9 @@ fi
 ```
 
 - `AFKFIX_OK … -> auto:needs-review` → record `#N → needs-review`.
-- `AFKFIX_OK … moved to auto:needs-review` or `… yielded the claim` → record `#N → pushed (<the line's reason>)`: the fixes are public and the PR's current label owns what happens next.
+- `AFKFIX_OK … moved to auto:needs-review`, `… yielded the claim`, `… a human owns the PR` or `… left the AFK loop` → record `#N → pushed (<the line's reason>)`: the fixes are public, and either the PR's current label owns what happens next or this block left a note for the human.
 - `AFKFIX_ESCALATE` → go to **Step 4** and carry the printed `push-landed=` value (`yes`, `no` or `unknown`) into its comment.
-- `AFKFIX_SKIP` → do nothing further with this PR: the fixes are public, and the run that now holds the claim continues from the pushed head.
+- `AFKFIX_SKIP` → do nothing further with this PR, and record its reason: the fixes are public, and another run's claim or another label's loop carries the PR on, or (when the line says a note failed) a human should be told.
 
 ## Step 4 — Escalate
 

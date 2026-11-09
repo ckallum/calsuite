@@ -156,6 +156,8 @@ Snapshot rules (fail closed):
 
 ## Gate table
 
+Throughout, an "`auto:*` label" means one of the six AFK state labels (`auto:needs-review`, `auto:reviewing`, `auto:needs-fixes`, `auto:fixing`, `auto:ready`, `auto:needs-human`), matched by name, as the loops do. Another label that happens to start with `auto:` is not a state label.
+
 `evaluate(snapshot, config, now)` returns one outcome. Checks run in this order:
 
 | # | Check | Outcome |
@@ -274,9 +276,8 @@ afk-gate: no AFK review marker exists for head `<sha7>`, so this PR goes back fo
 | Human inbox | See below. |
 
 **Leaving `auto:needs-human`:**
-- Relabel `auto:needs-review` for a fresh review.
+- Relabel `auto:needs-review` for a fresh review **only after pushing a commit or deleting the review marker comment**. At an unchanged head that already has a trusted marker, the review loop's SHA-skip leaves the PR in `auto:needs-review` on every run (routing such a skip back to its verdict's label is a follow-up).
 - Relabel `auto:ready` only at a head with a PASS marker; otherwise the gate bounces it.
-- To force a re-review at an unchanged head, delete the review marker comment or push a commit. Otherwise the review loop's SHA-skip holds the PR.
 
 ## Failure modes
 
