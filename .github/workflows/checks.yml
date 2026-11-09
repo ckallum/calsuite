@@ -4,8 +4,10 @@
 #   force-added installed copies, and `--sync` never refreshes calsuite itself. The AFK fix loop runs
 #   in an isolated worktree, so a stale or uncommitted copy of /review or /receiving-pr-feedback
 #   breaks it. Fix locally with: node scripts/sync-installed-skills.cjs --fix
-# - afk-fix execution harness: runs each bash block of skills/afk-fix/SKILL.md as its own process
-#   against a real git repo with a stubbed gh, which is how the skill actually executes.
+# - afk-fix and afk-review execution harnesses: run each bash block of the skill as its own process
+#   (afk-fix's against a real git repo) with a stubbed gh that evaluates the blocks' real --jq
+#   filters, under bash and zsh, which is how the skills actually execute. AFK_REQUIRE_ZSH makes a
+#   missing zsh a failure here instead of a skipped column.
 #
 # Plain `pull_request` (read-only token): this job checks out and executes PR code, so it must never
 # run under `pull_request_target`.
@@ -22,15 +24,25 @@ permissions:
 jobs:
   guards:
     runs-on: ubuntu-latest
+    env:
+      AFK_REQUIRE_ZSH: "1"
     steps:
       - uses: actions/checkout@v4
         with:
-          # Both checks use local git data only; don't leave the token readable by PR code.
+          # No step needs git credentials; don't leave the token readable by PR code.
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Installed skills match source
         run: node scripts/sync-installed-skills.cjs
+      - name: Install zsh
+        # The loops run in the maintainer's shell (zsh); without it both harnesses skip their zsh cases.
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends zsh
       - name: afk-fix execution harness
         run: bash scripts/test-afk-fix-blocks.sh
+      - name: afk-review execution harness
+        run: bash scripts/test-afk-review-blocks.sh
+      - name: afk-review harness catches a removed author filter
+        # Fails if block 4 stops filtering SHA markers by author.
+        run: bash scripts/test-afk-review-blocks.sh --mutation-check

@@ -2,7 +2,7 @@
 
 Personal Claude Code configuration repo (dotfiles-style). Hooks, commands, scripts, plugins, skills, and agents that bootstrap new projects.
 
-**Version: 2.59** — full history in [CHANGELOG.md](./CHANGELOG.md).
+**Version: 2.60** — full history in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Routing
 
@@ -156,6 +156,7 @@ scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked i
 - `config/targets.json` — repos that `--sync` installs to. Each entry: `{ path, workspaces?, skills? }`. `workspaces: "skip"` restricts monorepo targets to root-only install. `skills: { exclude: ["a", "b"] }` drops the named skills from the profile-resolved install set; unmatched names surface as a ⚠ drift warning. See `config/targets.example.json`.
 - `.git/hooks/post-commit` — auto-syncs on commit when hooks/skills/agents/scripts/config/behaviors change
 - `scripts/sync-installed-skills.cjs` — checks (and with `--fix`, refreshes) calsuite's force-tracked `.claude/skills/` and `.claude/scripts/lib/` copies against `skills/` and `scripts/lib/`. Run by the `checks` workflow on every PR.
+- `scripts/test-afk-fix-blocks.sh`, `scripts/test-afk-review-blocks.sh` — execution harnesses that run each bash block of the AFK loop skills as its own process against a stub `gh` (run in CI by `.github/workflows/checks.yml`). Update them when a skill's blocks change.
 - `scripts/install-afk-routines.cjs` — symlinks calsuite-owned `afk-*` workflows, skills, and scheduled-task prompts into `~/.claude/` (global) so Desktop scheduled tasks resolve them by name. Run once per machine; the schedule/folder binding is set separately via the `scheduled-tasks` MCP or the Routines UI.
 - `~/.claude/CLAUDE.md` — user-global memory loaded for every project. Installer merges a marker-delimited block here from `behaviors/*.md`; content outside the markers is preserved.
 - `behaviors/*.md` — global behaviour sections (one concern per file, `README.md` excluded). Concatenated in filename order into the `~/.claude/CLAUDE.md` managed block.
@@ -177,6 +178,7 @@ scheduled-tasks/  # Desktop scheduled-task prompts (afk-*/SKILL.md); symlinked i
 ### Runtime mechanics
 - `known_marketplaces.json` is an object keyed by name — use `Object.keys()`.
 - Plugins can be enabled at global OR project scope — check both.
+- Skill bash blocks run in the maintainer's shell, which is **zsh**: it does not word-split an unquoted `$var`, so `for x in $list` loops once over the whole string. Iterate over `$(printf '%s\n' "$list")`, and test blocks under both shells (`scripts/test-afk-review-blocks.sh` does).
 - `String.prototype.replace` with a string replacement interprets `$` sequences — use a function replacer `() => value` for literal paths.
 - `JSON.stringify(undefined)` returns `undefined` (not a string) — guard inputs before passing to it.
 - Git repo lives at `Projects/calsuite/`, NOT parent `Projects/`.
