@@ -119,7 +119,7 @@ Each run builds one snapshot per PR, then evaluates it with a pure function.
      - each CheckRun's `name status conclusion startedAt`, its workflow name, and its app (`checkSuite { app { databaseId } }`)
      - each StatusContext's `context state description createdAt`
    - `reviewThreads(first: 100)` with `totalCount`, and each thread's `isResolved isOutdated` plus its first comment's author and `authorAssociation`
-   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context integrationId } } } } } }`
+   - `baseRef { name target { oid } refUpdateRule { requiredStatusCheckContexts requiresConversationResolution requiresSignatures } rules(first: 50) { totalCount nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context integrationId } } } } } }`
 2. **REST, per PR.** REST reports bots as `name[bot]`; GraphQL drops the suffix.
    - `repos/R/issues/N/comments --paginate`, for markers, with `user.login`, `author_association`, `created_at` and `updated_at`.
    - `repos/R/issues/N/timeline --paginate`, for when `auto:ready` was last applied, and `head_ref_force_pushed` events.
@@ -132,7 +132,7 @@ Snapshot rules (fail closed):
   - A failed REST call for a PR, or a GraphQL `errors` entry whose `path` points into that PR's node, makes that PR `error` for this run. That means no writes and no age cap.
   - Other PRs on the page still evaluate. The runner parses `data` even when `gh` exits 1.
   - After writing the summary, the job exits non-zero if any PR is `error`, so a persistent fault shows as a red run.
-- **`WAIT(truncated)`.** `totalCount` above the nodes fetched, on labels, contexts or threads. A truncated label list is checked before check 1, because a missing `auto:needs-human` would skip the inbox guard.
+- **`WAIT(truncated)`.** `totalCount` above the nodes fetched, on labels, contexts, threads or base rules (a required-check rule past the page would otherwise go unseen). A truncated label list is checked before check 1, because a missing `auto:needs-human` would skip the inbox guard.
 - **`WAIT(unknown-value)`.** An enum value the gate doesn't know, including values GitHub adds later.
 
 ### Markers
@@ -225,7 +225,7 @@ A force-push back to a SHA reviewed as PASS earlier reads as `verdict=ready`. Th
   - CheckRun with a non-`COMPLETED` status → `WAIT`
   - CheckRun conclusion `SUCCESS`, `NEUTRAL` or `SKIPPED` → pass (#138's "CodeRabbit / Review" was `NEUTRAL` inside a `SUCCESS` rollup); any other conclusion → `FAIL`
   - StatusContext `PENDING` or `EXPECTED` → `WAIT`; `FAILURE` or `ERROR` → `FAIL`; `SUCCESS` → pass
-- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a branch-protection rule and every `requiredStatusChecks` context from a base ruleset's `REQUIRED_STATUS_CHECKS` rule, must be present and `SUCCESS`. A ruleset check that names an `integrationId` is satisfied only by a CheckRun whose app `databaseId` matches it; a same-name check from another app, or a StatusContext (which can't prove its app), leaves it `WAIT(ci-missing)`. Folding the ruleset's checks in here is what makes check 9's `REVIEW_REQUIRED` exception safe: a ruleset-required check can't be missing while `BLOCKED` is read as approval-only.
+- **Required contexts.** Every name in `AFK_GATE_REQUIRED_CHECKS`, plus any `requiredStatusCheckContexts` from a branch-protection rule and every `requiredStatusChecks` context from a base ruleset's `REQUIRED_STATUS_CHECKS` rule, must be present and `SUCCESS`. A ruleset check that names an `integrationId` is satisfied only by a CheckRun whose app `databaseId` matches it; a same-name check from another app leaves it `WAIT(ci-missing)`. An app-bound check that its app reports as a commit status is **unsupported in v1**: a StatusContext carries no app id the gate can match, so it stays `WAIT(ci-missing)` and the age cap escalates it as `FAIL(stuck:ci-missing)`. The job summary names the check so the maintainer can bind it differently. Folding the ruleset's checks in here is what makes check 9's `REVIEW_REQUIRED` exception safe: a ruleset-required check can't be missing while `BLOCKED` is read as approval-only.
   - A missing one → `WAIT(ci-missing)`. One still running (a non-`COMPLETED` CheckRun, or a `PENDING`/`EXPECTED` StatusContext) → `WAIT(ci-pending)`: the review marker that triggers the gate usually lands before CI finishes. Any other state, `NEUTRAL` and `SKIPPED` included, → `FAIL(ci-failed)`: a required job that didn't run proves nothing.
   - An empty required list is a configuration error: the job fails red.
   - Without this rule, zero checks read as green. An unprotected repo with a `null` rollup still reports `CLEAN`, and Actions being disabled, or a first-time contributor's run awaiting approval, look the same.
@@ -233,7 +233,7 @@ A force-push back to a SHA reviewed as PASS earlier reads as `verdict=ready`. Th
 
 ## Writes
 
-Before every write, the gate re-reads the PR with `gh pr view N --json state,labels,headRefOid`. If the PR is no longer open, has lost `auto:ready`, or its head changed since the snapshot, it records `skipped (changed during run)` and writes nothing. A BOUNCE also re-fetches the comments just before its label move, and skips the same way if a trusted review marker for the head has appeared.
+Before every write, the gate re-reads the PR with `gh pr view N --json state,labels,headRefOid`. If the PR is no longer open, has lost `auto:ready`, its head changed, or its `auto:*` set differs from the snapshot's (a sweep may have dropped a stale claim since), it records `skipped (changed during run)` and writes nothing; the next run evaluates the new state. A BOUNCE also re-fetches the comments just before its label move, and skips the same way if a trusted review marker for the head has appeared.
 
 | Outcome | Dedupe (trusted gate markers) | Writes, in order |
 |---|---|---|
