@@ -12,7 +12,8 @@ worktree, and converge review feedback into committed fixes: `/receiving-pr-feed
 review has no addressable findings. On convergence, `/receiving-pr-feedback --publish-only` posts the
 staged replies, updates the PR body, and **pushes to the PR branch**, then the label moves to
 `auto:needs-review`. Escalate anything that can't converge (or hits an unattended prompt / unfixable
-failure) to `auto:needs-human`, leaving the branch unpushed. Never push to `main`, never force-push,
+failure) to `auto:needs-human`: before the publish step the branch is left unpushed, and after it the
+escalation comment says whether the fixes were pushed. Never push to `main`, never force-push,
 never ask for input — and the loop deliberately invokes **no** skill that prompts: no
 `/improve-architecture`, `/simplify`, or `/prevent` (none has a headless mode, so each would hang).
 
